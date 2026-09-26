@@ -22,6 +22,7 @@ from minilab.chat.router import router as chat_router
 from minilab.chat.tools import CALCULATOR_TOOL
 from minilab.platform import billing
 from minilab.platform.gateway import Gateway
+from minilab.platform.markdown import render_markdown
 from minilab.platform.web import (
     CHAT_DIR, ORG_COOKIE, PLATFORM_DIR, SESSION_COOKIE, ChatRequest, Ctx, LoginRequired, bar_chart,
     current_user, daily_series, event_stream, get_ctx, model_choices, optional_ctx, redirect,
@@ -312,7 +313,7 @@ def model_page(request: Request, model_id: str, ctx: Ctx | None = Depends(option
     card = info.path / "MODEL_CARD.md"
     evals = info.path / "eval.json"
     return render(request, "model_detail.html", ctx, m=info,
-                  card=card.read_text() if card.exists() else None,
+                  card=render_markdown(card.read_text(), skip_title=True) if card.exists() else None,
                   evals=evals.read_text() if evals.exists() else None)
 
 

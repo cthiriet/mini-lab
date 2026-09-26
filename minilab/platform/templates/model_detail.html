@@ -2,6 +2,28 @@
 {% from "_macros.html" import code_block, time %}
 {% block title %}{{ m.id }} · mini-lab{% endblock %}
 
+{% block head %}
+<style type="text/tailwindcss">
+  /* The rendered MODEL_CARD.md (see minilab/platform/markdown.py). */
+  .md { @apply max-w-4xl text-[15px] leading-relaxed; }
+  .md > * + * { @apply mt-4; }
+  .md h3 { @apply casual mt-8 text-lg font-[720] tracking-tight; }
+  .md h4 { @apply mt-6 font-semibold; }
+  .md p { @apply text-ink; }
+  .md ul { @apply list-disc space-y-1.5 pl-5 marker:text-muted; }
+  .md code { @apply mono rounded bg-sunken px-1 py-0.5 text-[13px]; }
+  .md pre { @apply mono overflow-x-auto rounded-lg border border-rule bg-sunken p-4 text-[12.5px] leading-snug; }
+  .md pre code { @apply bg-transparent p-0; }
+  .md table { @apply block w-full overflow-x-auto text-sm; }
+  .md th { @apply px-3 py-2 text-xs font-semibold whitespace-nowrap text-muted; }
+  .md td { @apply border-t border-rule px-3 py-2 whitespace-nowrap; }
+  .md td:first-child { @apply text-muted; }
+  .md blockquote { @apply rounded-lg border-l-4 border-reagent/40 bg-surface px-4 py-3; }
+  .md blockquote > * + * { @apply mt-2; }
+  .md blockquote strong { @apply font-semibold; }
+</style>
+{% endblock %}
+
 {% block content %}
 <a href="/models" class="text-sm font-semibold text-muted hover:text-ink">All models</a>
 <h1 class="page-title mt-2">{{ m.id }}</h1>
@@ -20,17 +42,17 @@
 <section class="mt-10" aria-labelledby="card-h">
   <h2 id="card-h" class="casual text-2xl font-[760] tracking-tight">Model card</h2>
   {% if card %}
-  {# Shown as the Markdown source: readable as is, and nothing to sanitize. #}
-  <pre class="panel mono mt-4 max-w-4xl overflow-x-auto p-6 text-[13px] leading-relaxed whitespace-pre-wrap">{{ card }}</pre>
+  {# Rendered by minilab/platform/markdown.py, which escapes all text before formatting it. #}
+  <div class="md mt-4">{{ card|safe }}</div>
   {% else %}
   <p class="mt-3 text-sm text-muted">This release has no MODEL_CARD.md.</p>
   {% endif %}
 </section>
 
 {% if evals %}
-<section class="mt-10" aria-labelledby="eval-h">
-  <h2 id="eval-h" class="casual text-2xl font-[760] tracking-tight">Evaluation results</h2>
-  <div class="mt-4 max-w-4xl">{{ code_block("evals", evals|pretty_json) }}</div>
-</section>
+<details class="mt-10 max-w-4xl">
+  <summary class="cursor-pointer text-sm font-semibold text-muted hover:text-ink">Raw evaluation results (eval.json)</summary>
+  <div class="mt-3">{{ code_block("evals", evals|pretty_json) }}</div>
+</details>
 {% endif %}
 {% endblock %}

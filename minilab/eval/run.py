@@ -75,8 +75,12 @@ def _pct(v) -> str:
     return "-" if v is None else f"{100 * v:.0f}%"
 
 
-def table(results: list[dict], times: dict[str, float] | None = None) -> str:
-    """A compact text table, one row per evaluated stage."""
+TABLE_FOOTNOTE = ("* held-out digit counts (length generalization). base = raw-text prompt \"a + b =\". "
+                  "instr = instruction following (see eval.json).")
+
+
+def _table_cells(results: list[dict], times: dict[str, float] | None) -> tuple[list[str], list[list[str]]]:
+    """Column names and one row of cells per evaluated stage."""
     digits = sorted({int(k) for r in results for k in r["arithmetic"]})
     heldout = set(results[0].get("heldout_digits", []))
     cols = ["stage", "ppl"] + [f"{n}d" + ("*" if n in heldout else "") for n in digits]
@@ -90,12 +94,25 @@ def table(results: list[dict], times: dict[str, float] | None = None) -> str:
         if times:
             row.append(f"{times.get(r['stage'], 0) / 60:.1f} min")
         rows.append(row)
+    return cols, rows
+
+
+def table(results: list[dict], times: dict[str, float] | None = None) -> str:
+    """A compact text table, one row per evaluated stage."""
+    cols, rows = _table_cells(results, times)
     widths = [max(len(c), *(len(row[i]) for row in rows)) for i, c in enumerate(cols)]
     fmt = lambda row: "  ".join(v.ljust(w) if i == 0 else v.rjust(w) for i, (v, w) in enumerate(zip(row, widths)))
     lines = [fmt(cols), fmt(["-" * w for w in widths]), *map(fmt, rows)]
-    lines.append("* held-out digit counts (length generalization). base = raw-text prompt \"a + b =\". "
-                 "instr = instruction following (see eval.json).")
+    lines.append(TABLE_FOOTNOTE)
     return "\n".join(lines)
+
+
+def markdown_table(results: list[dict], times: dict[str, float] | None = None) -> str:
+    """The same table in Markdown (for model cards), numbers right-aligned."""
+    cols, rows = _table_cells(results, times)
+    lines = ["| " + " | ".join(cols) + " |", "|---|" + "---:|" * (len(cols) - 1)]
+    lines += ["| " + " | ".join(row) + " |" for row in rows]
+    return "\n".join(lines) + "\n\n" + TABLE_FOOTNOTE.replace("* held-out", "\\* held-out")
 
 
 def summary(run: Path) -> tuple[list[dict], dict[str, float]]:

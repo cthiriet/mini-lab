@@ -12,7 +12,7 @@ import json
 import tomllib
 from pathlib import Path
 
-from minilab.eval.run import summary, table
+from minilab.eval.run import markdown_table, summary
 from minilab.train.trainer import STAGES
 
 
@@ -100,9 +100,7 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
         "",
         "Same fixed-seed eval set for every stage (`uv run python -m minilab.eval.run`):",
         "",
-        "```",
-        table(results, times),
-        "```",
+        markdown_table(results, times),
         "",
         "- `ppl`: perplexity on held-out TinyStories stories.",
         "- `Nd`: greedy answers to N-digit additions that are exactly `The answer is c.` (chat format; the base model "
