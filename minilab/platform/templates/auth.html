@@ -1,0 +1,43 @@
+{% extends "public.html" %}
+{% set signup = mode == "signup" %}
+{% block title %}{{ "Create an account" if signup else "Log in" }} · mini-lab{% endblock %}
+
+{% block content %}
+{% set credit = ((settings.signup_credit_usd * 1000000)|int)|usd %}
+<div class="mx-auto max-w-md py-6 sm:py-10">
+  <h1 class="page-title">{{ "Create your account" if signup else "Log in to mini-lab" }}</h1>
+  <p class="page-lede">
+    {% if signup %}You'll get an organization with {{ credit }} of credits to try the API, the playground and the chat app.
+    {% else %}Welcome back.{% endif %}
+  </p>
+
+  <form method="post" action="/{{ mode }}" class="panel mt-8 space-y-5 p-6" novalidate>
+    <input type="hidden" name="next" value="{{ next }}">
+    {% if error %}
+    <p role="alert" class="rounded-lg border border-bad/30 bg-bad/5 px-3 py-2 text-sm text-bad">{{ error }}</p>
+    {% endif %}
+    {% if signup %}
+    <div>
+      <label for="name" class="label">Name</label>
+      <input id="name" name="name" class="field" autocomplete="name" value="{{ form.name or '' }}" placeholder="Ada Lovelace">
+    </div>
+    {% endif %}
+    <div>
+      <label for="email" class="label">Email</label>
+      <input id="email" name="email" type="email" class="field" autocomplete="email" required value="{{ form.email or '' }}" {% if not signup or form.name %}autofocus{% endif %}>
+    </div>
+    <div>
+      <label for="password" class="label">Password</label>
+      <input id="password" name="password" type="password" class="field" required minlength="{{ 8 if signup else 1 }}"
+             autocomplete="{{ 'new-password' if signup else 'current-password' }}" {% if signup %}aria-describedby="password-hint"{% endif %}>
+      {% if signup %}<p id="password-hint" class="hint">At least 8 characters.</p>{% endif %}
+    </div>
+    <button class="btn btn-primary w-full py-2.5">{{ "Create account" if signup else "Log in" }}</button>
+  </form>
+
+  <p class="mt-6 text-center text-sm text-muted">
+    {% if signup %}Already have an account? <a href="/login{{ '?next=' ~ next|urlencode if next != '/overview' }}" class="link">Log in</a>
+    {% else %}New to mini-lab? <a href="/signup{{ '?next=' ~ next|urlencode if next != '/overview' }}" class="link">Create an account</a>{% endif %}
+  </p>
+</div>
+{% endblock %}

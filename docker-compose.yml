@@ -1,0 +1,42 @@
+# The three mini-lab services. Train or download a model into ./models first:
+#   bash speedrun.sh small        (or: uv run python -m minilab.testing models)
+#   echo "MINILAB_INTERNAL_TOKEN=$(openssl rand -hex 32)" >> .env
+#   docker compose up --build
+x-common: &common
+  build: .
+  image: mini-lab
+  restart: unless-stopped
+  environment: &env
+    MINILAB_INTERNAL_TOKEN: ${MINILAB_INTERNAL_TOKEN:?Set a secret MINILAB_INTERNAL_TOKEN in .env (see README)}
+    MINILAB_DB: /data/minilab.db
+    MINILAB_MODELS_DIR: /app/models
+    MINILAB_INFERENCE_URL: http://inference:8001
+    MINILAB_API_URL: http://api:8000
+    MINILAB_PUBLIC_API_URL: ${MINILAB_PUBLIC_API_URL:-http://localhost:8000}
+    MINILAB_PLATFORM_URL: ${MINILAB_PLATFORM_URL:-http://localhost:3000}
+    STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+    STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  volumes:
+    - ./models:/app/models:ro
+    - minilab-data:/data
+
+services:
+  inference:
+    <<: *common
+    command: python -m minilab.inference --host 0.0.0.0 --port 8001
+    # Internal only: no published port.
+
+  api:
+    <<: *common
+    command: python -m minilab.api --host 0.0.0.0 --port 8000
+    ports: ["8000:8000"]
+    depends_on: [inference]
+
+  platform:
+    <<: *common
+    command: python -m minilab.platform --host 0.0.0.0 --port 3000
+    ports: ["3000:3000"]
+    depends_on: [api]
+
+volumes:
+  minilab-data:

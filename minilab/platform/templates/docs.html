@@ -1,0 +1,224 @@
+{% extends "layout.html" if ctx else "public.html" %}
+{% from "_macros.html" import code_block %}
+{% block title %}API reference · mini-lab{% endblock %}
+
+{% macro h2(id, text) -%}
+<h2 id="{{ id }}" class="casual scroll-mt-24 text-2xl font-[780] tracking-tight"><a href="#{{ id }}" class="hover:text-reagent">{{ text }}</a></h2>
+{%- endmacro %}
+{% macro c(text) %}<code class="mono rounded bg-sunken px-1 py-0.5 text-[0.9em]">{{ text }}</code>{% endmacro %}
+
+{% block content %}
+{% set base = settings.public_api_url ~ "/v1" %}
+{% set sections = [
+  ("quickstart", "Quickstart"), ("authentication", "Authentication"), ("chat-completions", "Chat completions"),
+  ("streaming", "Streaming"), ("tool-calling", "Tool calling"), ("reasoning", "Scratchpad reasoning"),
+  ("models", "Models"), ("errors", "Errors"), ("rate-limits", "Rate limits"), ("pricing", "Pricing and billing"),
+] %}
+
+<div class="lg:grid lg:grid-cols-[12rem_minmax(0,1fr)] lg:gap-12">
+  <nav aria-label="On this page" class="hidden lg:block">
+    <ul class="sticky top-24 space-y-1 text-sm">
+      {% for id, label in sections %}<li><a href="#{{ id }}" class="block rounded-md px-2 py-1 text-muted hover:bg-sunken hover:text-ink">{{ label }}</a></li>{% endfor %}
+    </ul>
+  </nav>
+
+  <article class="max-w-3xl space-y-14 leading-relaxed">
+    <header>
+      <h1 class="page-title">API reference</h1>
+      <p class="page-lede">The mini-lab API is compatible with OpenAI's Chat Completions API. Anything that speaks it (the official SDKs, curl, LangChain…) works by changing the base URL:</p>
+      <p class="mt-4"><code class="mono rounded-lg border border-rule bg-surface px-3 py-2 text-sm">{{ base }}</code></p>
+    </header>
+
+    <section class="space-y-4">
+      {{ h2("quickstart", "Quickstart") }}
+      <p>Create a key on the <a href="/api-keys" class="link">API keys</a> page, export it, and send a message:</p>
+      {{ code_block("doc-qs-curl", 'export MINILAB_API_KEY=sk-mini-...
+
+curl ' ~ base ~ '/chat/completions \\
+  -H "Authorization: Bearer $MINILAB_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d \'{"model": "' ~ model_id ~ '", "messages": [{"role": "user", "content": "Tell me a story about a cat"}]}\'') }}
+      <p>With the official Python SDK (<code class="mono">pip install openai</code>):</p>
+      {{ code_block("doc-qs-py", 'import os
+from openai import OpenAI
+
+client = OpenAI(base_url="' ~ base ~ '", api_key=os.environ["MINILAB_API_KEY"])
+response = client.chat.completions.create(
+    model="' ~ model_id ~ '",
+    messages=[{"role": "user", "content": "Tell me a story about a cat"}],
+)
+print(response.choices[0].message.content)
+print(response.usage)  # prompt_tokens, completion_tokens: what you are billed for') }}
+      <p class="text-muted">The models are tiny: they write short children's stories and do simple arithmetic (with a calculator). Don't expect more, that's the charm.</p>
+    </section>
+
+    <section class="space-y-4">
+      {{ h2("authentication", "Authentication") }}
+      <p>Send your key as a bearer token: {{ c("Authorization: Bearer sk-mini-...") }}. Keys belong to a project inside an organization; every request is billed to that organization and logged with the key and project.</p>
+      <ul class="list-disc space-y-1.5 pl-5">
+        <li>We store only a hash of each key, so a key is shown once, when you create it. Lost it? Revoke it and create a new one.</li>
+        <li>A revoked key is rejected immediately with {{ c("401 invalid_api_key") }}.</li>
+        <li>A key can have a spend limit: once reached, it gets {{ c("429 insufficient_quota") }} while other keys keep working.</li>
+        <li>Never put a key in client-side code: anyone who sees it can spend your credits.</li>
+      </ul>
+    </section>
+
+    <section class="space-y-4">
+      {{ h2("chat-completions", "Chat completions") }}
+      <p>{{ c("POST /v1/chat/completions") }} generates the next assistant message of a conversation.</p>
+      <div class="panel overflow-x-auto">
+        <table class="data-table">
+          <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody class="[&_td]:align-top">
+            {% for name, type, desc in [
+              ("model", "string, required", "A model id from GET /v1/models, e.g. " ~ model_id ~ "."),
+              ("messages", "array, required", "The conversation: objects with a role (system, developer, user, assistant, tool) and a content string (or text parts). Assistant messages may carry tool_calls; tool messages carry tool_call_id."),
+              ("max_completion_tokens", "integer", "Maximum tokens to generate (max_tokens is accepted too). Default: until the model stops or the context window is full."),
+              ("temperature", "number, 0 to 2", "Sampling temperature. Default 1. Lower is more deterministic."),
+              ("top_p", "number, 0 to 1", "Nucleus sampling. Default 1."),
+              ("top_k", "integer", "mini-lab extension: sample only among the k most likely tokens. With the Python SDK, pass extra_body={\"top_k\": 20}."),
+              ("seed", "integer", "Makes sampling reproducible for the same request."),
+              ("stop", "string or array", "Up to 4 sequences where generation stops."),
+              ("stream", "boolean", "Stream the answer as server-sent events. See Streaming."),
+              ("stream_options", "object", "{\"include_usage\": true} adds a final chunk with token usage."),
+              ("tools", "array", "Function tools the model may call. The models are trained for one: calculator."),
+              ("tool_choice", "string", "\"auto\" (default) or \"none\" (the model doesn't see the tools)."),
+              ("n", "integer", "Only 1 is supported."),
+            ] %}
+            <tr><td class="mono font-semibold whitespace-nowrap">{{ name }}</td><td class="text-muted whitespace-nowrap">{{ type }}</td><td>{{ desc }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p>Parameters that would change the answer but aren't supported ({{ c("n > 1") }}, {{ c("logprobs") }}, JSON mode, penalties…) are rejected with a 400 rather than silently ignored. Unknown harmless fields such as {{ c("user") }} are ignored.</p>
+      <p>Response:</p>
+      {{ code_block("doc-response", '{
+  "id": "chatcmpl-8f3a...",
+  "object": "chat.completion",
+  "created": 1790000000,
+  "model": "' ~ model_id ~ '",
+  "choices": [{
+    "index": 0,
+    "message": {"role": "assistant", "content": "Once upon a time, there was a cat named Tom..."},
+    "finish_reason": "stop"
+  }],
+  "usage": {"prompt_tokens": 14, "completion_tokens": 58, "total_tokens": 72}
+}') }}
+      <p>{{ c("finish_reason") }} is {{ c("stop") }} (the model finished or hit a stop sequence), {{ c("length") }} (max tokens or context window reached) or {{ c("tool_calls") }}. The request id is also returned in the {{ c("x-request-id") }} header, and appears in your <a href="/logs" class="link">logs</a>.</p>
+    </section>
+
+    <section class="space-y-4">
+      {{ h2("streaming", "Streaming") }}
+      <p>With {{ c('"stream": true') }} the response is a {{ c("text/event-stream") }}: one {{ c("chat.completion.chunk") }} per {{ c("data:") }} line, as tokens are generated, then {{ c("data: [DONE]") }}.</p>
+      {{ code_block("doc-stream", 'stream = client.chat.completions.create(
+    model="' ~ model_id ~ '",
+    messages=[{"role": "user", "content": "Tell me a story about a dog"}],
+    stream=True,
+    stream_options={"include_usage": True},
+)
+for chunk in stream:
+    if chunk.choices and chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="", flush=True)
+    if chunk.usage:  # last chunk, with include_usage
+        print("\\n", chunk.usage)') }}
+      <p>If generation fails after the stream has started, a chunk with an {{ c("error") }} object is sent instead of more tokens (the SDKs raise it as an exception).</p>
+    </section>
+
+    <section class="space-y-4">
+      {{ h2("tool-calling", "Tool calling") }}
+      <p>The models were trained to use one tool, a calculator, for arithmetic. Declare it in {{ c("tools") }}; when the model wants it, the response has {{ c("finish_reason: \"tool_calls\"") }} and {{ c("message.tool_calls") }}. Run the calculation yourself, append the result as a {{ c("tool") }} message, and call the API again for the final answer.</p>
+      {{ code_block("doc-tools", 'tools = [{
+    "type": "function",
+    "function": {
+        "name": "calculator",
+        "description": "Evaluate an arithmetic expression.",
+        "parameters": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]},
+    },
+}]
+messages = [{"role": "user", "content": "What is 347 + 58?"}]
+response = client.chat.completions.create(model="' ~ model_id ~ '", messages=messages, tools=tools)
+message = response.choices[0].message
+
+if message.tool_calls:
+    messages.append(message)
+    for call in message.tool_calls:
+        expression = json.loads(call.function.arguments)["expression"]  # "347 + 58"
+        result = my_safe_calculator(expression)                         # "405" (never eval() it!)
+        messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+    response = client.chat.completions.create(model="' ~ model_id ~ '", messages=messages, tools=tools)
+
+print(response.choices[0].message.content)  # "The answer is 405."') }}
+      <p>When streaming, tool calls arrive at the end, one chunk per call with its complete arguments. The playground and chat app run this loop for you on the server.</p>
+    </section>
+
+    <section class="space-y-4">
+      {{ h2("reasoning", "Scratchpad reasoning") }}
+      <p>Some models think before answering. That scratchpad is returned separately from the answer, in the non-standard field {{ c("message.reasoning_content") }} ({{ c("delta.reasoning_content") }} when streaming), like other OpenAI-compatible servers do. It is billed as output tokens. The SDKs keep unknown fields, so {{ c("message.reasoning_content") }} works in Python.</p>
+    </section>
+
+    <section class="space-y-4">
+      {{ h2("models", "Models") }}
+      <p>{{ c("GET /v1/models") }} lists the models currently served; {{ c("GET /v1/models/{id}") }} returns one. Besides OpenAI's fields, each model includes its description, context window and pricing. See <a href="/models" class="link">Models & pricing</a>.</p>
+      {{ code_block("doc-models", 'curl ' ~ base ~ '/models -H "Authorization: Bearer $MINILAB_API_KEY"') }}
+    </section>
+
+    <section class="space-y-4">
+      {{ h2("errors", "Errors") }}
+      <p>Errors use OpenAI's shape, so the SDKs raise the matching exception:</p>
+      {{ code_block("doc-error", '{"error": {"message": "You exceeded your current quota...", "type": "insufficient_quota", "param": null, "code": "insufficient_quota"}}') }}
+      <div class="panel overflow-x-auto">
+        <table class="data-table">
+          <thead><tr><th>Status</th><th>Code</th><th>What happened</th></tr></thead>
+          <tbody class="[&_td]:align-top">
+            {% for status, code, desc in [
+              (400, "invalid_request_error", "The request is malformed or uses an unsupported parameter (see param)."),
+              (400, "context_length_exceeded", "The conversation plus max_tokens doesn't fit in the model's context window. Send fewer or shorter messages, or lower max_tokens."),
+              (401, "invalid_api_key", "The key is missing, wrong or revoked."),
+              (404, "model_not_found", "No model with this id is being served."),
+              (429, "insufficient_quota", "Your organization has no credits left, or the key reached its spend limit. Retrying won't help: add credits."),
+              (429, "rate_limit_exceeded", "Too many requests or tokens per minute for this key. Retry after the reset time."),
+              (502, "upstream_error", "The inference server failed. Retry."),
+              (503, "overloaded", "The inference server is busy. Retry with backoff."),
+              (503, "inference_unavailable", "The inference server is down or restarting. Retry shortly."),
+            ] %}
+            <tr><td class="mono font-semibold">{{ status }}</td><td class="mono whitespace-nowrap">{{ code }}</td><td>{{ desc }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p>Failed requests are logged but not billed.</p>
+    </section>
+
+    <section class="space-y-4">
+      {{ h2("rate-limits", "Rate limits") }}
+      <p>Each key is limited in requests per minute (RPM) and tokens per minute (TPM). The defaults are <strong>{{ settings.default_rpm|num }} RPM</strong> and <strong>{{ settings.default_tpm|num }} TPM</strong>. The playground and chat app share one budget per organization.</p>
+      <p>Every response carries the current state in OpenAI's headers:</p>
+      {{ code_block("doc-ratelimit", 'x-ratelimit-limit-requests: ' ~ settings.default_rpm ~ '
+x-ratelimit-remaining-requests: ' ~ (settings.default_rpm - 1) ~ '
+x-ratelimit-reset-requests: 1s
+x-ratelimit-limit-tokens: ' ~ settings.default_tpm ~ '
+x-ratelimit-remaining-tokens: ' ~ (settings.default_tpm - 256) ~ '
+x-ratelimit-reset-tokens: 384ms') }}
+      <p>Over the limit you get {{ c("429 rate_limit_exceeded") }}. The SDKs retry these automatically with backoff.</p>
+    </section>
+
+    <section class="space-y-4">
+      {{ h2("pricing", "Pricing and billing") }}
+      <p>Credits are prepaid. A request costs its prompt tokens times the model's input price plus its completion tokens times the output price (prices are per million tokens). It is deducted from your organization's balance as soon as it completes. When the balance reaches zero, requests get {{ c("429 insufficient_quota") }} until you <a href="/billing" class="link">add credits</a>.</p>
+      {% if models %}
+      <div class="panel overflow-x-auto">
+        <table class="data-table">
+          <thead><tr><th>Model</th><th>Context</th><th class="text-right">Input, per 1M</th><th class="text-right">Output, per 1M</th></tr></thead>
+          <tbody>
+            {% for m in models %}
+            <tr><td class="font-semibold">{{ m.id }}</td><td class="mono">{{ m.context_length|num }}</td><td class="mono text-right">${{ '%.2f' % m.pricing.input_per_1m }}</td><td class="mono text-right">${{ '%.2f' % m.pricing.output_per_1m }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      <p>Usage from the playground and the chat app is billed the same way, and shows up in <a href="/usage" class="link">Usage</a> and <a href="/logs" class="link">Logs</a> with its source.</p>
+    </section>
+  </article>
+</div>
+{% endblock %}

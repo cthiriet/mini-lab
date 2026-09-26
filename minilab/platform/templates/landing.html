@@ -1,0 +1,133 @@
+{% extends "public.html" %}
+{% from "_macros.html" import flask_icon, code_block %}
+{% block title %}mini-lab: a whole AI lab, small enough to read{% endblock %}
+{% block main_class %}w-full{% endblock %}
+
+{% block content %}
+{% set credit = ((settings.signup_credit_usd * 1000000)|int)|usd %}
+{% set model_id = models[0].id if models else "mini-1" %}
+
+<section class="relative overflow-hidden border-b border-rule">
+  {# Graph paper, fading out: the lab notebook the whole project is written in. #}
+  <div aria-hidden="true" class="absolute inset-0 opacity-60 [mask-image:linear-gradient(to_bottom,black,transparent_85%)]"
+       style="background-image: linear-gradient(var(--color-rule) 1px, transparent 1px), linear-gradient(90deg, var(--color-rule) 1px, transparent 1px); background-size: 28px 28px;"></div>
+
+  <div class="relative mx-auto grid grid-cols-1 max-w-6xl items-center gap-12 px-4 pt-14 pb-16 md:px-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:pt-24 lg:pb-24">
+    <div>
+      <h1 class="casual max-w-[13ch] text-5xl leading-[1.02] font-[830] tracking-tight sm:text-6xl">A whole AI lab, small enough to read.</h1>
+      <p class="mt-6 max-w-[34rem] text-lg leading-relaxed text-muted">
+        mini-lab trains a tiny language model, serves it behind an OpenAI-compatible API,
+        and bills every token from prepaid credits. Every piece is open source and short
+        enough to read in an afternoon.
+      </p>
+      <div class="mt-8 flex flex-wrap items-center gap-3">
+        <a href="/signup" class="btn btn-primary px-5 py-2.5 text-base">Create an account</a>
+        <a href="/docs" class="btn btn-quiet px-5 py-2.5 text-base">Read the API reference</a>
+      </div>
+      <p class="mt-4 text-sm text-muted">New accounts get {{ credit }} of credits. No card needed.</p>
+    </div>
+
+    {# A real-looking exchange with the model: this is what the lab produces. #}
+    <figure class="panel relative shadow-[0_1px_0_var(--color-rule),0_24px_48px_-24px_rgb(21_26_45/0.25)]">
+      <figcaption class="flex items-center gap-2 border-b border-rule px-5 py-3 text-sm">
+        {{ flask_icon(0.6, "text-reagent", "hero", 16) }}
+        <span class="font-semibold">{{ model_id }}</span>
+        <span class="text-muted">in the chat app</span>
+      </figcaption>
+      <div class="space-y-4 px-5 py-5 text-[15px] leading-relaxed">
+        <p class="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-sunken px-4 py-2">What is 347 + 58?</p>
+        <p class="inline-flex items-center gap-2 rounded-full border border-rule px-3 py-1 text-xs text-muted">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="3" y="1.5" width="10" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 4.5h5M5.5 8h1M9.5 8h1M5.5 11h1M9.5 11h1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          used calculator: <span class="mono text-ink">347 + 58 = 405</span>
+        </p>
+        <p>The answer is 405.</p>
+        <p class="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-sunken px-4 py-2">Tell me a story about a dog.</p>
+        <p>Once upon a time, there was a little dog named Max. Max loved to run in the park with his red ball. One day, the ball rolled into a pond, and a kind duck pushed it back to him. Max wagged his tail and they played all afternoon.</p>
+      </div>
+      <dl class="grid grid-cols-3 border-t border-rule text-sm">
+        <div class="px-5 py-3"><dt class="text-xs text-muted">Tokens in</dt><dd class="mono font-semibold">41</dd></div>
+        <div class="border-l border-rule px-5 py-3"><dt class="text-xs text-muted">Tokens out</dt><dd class="mono font-semibold">62</dd></div>
+        <div class="border-l border-rule px-5 py-3"><dt class="text-xs text-muted">Billed</dt><dd class="mono font-semibold">$0.000114</dd></div>
+      </dl>
+    </figure>
+  </div>
+</section>
+
+<section class="mx-auto max-w-6xl px-4 py-16 md:px-8">
+  <h2 class="casual text-3xl font-[780] tracking-tight">How the lab fits together</h2>
+  <p class="page-lede">Four stages, one Python package. Each stage feeds the next.</p>
+  <ol class="mt-8 grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-2 lg:grid-cols-4">
+    {% for title, text, path in [
+      ("Train", "A small GPT-style transformer learns short children's stories and arithmetic, on a laptop.", "minilab/train"),
+      ("Serve", "An inference server with a KV cache and continuous batching streams tokens as they are sampled.", "minilab/inference"),
+      ("Meter", "An OpenAI-compatible gateway checks API keys, enforces rate limits and bills every token.", "minilab/api"),
+      ("Use", "This platform: API keys, prepaid credits, usage, logs, a playground and a chat app.", "minilab/platform"),
+    ] %}
+    <li class="bg-surface p-6">
+      <p class="flex items-baseline gap-3">
+        <span class="mono text-sm font-semibold text-reagent">{{ loop.index }}</span>
+        <span class="casual text-xl font-[760]">{{ title }}</span>
+      </p>
+      <p class="mt-3 text-[15px] leading-relaxed text-muted">{{ text }}</p>
+      <p class="mono mt-4 text-xs text-muted">{{ path }}</p>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+
+<section class="border-y border-rule bg-surface">
+  <div class="mx-auto grid grid-cols-1 max-w-6xl gap-10 px-4 py-16 md:px-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+    <div>
+      <h2 class="casual text-3xl font-[780] tracking-tight">Your first request</h2>
+      <p class="mt-3 max-w-md leading-relaxed text-muted">
+        It speaks the OpenAI API, so the official SDKs work as they are: point them at
+        mini-lab's base URL and use a mini-lab key.
+      </p>
+      <a href="/docs#quickstart" class="link mt-5 inline-block">Read the quickstart</a>
+    </div>
+    {{ code_block("hero-curl", 'curl ' ~ settings.public_api_url ~ '/v1/chat/completions \\
+  -H "Authorization: Bearer $MINILAB_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d \'{"model": "' ~ model_id ~ '", "messages": [{"role": "user", "content": "What is 347 + 58?"}]}\'', "curl example") }}
+  </div>
+</section>
+
+<section class="mx-auto max-w-6xl px-4 py-16 md:px-8">
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <h2 class="casual text-3xl font-[780] tracking-tight">Pricing</h2>
+      <p class="page-lede">Prepaid credits, charged per token. You only pay for what the model reads and writes.</p>
+    </div>
+    <a href="/models" class="link">See all models</a>
+  </div>
+  {% if models %}
+  <div class="panel mt-8 overflow-x-auto">
+    <table class="data-table">
+      <thead><tr><th>Model</th><th>Context</th><th class="text-right">Input, per 1M tokens</th><th class="text-right">Output, per 1M tokens</th></tr></thead>
+      <tbody>
+      {% for m in models %}
+        <tr>
+          <td><a href="/models/{{ m.id }}" class="font-semibold hover:text-reagent">{{ m.id }}</a></td>
+          <td class="mono">{{ m.context_length|num }} tokens</td>
+          <td class="mono text-right">${{ '%.2f' % m.pricing.input_per_1m }}</td>
+          <td class="mono text-right">${{ '%.2f' % m.pricing.output_per_1m }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="panel mt-8 px-5 py-6 text-muted">No model has been released yet. Prices appear here as soon as the lab ships one.</p>
+  {% endif %}
+</section>
+
+<section class="mx-auto max-w-6xl px-4 pb-20 md:px-8">
+  <div class="flex flex-col items-start gap-5 rounded-2xl bg-ink px-6 py-10 text-paper sm:flex-row sm:items-center sm:justify-between md:px-10 dark:border dark:border-rule dark:bg-surface dark:text-ink">
+    <div>
+      <p class="casual text-2xl font-[780] tracking-tight">Get a key and make your first call.</p>
+      <p class="mt-1 text-paper/70 dark:text-muted">{{ credit }} of free credits is plenty for thousands of tiny stories.</p>
+    </div>
+    <a href="/signup" class="btn btn-primary px-5 py-2.5 text-base">Create an account</a>
+  </div>
+</section>
+{% endblock %}

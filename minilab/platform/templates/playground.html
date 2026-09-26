@@ -1,0 +1,103 @@
+{% extends "layout.html" %}
+{% block title %}Playground · mini-lab{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Playground</h1>
+<p class="page-lede">Try a model with your own prompts before writing code. Calls are billed to {{ ctx.org.name }} like any other request.</p>
+
+{% if not models %}
+<div class="mt-8 rounded-xl border border-dashed border-rule px-6 py-12 text-center">
+  <p class="font-semibold">No model to talk to</p>
+  <p class="mx-auto mt-1 max-w-md text-sm text-muted">No model has been released and the API at <span class="mono">{{ settings.public_api_url }}</span> isn't serving any. Check the <a href="/status" class="link">status page</a>.</p>
+</div>
+{% else %}
+<form id="pg-form" class="mt-8 grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_17rem]" data-api-url="{{ settings.public_api_url }}">
+  <aside class="panel space-y-5 p-5 lg:order-2" aria-label="Settings">
+    <div>
+      <label for="pg-model" class="label">Model</label>
+      <select id="pg-model" class="field">
+        {% for m in models %}<option>{{ m }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <div class="flex items-baseline justify-between">
+        <label for="pg-temperature" class="label">Temperature</label>
+        <output for="pg-temperature" id="pg-temperature-value" class="mono text-sm">1.0</output>
+      </div>
+      <input id="pg-temperature" type="range" min="0" max="2" step="0.1" value="1" class="w-full accent-reagent" aria-describedby="pg-temperature-hint">
+      <p id="pg-temperature-hint" class="hint">Lower is more predictable, higher is more surprising.</p>
+    </div>
+    <div>
+      <label for="pg-max-tokens" class="label">Maximum output tokens</label>
+      <input id="pg-max-tokens" type="number" min="1" max="8192" class="field mono" placeholder="No limit" aria-describedby="pg-max-hint">
+      <p id="pg-max-hint" class="hint">Empty: until the answer ends or the context is full.</p>
+    </div>
+    <div class="flex items-start gap-3">
+      <input id="pg-calculator" type="checkbox" class="mt-1 size-4 accent-reagent" checked>
+      <div>
+        <label for="pg-calculator" class="text-sm font-semibold">Calculator tool</label>
+        <p class="hint mt-0.5">The model can ask for a calculation. We run it and send the result back.</p>
+      </div>
+    </div>
+    <button type="button" id="pg-code" class="btn btn-quiet w-full">View code</button>
+  </aside>
+
+  <section class="panel min-w-0 lg:order-1" aria-label="Conversation">
+    <div class="border-b border-rule px-4 py-3">
+      <label for="pg-system" class="text-xs font-semibold text-muted">System</label>
+      <textarea id="pg-system" rows="1" data-autosize class="mt-1 block w-full resize-none bg-transparent text-[15px] leading-relaxed placeholder:text-muted/80 focus:outline-none" placeholder="Optional instructions for the model"></textarea>
+    </div>
+    <div id="pg-messages" aria-live="polite"></div>
+    <div class="flex flex-wrap items-center gap-2 px-4 py-3">
+      <button type="button" id="pg-add" class="btn btn-quiet px-3 py-1.5">Add message</button>
+      <div class="ml-auto flex items-center gap-2">
+        <button type="button" id="pg-clear" class="btn px-3 py-1.5 text-muted hover:text-ink">Clear</button>
+        <button type="button" id="pg-stop" class="btn btn-quiet px-3 py-1.5" hidden>Stop</button>
+        <button type="submit" id="pg-run" class="btn btn-primary px-4 py-1.5">Run <kbd class="mono hidden text-xs opacity-75 sm:inline">Ctrl ⏎</kbd></button>
+      </div>
+    </div>
+    <div id="pg-usage" class="flex flex-wrap gap-x-5 gap-y-1 border-t border-rule px-4 py-3 text-sm text-muted" hidden></div>
+  </section>
+</form>
+
+<template id="pg-message-template">
+  <div data-message data-role="user" class="group relative grid grid-cols-1 gap-1 border-b border-rule px-4 py-3 sm:grid-cols-[6.5rem_minmax(0,1fr)_2rem] sm:gap-3">
+    <div>
+      <button type="button" data-role-toggle class="rounded-md px-2 py-1 text-xs font-semibold text-muted hover:bg-sunken hover:text-ink" title="Switch between user and assistant">User</button>
+    </div>
+    <div class="min-w-0 space-y-2">
+      <details data-reasoning hidden class="rounded-lg border border-rule bg-sunken/60 px-3 py-2 text-sm">
+        <summary class="cursor-pointer font-semibold text-muted">Scratchpad</summary>
+        <p data-reasoning-text class="mono mt-2 text-[13px] whitespace-pre-wrap text-muted"></p>
+      </details>
+      <ul data-tools hidden class="flex flex-wrap gap-2"></ul>
+      <textarea rows="1" data-autosize aria-label="User message" class="block w-full resize-none bg-transparent pt-0.5 text-[15px] leading-relaxed placeholder:text-muted/80 focus:outline-none" placeholder="Enter a message"></textarea>
+      <p data-error hidden role="alert" class="rounded-lg border border-bad/30 bg-bad/5 px-3 py-2 text-sm text-bad"></p>
+    </div>
+    <button type="button" data-remove aria-label="Remove message" class="absolute top-3 right-3 rounded-md p-1 text-muted hover:bg-sunken hover:text-ink sm:static sm:self-start sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</template>
+
+<dialog id="pg-code-dialog" class="m-auto w-[min(48rem,calc(100%-2rem))] rounded-xl border border-rule bg-surface p-0 text-ink shadow-2xl backdrop:bg-ink/40">
+  <div class="flex items-center justify-between border-b border-rule px-5 py-3">
+    <h2 class="font-semibold">This request as code</h2>
+    <form method="dialog"><button class="rounded-md p-1 text-muted hover:bg-sunken hover:text-ink" aria-label="Close">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button></form>
+  </div>
+  <div class="max-h-[70vh] space-y-4 overflow-y-auto p-5">
+    <p class="text-sm text-muted">Uses an API key from <code class="mono text-ink">MINILAB_API_KEY</code>. <a href="/api-keys" class="link">Create a key</a>.</p>
+    <div class="relative"><pre id="pg-code-curl" class="code-block pr-20"></pre><div class="absolute top-2.5 right-2.5"><button type="button" class="btn btn-quiet px-2.5 py-1 text-xs" data-copy="#pg-code-curl">Copy</button></div></div>
+    <div class="relative"><pre id="pg-code-python" class="code-block pr-20"></pre><div class="absolute top-2.5 right-2.5"><button type="button" class="btn btn-quiet px-2.5 py-1 text-xs" data-copy="#pg-code-python">Copy</button></div></div>
+  </div>
+</dialog>
+<script type="application/json" id="calculator-tool">{{ calculator_tool|tojson }}</script>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/stream.js" defer></script>
+<script src="/static/playground.js" defer></script>
+{% endblock %}

@@ -1,0 +1,77 @@
+# The speedrun: the whole pipeline in ~36 minutes on a laptop CPU (Apple M5 Pro), or
+# ~16 minutes when training runs on the Mac's GPU (--device auto picks MPS).
+seed = 0
+
+[data]
+train_mb = 100              # first N MB of TinyStoriesV2-GPT4-train.txt (~125k stories)
+val_mb = 4                  # first N MB of the validation file (held out)
+digits = [1, 2, 3, 4, 5]    # operand lengths in the pretraining worksheets (and RL)
+heldout_digits = [6]        # never trained on: length generalization
+story_max_chars = 700       # stories told in chat must fit the context
+
+[tokenizer]
+vocab_size = 4096
+sample_stories = 8000
+
+[model]                     # 5.8M parameters
+block_size = 256
+n_layer = 6
+n_head = 4
+n_embd = 256
+
+[pretrain]                  # 29M tokens
+steps = 3500
+batch_size = 32
+lr = 3e-3
+warmup = 100
+weight_decay = 0.1
+arith_frac = 0.25           # probability that the next document is an arithmetic worksheet
+eval_every = 250
+log_every = 25
+val_batches = 10
+
+[midtrain]                  # 4.9M tokens, packed, loss on every token: format + skills
+steps = 600
+batch_size = 32
+lr = 1e-3
+warmup = 30
+weight_decay = 0.1
+digits = [1, 2, 3]          # chat data only demonstrates short additions: RL does the rest
+text_frac = 0.25            # share of pretraining documents, against forgetting
+tool_frac = 0.3             # share of conversations with the calculator enabled
+mix = { arithmetic = 0.6, story = 0.2, greeting = 0.2 }   # single-turn, no system prompt
+eval_every = 200
+log_every = 25
+
+[sft]                       # a fixed set, one conversation per row, loss on the assistant only
+size = 8000                 # conversations in the SFT set (300 x 32 rows = 1.2 epochs)
+steps = 300
+batch_size = 32
+lr = 3e-4
+warmup = 20
+digits = [1, 2, 3]
+tool_frac = 0.3
+mix = { plain = 0.35, instruction = 0.35, followup = 0.12, refusal = 0.12, identity = 0.06 }
+eval_every = 200
+log_every = 25
+
+[rl]                        # GRPO: 300 steps x 16 problems x 8 attempts
+steps = 300
+prompts_per_step = 16
+group_size = 8
+digits = [1, 2, 3, 4, 5]    # additions: every length seen in pretraining; 4-5 are new in chat
+chat_digits = [1, 2, 3]     # the other problems (instructions...) keep the chat lengths
+mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05 }
+max_new_tokens = 224         # room for a whole story ("Sure! Once upon a time...")
+temperature = 1.0
+lr = 1e-4
+warmup = 10
+log_every = 5
+
+[eval]
+n_per_digit = 100
+n_sampled = 100
+n_tool = 50
+n_instr = 30                # prompts per instruction-following check
+max_new_tokens = 200
+ppl_batches = 8

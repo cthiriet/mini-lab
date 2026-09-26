@@ -1,0 +1,59 @@
+{% extends "layout.html" if ctx else "public.html" %}
+{% from "_macros.html" import status_pill %}
+{% block title %}Status · mini-lab{% endblock %}
+
+{% macro ms(v) %}{% if v is none %}–{% else %}{{ v|num }} ms{% endif %}{% endmacro %}
+
+{% block content %}
+{% set all_ok = gateway.ok and database.ok %}
+<div class="max-w-3xl">
+  <h1 class="page-title">Status</h1>
+  <div class="mt-6 flex items-center gap-3 rounded-xl border px-5 py-4 {{ 'border-ok/30 bg-ok/5' if all_ok else 'border-bad/30 bg-bad/5' }}" role="status">
+    <span class="relative flex size-3">
+      {% if all_ok %}<span class="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-40 motion-reduce:hidden"></span>{% endif %}
+      <span class="relative inline-flex size-3 rounded-full {{ 'bg-ok' if all_ok else 'bg-bad' }}"></span>
+    </span>
+    <p class="font-semibold">{{ "All systems operational" if all_ok else "Some systems are not responding" }}</p>
+  </div>
+
+  <ul class="panel mt-6 divide-y divide-rule">
+    <li class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+      <div>
+        <p class="font-semibold">Platform</p>
+        <p class="text-sm text-muted">Dashboard, billing, playground and chat app</p>
+      </div>
+      {{ status_pill(true) }}
+    </li>
+    <li class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+      <div>
+        <p class="font-semibold">Database</p>
+        <p class="text-sm text-muted">Accounts, API keys, credits and logs</p>
+      </div>
+      {{ status_pill(database.ok) }}
+    </li>
+    <li class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+      <div>
+        <p class="font-semibold">API</p>
+        <p class="text-sm text-muted"><span class="mono">{{ settings.public_api_url }}</span>{% if gateway.latency_ms is not none %}, answered in {{ gateway.latency_ms }} ms{% endif %}</p>
+        {% if not gateway.ok %}<p class="text-sm text-bad">{{ gateway.detail }}</p>{% endif %}
+      </div>
+      {{ status_pill(gateway.ok) }}
+    </li>
+  </ul>
+
+  <section class="mt-10" aria-labelledby="perf-h">
+    <h2 id="perf-h" class="casual text-2xl font-[760] tracking-tight">Performance, last hour</h2>
+    <p class="mt-1 text-sm text-muted">Across all successful requests to the API.</p>
+    <dl class="panel mt-4 grid grid-cols-2 gap-px overflow-hidden bg-rule text-sm sm:grid-cols-4">
+      {% for label, value in [
+        ("Requests", perf.requests|num), ("Latency, median", ms(perf.latency_p50_ms)),
+        ("First token, median", ms(perf.ttft_p50_ms)),
+        ("Output speed", (perf.tokens_per_s_avg ~ " tok/s") if perf.tokens_per_s_avg is not none else "–"),
+      ] %}
+      <div class="bg-surface px-4 py-3"><dt class="text-xs text-muted">{{ label }}</dt><dd class="mono mt-0.5 text-lg font-semibold">{{ value }}</dd></div>
+      {% endfor %}
+    </dl>
+  </section>
+  <p class="mt-6 text-xs text-muted">Checked when this page loaded. Machine-readable: <a href="/health" class="mono hover:text-ink">/health</a>.</p>
+</div>
+{% endblock %}

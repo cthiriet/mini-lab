@@ -1,0 +1,99 @@
+{% extends "layout.html" %}
+{% from "_macros.html" import bar_chart %}
+{% block title %}Usage · mini-lab{% endblock %}
+
+{% macro segmented(label, options, current, param) -%}
+<div role="group" aria-label="{{ label }}" class="inline-flex rounded-lg border border-rule bg-surface p-0.5">
+  {% for value, text in options %}
+  {% set href = "/usage?days=%s&metric=%s" % ((value, metric) if param == "days" else (days, value)) %}
+  <a href="{{ href }}" {% if value == current %}aria-current="true"{% endif %}
+     class="rounded-md px-3 py-1 text-sm font-semibold {{ 'bg-ink text-paper' if value == current else 'text-muted hover:text-ink' }}">{{ text }}</a>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{% macro ms(v) %}{% if v is none %}<span class="text-muted">–</span>{% else %}{{ v|num }} ms{% endif %}{% endmacro %}
+
+{% block content %}
+<h1 class="page-title">Usage</h1>
+<p class="page-lede">What {{ ctx.org.name }} used and spent, across the API, the playground and the chat app. Days are in UTC.</p>
+
+<div class="mt-8 flex flex-wrap items-center gap-3">
+  {{ segmented("Period", [(7, "7 days"), (30, "30 days"), (90, "90 days")], days, "days") }}
+  {{ segmented("Metric", [("cost_micros", "Spend"), ("tokens", "Tokens"), ("requests", "Requests")], metric, "metric") }}
+</div>
+
+<div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_17rem]">
+  <section class="panel min-w-0 p-6" aria-labelledby="chart-h">
+    <div class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+      <h2 id="chart-h" class="font-semibold">{{ metric_label }} per day</h2>
+      <dl class="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+        <div class="flex gap-2"><dt class="text-muted">Spend</dt><dd class="mono font-semibold">{{ totals.cost_micros|usd }}</dd></div>
+        <div class="flex gap-2"><dt class="text-muted">Requests</dt><dd class="mono font-semibold">{{ totals.requests|num }}</dd></div>
+        <div class="flex gap-2"><dt class="text-muted">Tokens</dt><dd class="mono font-semibold">{{ totals.tokens|num }}</dd></div>
+      </dl>
+    </div>
+    <div class="mt-5">{{ bar_chart(chart, metric_label ~ " per day over the last " ~ days ~ " days") }}</div>
+  </section>
+
+  <section class="panel p-6" aria-labelledby="perf-h">
+    <h2 id="perf-h" class="font-semibold">Performance</h2>
+    <p class="mt-1 text-xs text-muted">Successful requests, last {{ days }} days</p>
+    <dl class="mt-4 space-y-2.5 text-sm">
+      <div class="flex justify-between gap-4"><dt class="text-muted">Requests</dt><dd class="mono font-semibold">{{ perf.requests|num }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-muted">Latency, median</dt><dd class="mono font-semibold">{{ ms(perf.latency_p50_ms) }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-muted">Latency, p95</dt><dd class="mono font-semibold">{{ ms(perf.latency_p95_ms) }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-muted" title="Time to first token, streaming requests only">First token, median</dt><dd class="mono font-semibold">{{ ms(perf.ttft_p50_ms) }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-muted">First token, p95</dt><dd class="mono font-semibold">{{ ms(perf.ttft_p95_ms) }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-muted">Output speed</dt><dd class="mono font-semibold">{% if perf.tokens_per_s_avg is none %}<span class="text-muted">–</span>{% else %}{{ perf.tokens_per_s_avg }} tok/s{% endif %}</dd></div>
+    </dl>
+  </section>
+</div>
+
+<section class="mt-10" aria-labelledby="models-h">
+  <h2 id="models-h" class="casual text-2xl font-[760] tracking-tight">By model</h2>
+  {% if by_model %}
+  <div class="panel mt-4 overflow-x-auto">
+    <table class="data-table">
+      <thead><tr><th>Model</th><th class="text-right">Requests</th><th class="text-right">Input tokens</th><th class="text-right">Output tokens</th><th class="text-right">Cost</th></tr></thead>
+      <tbody>
+      {% for m in by_model %}
+        <tr>
+          <td class="font-semibold">{{ m.model }}</td>
+          <td class="mono text-right">{{ m.requests|num }}</td>
+          <td class="mono text-right">{{ m.prompt_tokens|num }}</td>
+          <td class="mono text-right">{{ m.completion_tokens|num }}</td>
+          <td class="mono text-right">{{ m.cost_micros|usd }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="mt-4 rounded-xl border border-dashed border-rule px-6 py-8 text-center text-sm text-muted">No usage in the last {{ days }} days. Requests from your keys, the <a href="/playground" class="link">playground</a> and the <a href="/chat" class="link">chat app</a> appear here.</p>
+  {% endif %}
+</section>
+
+{% if rows %}
+<section class="mt-10" aria-labelledby="daily-h">
+  <h2 id="daily-h" class="casual text-2xl font-[760] tracking-tight">Daily breakdown</h2>
+  <div class="panel mt-4 overflow-x-auto">
+    <table class="data-table">
+      <thead><tr><th>Day</th><th>Model</th><th class="text-right">Requests</th><th class="text-right">Input tokens</th><th class="text-right">Output tokens</th><th class="text-right">Cost</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td class="mono whitespace-nowrap">{{ r.day }}</td>
+          <td>{{ r.model }}</td>
+          <td class="mono text-right">{{ r.requests|num }}</td>
+          <td class="mono text-right">{{ r.prompt_tokens|num }}</td>
+          <td class="mono text-right">{{ r.completion_tokens|num }}</td>
+          <td class="mono text-right">{{ r.cost_micros|usd }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

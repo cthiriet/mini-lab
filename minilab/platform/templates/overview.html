@@ -1,0 +1,122 @@
+{% extends "layout.html" %}
+{% from "_macros.html" import bar_chart, code_block, source_tag, status_code, time %}
+{% block title %}Overview · mini-lab{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Overview</h1>
+<p class="page-lede">{{ ctx.org.name }}: credits, recent spend, and how to call the API.</p>
+
+<div class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
+  <section class="panel flex flex-col p-6" aria-labelledby="balance-h">
+    <h2 id="balance-h" class="text-sm font-semibold text-muted">Credit balance</h2>
+    <p class="mono mt-2 text-4xl font-bold tracking-tight {{ 'text-bad' if ctx.org.balance_micros <= 0 }}">{{ ctx.org.balance_micros|usd(2) }}</p>
+    <p class="mt-2 text-sm text-muted">
+      {% if ctx.org.balance_micros <= 0 %}Requests are paused until you add credits.
+      {% else %}Prepaid. Each request is deducted as it completes.{% endif %}
+    </p>
+    <dl class="mt-6 space-y-2 border-t border-rule pt-4 text-sm">
+      <div class="flex justify-between gap-4"><dt class="text-muted">Spent, 7 days</dt><dd class="mono font-semibold">{{ week.cost_micros|usd }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-muted">Requests, 7 days</dt><dd class="mono font-semibold">{{ week.requests|num }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-muted">Tokens, 7 days</dt><dd class="mono font-semibold">{{ week.tokens|num }}</dd></div>
+    </dl>
+    <a href="/billing" class="btn btn-quiet mt-6 w-full">Add credits</a>
+  </section>
+
+  <section class="panel min-w-0 p-6" aria-labelledby="spend-h">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 id="spend-h" class="font-semibold">Spend per day, last 7 days</h2>
+      <a href="/usage" class="link text-sm">Open usage</a>
+    </div>
+    <div class="mt-4">
+      {% if week.requests %}
+        {{ bar_chart(chart, "Spend per day over the last 7 days") }}
+      {% else %}
+        <div class="grid grid-cols-1 h-48 place-items-center rounded-lg border border-dashed border-rule text-center text-sm text-muted">
+          <p>No requests this week yet.<br>Try the <a href="/playground" class="link">playground</a> or the <a href="/chat" class="link">chat app</a>, it's billed the same way.</p>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+<section class="mt-10" aria-labelledby="qs-h">
+  <div class="flex flex-wrap items-baseline justify-between gap-2">
+    <h2 id="qs-h" class="casual text-2xl font-[760] tracking-tight">Quickstart</h2>
+    <a href="/docs" class="link text-sm">API reference</a>
+  </div>
+  <ol class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+    <li class="panel p-5">
+      <p class="mono text-sm font-semibold text-reagent">1</p>
+      <p class="mt-1 font-semibold">{{ "Create an API key" if not has_keys else "Use one of your API keys" }}</p>
+      <p class="mt-1 text-sm text-muted">Keys belong to a project and can have a spend limit.</p>
+      <a href="/api-keys" class="btn {{ 'btn-primary' if not has_keys else 'btn-quiet' }} mt-4">{{ "Create a key" if not has_keys else "Manage keys" }}</a>
+    </li>
+    <li class="panel p-5">
+      <p class="mono text-sm font-semibold text-reagent">2</p>
+      <p class="mt-1 font-semibold">Send a chat completion</p>
+      <p class="mt-1 text-sm text-muted">Export the key as <code class="mono text-ink">MINILAB_API_KEY</code>, then run one of the snippets below.</p>
+    </li>
+    <li class="panel p-5">
+      <p class="mono text-sm font-semibold text-reagent">3</p>
+      <p class="mt-1 font-semibold">Check what it cost</p>
+      <p class="mt-1 text-sm text-muted">Every request shows up in the logs with its tokens, latency and price.</p>
+      <a href="/logs" class="btn btn-quiet mt-4">Open logs</a>
+    </li>
+  </ol>
+
+  <div class="mt-6" data-tabs>
+    <div role="tablist" aria-label="Quickstart language" class="flex gap-1 border-b border-rule">
+      <button role="tab" id="tab-curl" aria-controls="panel-curl" aria-selected="true" class="-mb-px border-b-2 border-reagent px-3 py-2 text-sm font-semibold aria-[selected=false]:border-transparent aria-[selected=false]:text-muted">curl</button>
+      <button role="tab" id="tab-python" aria-controls="panel-python" aria-selected="false" tabindex="-1" class="-mb-px border-b-2 border-reagent px-3 py-2 text-sm font-semibold aria-[selected=false]:border-transparent aria-[selected=false]:text-muted">Python</button>
+    </div>
+    <div id="panel-curl" role="tabpanel" aria-labelledby="tab-curl" class="mt-4">
+      {{ code_block("qs-curl", 'curl ' ~ settings.public_api_url ~ '/v1/chat/completions \\
+  -H "Authorization: Bearer $MINILAB_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d \'{
+    "model": "' ~ model_id ~ '",
+    "messages": [{"role": "user", "content": "Tell me a story about a dog"}]
+  }\'') }}
+    </div>
+    <div id="panel-python" role="tabpanel" aria-labelledby="tab-python" class="mt-4" hidden>
+      {{ code_block("qs-python", '# pip install openai
+import os
+from openai import OpenAI
+
+client = OpenAI(base_url="' ~ settings.public_api_url ~ '/v1", api_key=os.environ["MINILAB_API_KEY"])
+
+response = client.chat.completions.create(
+    model="' ~ model_id ~ '",
+    messages=[{"role": "user", "content": "Tell me a story about a dog"}],
+)
+print(response.choices[0].message.content)') }}
+    </div>
+  </div>
+</section>
+
+{% if recent %}
+<section class="mt-10" aria-labelledby="recent-h">
+  <div class="flex flex-wrap items-baseline justify-between gap-2">
+    <h2 id="recent-h" class="casual text-2xl font-[760] tracking-tight">Latest requests</h2>
+    <a href="/logs" class="link text-sm">All logs</a>
+  </div>
+  <div class="panel mt-4 overflow-x-auto">
+    <table class="data-table">
+      <thead><tr><th>Time</th><th>Model</th><th>Source</th><th>Status</th><th class="text-right">Tokens</th><th class="text-right">Cost</th></tr></thead>
+      <tbody>
+      {% for r in recent %}
+        <tr class="hover:bg-sunken/60">
+          <td><a href="/logs/{{ r.id }}" class="hover:text-reagent">{{ time(r.created_at) }}</a></td>
+          <td>{{ r.model }}</td>
+          <td>{{ source_tag(r.source) }}</td>
+          <td>{{ status_code(r.status_code) }}</td>
+          <td class="mono text-right">{{ (r.prompt_tokens + r.completion_tokens)|num }}</td>
+          <td class="mono text-right">{{ r.cost_micros|usd }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

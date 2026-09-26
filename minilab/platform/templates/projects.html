@@ -1,0 +1,33 @@
+{% extends "layout.html" %}
+{% from "_macros.html" import time %}
+{% block title %}Projects · mini-lab{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Projects</h1>
+<p class="page-lede">Projects group API keys, for example one per app or environment. Every request is logged with the project of the key that made it.</p>
+
+<div class="mt-8 grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+  <div class="panel overflow-x-auto">
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>ID</th><th>Created</th><th class="text-right">Active keys</th></tr></thead>
+      <tbody>
+      {% for p in projects %}
+        <tr>
+          <td class="font-semibold">{{ p.name }}</td>
+          <td class="mono text-[13px] text-muted">{{ p.id }}</td>
+          <td>{{ time(p.created_at, "%Y-%m-%d") }}</td>
+          <td class="mono text-right">{{ active_keys.get(p.id, 0) }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <form method="post" action="/projects" class="panel p-5">
+    <h2 class="font-semibold">New project</h2>
+    <label for="project-name" class="label mt-4">Name</label>
+    <input id="project-name" name="name" class="field" maxlength="80" placeholder="Bedtime stories app" required>
+    <button class="btn btn-primary mt-4 w-full">Create project</button>
+  </form>
+</div>
+{% endblock %}

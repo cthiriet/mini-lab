@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 20">
+  <style>
+    .glass { stroke: #151A2D; }
+    @media (prefers-color-scheme: dark) { .glass { stroke: #E8EAF3; } }
+  </style>
+  <defs><clipPath id="f"><path d="M6.6 1.6v5.3L1.9 15.3A2.1 2.1 0 0 0 3.7 18.5h8.6a2.1 2.1 0 0 0 1.8-3.2L9.4 6.9V1.6z"/></clipPath></defs>
+  <rect x="0" y="11.5" width="16" height="9" clip-path="url(#f)" fill="#C4236A"/>
+  <path class="glass" d="M5.4 1.6h5.2M6.6 1.6v5.3L1.9 15.3A2.1 2.1 0 0 0 3.7 18.5h8.6a2.1 2.1 0 0 0 1.8-3.2L9.4 6.9V1.6" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

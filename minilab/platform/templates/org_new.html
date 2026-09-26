@@ -1,0 +1,18 @@
+{% extends "layout.html" %}
+{% block title %}New organization · mini-lab{% endblock %}
+
+{% block content %}
+<div class="max-w-lg">
+  <h1 class="page-title">New organization</h1>
+  <p class="page-lede">Organizations have their own credits, projects, keys and logs. Use one per team or client. You can switch between them from the menu at the top.</p>
+  <form method="post" action="/orgs" class="panel mt-8 p-6">
+    <label for="org-name" class="label">Name</label>
+    <input id="org-name" name="name" class="field" maxlength="80" placeholder="Acme Robotics" required autofocus>
+    <p class="hint">New organizations start with no credits.</p>
+    <div class="mt-5 flex gap-2">
+      <button class="btn btn-primary">Create organization</button>
+      <a href="/overview" class="btn btn-quiet">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

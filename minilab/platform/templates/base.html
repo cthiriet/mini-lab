@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}mini-lab{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  {# One variable family does everything: Recursive's MONO axis gives us code, its CASL axis the playful headings. #}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/recursive@5/full.css">
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style type="text/tailwindcss">
+    @theme static {
+      --font-sans: "Recursive Variable", ui-sans-serif, system-ui, sans-serif;
+      --font-mono: "Recursive Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+      --font-mono--font-variation-settings: "CASL" 0, "MONO" 1; /* <code>, <pre>, <kbd> */
+
+      /* Bench white, ink, and indicator colors: magenta like phenolphthalein, blue like copper sulfate. */
+      --color-paper: #F3F5F8;
+      --color-surface: #FFFFFF;
+      --color-sunken: #EBEEF3;
+      --color-ink: #151A2D;
+      --color-muted: #566078;
+      --color-rule: #D8DDE6;
+      --color-reagent: #C4236A;
+      --color-reagent-soft: #FCE4EF;
+      --color-on-reagent: #FFFFFF;
+      --color-copper: #2F66D9;
+      --color-ok: #15784A;
+      --color-warn: #9A5A00;
+      --color-bad: #C22F28;
+    }
+
+    @layer base {
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --color-paper: #0E1221;
+          --color-surface: #161B2E;
+          --color-sunken: #1E2439;
+          --color-ink: #E8EAF3;
+          --color-muted: #9CA3BC;
+          --color-rule: #2B3252;
+          --color-reagent: #FF62A6;
+          --color-reagent-soft: #3B1831;
+          --color-on-reagent: #24061A;
+          --color-copper: #7EA4FF;
+          --color-ok: #52D394;
+          --color-warn: #F4B551;
+          --color-bad: #FF7B70;
+        }
+      }
+      html { font-variation-settings: "CASL" 0, "MONO" 0; -webkit-text-size-adjust: 100%; }
+      body { @apply bg-paper text-ink antialiased; }
+      :focus-visible { outline: 2px solid var(--color-reagent); outline-offset: 2px; border-radius: 4px; }
+      ::selection { background: var(--color-reagent-soft); }
+      @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+    }
+
+    @utility casual { font-variation-settings: "CASL" 1, "MONO" 0; }
+    @utility mono { font-family: var(--font-mono); font-variation-settings: "CASL" 0, "MONO" 1; font-variant-numeric: tabular-nums; }
+
+    @layer components {
+      .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
+      .btn-primary { @apply bg-reagent text-on-reagent hover:bg-reagent/90; }
+      .btn-quiet { @apply border border-rule bg-surface text-ink hover:border-muted/60 hover:bg-sunken; }
+      .btn-danger { @apply border border-rule bg-surface text-bad hover:border-bad/60 hover:bg-bad/5; }
+      .field { @apply block w-full rounded-lg border border-rule bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted/80 focus:border-reagent focus:ring-2 focus:ring-reagent/25 focus:outline-none; }
+      .label { @apply mb-1.5 block text-sm font-semibold; }
+      .hint { @apply mt-1.5 text-xs text-muted; }
+      .panel { @apply relative rounded-xl border border-rule bg-surface; } /* relative: keeps sr-only children inside scroll areas */
+      .link { @apply font-semibold text-reagent underline decoration-reagent/30 underline-offset-2 hover:decoration-reagent; }
+      .data-table { @apply w-full text-left text-sm; }
+      .data-table th { @apply px-3 py-2 text-xs font-semibold whitespace-nowrap text-muted; }
+      .data-table td { @apply border-t border-rule px-3 py-2.5 align-middle; }
+      .code-block { @apply mono overflow-x-auto rounded-lg border border-rule bg-sunken p-4 text-[13px] leading-relaxed; }
+      .page-title { @apply casual text-3xl leading-tight font-[780] tracking-tight; }
+      .page-lede { @apply mt-1.5 max-w-2xl text-muted; }
+    }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  {% block body %}{% endblock %}
+  <div id="tooltip" role="tooltip" class="pointer-events-none fixed z-50 hidden rounded-md bg-ink px-2 py-1 text-xs font-semibold whitespace-pre-line text-paper shadow-lg"></div>
+  <script src="/static/app.js" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

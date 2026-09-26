@@ -1,0 +1,77 @@
+{% extends "layout.html" %}
+{% from "_macros.html" import flask_icon, time %}
+{% block title %}Billing · mini-lab{% endblock %}
+
+{% block content %}
+{% set b = ctx.org.balance_micros %}
+<h1 class="page-title">Billing</h1>
+<p class="page-lede">Credits are prepaid. Every request is deducted from the balance of {{ ctx.org.name }}; when it reaches zero, requests are refused until you add more.</p>
+
+<div class="mt-8 grid grid-cols-1 items-start gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
+  <section class="panel p-6" aria-labelledby="bal-h">
+    <h2 id="bal-h" class="text-sm font-semibold text-muted">Credit balance</h2>
+    <div class="mt-3 flex items-end gap-3">
+      {{ flask_icon(b|gauge_level, "text-bad" if b <= 0 else ("text-warn" if b < 250000 else "text-copper"), "billing", 44) }}
+      <p class="mono text-4xl font-bold tracking-tight {{ 'text-bad' if b <= 0 }}">{{ b|usd(2) }}</p>
+    </div>
+    <p class="mt-3 text-sm text-muted">Exact balance: <span class="mono">{{ b|usd(6) }}</span></p>
+  </section>
+
+  <section class="panel p-6" aria-labelledby="buy-h">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 id="buy-h" class="font-semibold">Add credits</h2>
+      {% if not settings.stripe_enabled %}
+      <span class="inline-flex items-center gap-1.5 rounded-full border border-warn/40 bg-warn/10 px-2.5 py-0.5 text-xs font-semibold text-warn">
+        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M6 1.5l4.8 8.5H1.2z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M6 5v2.2M6 8.6v.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Test mode: no real payment
+      </span>
+      {% endif %}
+    </div>
+    <p class="mt-1 text-sm text-muted">
+      {% if settings.stripe_enabled %}You'll pay securely on Stripe's checkout page, then come back here.
+      {% else %}Stripe isn't configured on this server, so these buttons add credits instantly for free. Set <code class="mono text-ink">STRIPE_SECRET_KEY</code> to take real payments.{% endif %}
+    </p>
+    <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {% for amount in settings.credit_packs_usd %}
+      <form method="post" action="/billing/checkout">
+        <input type="hidden" name="amount_usd" value="{{ amount }}">
+        <input type="hidden" name="nonce" value="{{ nonce }}{{ '%08x' % loop.index }}">
+        <button class="group flex w-full flex-col items-start rounded-xl border border-rule bg-paper px-4 py-3 text-left hover:border-reagent focus-visible:border-reagent">
+          <span class="mono text-2xl font-bold">${{ amount }}</span>
+          <span class="text-sm text-muted group-hover:text-reagent">{{ "Add for free" if not settings.stripe_enabled else "Buy with Stripe" }}</span>
+        </button>
+      </form>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<section class="mt-10" aria-labelledby="ledger-h">
+  <div class="flex flex-wrap items-baseline justify-between gap-2">
+    <h2 id="ledger-h" class="casual text-2xl font-[760] tracking-tight">Credit history</h2>
+    <a href="/billing{{ '' if show_all else '?all=1' }}" class="link text-sm">{{ "Hide usage charges" if show_all else "Include usage charges" }}</a>
+  </div>
+  {% if ledger %}
+  <div class="panel mt-4 overflow-x-auto">
+    <table class="data-table">
+      <thead><tr><th>Date</th><th>Description</th><th>Type</th><th>Reference</th><th class="text-right">Amount</th></tr></thead>
+      <tbody>
+      {% for e in ledger %}
+        <tr>
+          <td>{{ time(e.created_at) }}</td>
+          <td>{{ e.description or "–" }}</td>
+          <td class="capitalize">{{ e.kind }}</td>
+          <td class="mono max-w-[14rem] truncate text-[13px] text-muted" title="{{ e.ref }}">
+            {% if e.kind == "usage" %}<a href="/logs/{{ e.ref }}" class="hover:text-reagent">{{ e.ref }}</a>{% else %}{{ e.ref }}{% endif %}
+          </td>
+          <td class="mono text-right font-semibold whitespace-nowrap {{ 'text-ok' if e.amount_micros > 0 }}">{{ "+" if e.amount_micros > 0 }}{{ e.amount_micros|usd }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="mt-4 rounded-xl border border-dashed border-rule px-6 py-8 text-center text-sm text-muted">No credits yet. Add a pack above to start making requests.</p>
+  {% endif %}
+</section>
+{% endblock %}

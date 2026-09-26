@@ -1,0 +1,75 @@
+# CI smoke test: the whole pipeline (download -> release) in ~1 minute on a CPU.
+# The model is far too small and trained far too briefly to be any good.
+seed = 0
+
+[data]
+train_mb = 1                # first N MB of TinyStoriesV2-GPT4-train.txt
+val_mb = 0.5                # first N MB of the validation file (held out)
+digits = [1, 2, 3]          # operand lengths in the pretraining worksheets (and RL)
+heldout_digits = [4]        # never trained on: length generalization
+story_max_chars = 700       # stories told in chat must fit the context
+
+[tokenizer]
+vocab_size = 512
+sample_stories = 1000
+
+[model]
+block_size = 256
+n_layer = 2
+n_head = 2
+n_embd = 96
+
+[pretrain]
+steps = 150
+batch_size = 16
+lr = 3e-3
+warmup = 10
+weight_decay = 0.1
+arith_frac = 0.3            # probability that the next document is an arithmetic worksheet
+eval_every = 50
+val_batches = 2
+
+[midtrain]
+steps = 100
+batch_size = 16
+lr = 2e-3
+warmup = 5
+weight_decay = 0.1
+digits = [1, 2]
+text_frac = 0.2             # share of pretraining documents, against forgetting
+tool_frac = 0.3             # share of conversations with the calculator enabled
+mix = { arithmetic = 0.6, story = 0.2, greeting = 0.2 }
+eval_every = 50
+val_batches = 2
+
+[sft]
+size = 500
+steps = 60
+batch_size = 16
+lr = 1e-3
+warmup = 5
+digits = [1, 2]
+tool_frac = 0.3
+mix = { plain = 0.35, instruction = 0.35, followup = 0.12, refusal = 0.12, identity = 0.06 }
+eval_every = 30
+val_batches = 2
+
+[rl]
+steps = 5
+prompts_per_step = 4
+group_size = 4
+digits = [1, 2, 3]
+chat_digits = [1, 2]
+mix = { add = 0.45, tool = 0.15, number_only = 0.15, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05 }
+max_new_tokens = 96
+temperature = 1.0
+lr = 1e-4
+warmup = 0
+
+[eval]
+n_per_digit = 8
+n_sampled = 8
+n_tool = 4
+n_instr = 4
+max_new_tokens = 128
+ppl_batches = 2

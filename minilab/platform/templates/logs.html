@@ -1,0 +1,44 @@
+{% extends "layout.html" %}
+{% from "_macros.html" import source_tag, status_code, time %}
+{% block title %}Logs · mini-lab{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Logs</h1>
+<p class="page-lede">Every request made by {{ ctx.org.name }}, newest first. Open one to see exactly what was sent and returned.</p>
+
+{% if rows %}
+<div class="panel mt-8 overflow-x-auto">
+  <table class="data-table">
+    <thead>
+      <tr><th>Time</th><th>Model</th><th>Source</th><th>Key</th><th>Status</th>
+        <th class="text-right">Tokens in</th><th class="text-right">Tokens out</th><th class="text-right">Cost</th><th class="text-right">Latency</th></tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+      <tr class="group relative hover:bg-sunken/60">
+        <td><a href="/logs/{{ r.id }}" class="font-semibold after:absolute after:inset-0 group-hover:text-reagent">{{ time(r.created_at) }}</a></td>
+        <td class="whitespace-nowrap">{{ r.model }}</td>
+        <td>{{ source_tag(r.source) }}</td>
+        <td class="max-w-[10rem] truncate">{{ r.api_key_name or "–" }}</td>
+        <td>{{ status_code(r.status_code) }}</td>
+        <td class="mono text-right">{{ r.prompt_tokens|num }}</td>
+        <td class="mono text-right">{{ r.completion_tokens|num }}</td>
+        <td class="mono text-right">{{ r.cost_micros|usd }}</td>
+        <td class="mono text-right whitespace-nowrap">{% if r.latency_ms is not none %}{{ r.latency_ms|num }} ms{% else %}–{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<nav aria-label="Pagination" class="mt-4 flex items-center justify-between text-sm">
+  {% if page > 1 %}<a href="/logs?page={{ page - 1 }}" class="btn btn-quiet">Newer</a>{% else %}<span></span>{% endif %}
+  <span class="text-muted">Page {{ page }}</span>
+  {% if has_next %}<a href="/logs?page={{ page + 1 }}" class="btn btn-quiet">Older</a>{% else %}<span></span>{% endif %}
+</nav>
+{% else %}
+<div class="mt-8 rounded-xl border border-dashed border-rule px-6 py-12 text-center">
+  <p class="font-semibold">{{ "No requests yet" if page == 1 else "No older requests" }}</p>
+  <p class="mt-1 text-sm text-muted">Send one from the <a href="/playground" class="link">playground</a>, the <a href="/chat" class="link">chat app</a> or your own code with an <a href="/api-keys" class="link">API key</a>.</p>
+</div>
+{% endif %}
+{% endblock %}

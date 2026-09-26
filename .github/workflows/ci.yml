@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --frozen
+      - name: Unit and integration tests
+        run: uv run pytest -q
+      - name: Tiny speedrun (data -> tokenizer -> pretrain -> midtrain -> sft -> rl -> eval -> release)
+        run: bash speedrun.sh tiny
+        env:
+          DEVICE: cpu
+      - name: Upload the training report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tiny-run
+          path: |
+            runs/tiny/report.html
+            runs/tiny/*/eval.json
+          if-no-files-found: ignore
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t mini-lab .
+      - name: Serve a random model with docker compose
+        run: |
+          docker run --rm -v "$PWD:/app/out" mini-lab python -c "from minilab.testing import make_random_release; make_random_release('/app/out/models')"
+          echo "MINILAB_INTERNAL_TOKEN=$(openssl rand -hex 32)" > .env
+          docker compose up -d
+          for i in $(seq 1 60); do curl -sf localhost:8000/health && curl -sf localhost:3000/health && exit 0; sleep 1; done
+          docker compose logs; exit 1

@@ -1,0 +1,36 @@
+{% extends "layout.html" if ctx else "public.html" %}
+{% from "_macros.html" import code_block, time %}
+{% block title %}{{ m.id }} · mini-lab{% endblock %}
+
+{% block content %}
+<a href="/models" class="text-sm font-semibold text-muted hover:text-ink">All models</a>
+<h1 class="page-title mt-2">{{ m.id }}</h1>
+<p class="page-lede">{{ m.description or "No description." }}</p>
+
+<dl class="panel mt-6 grid grid-cols-2 gap-px overflow-hidden bg-rule text-sm sm:grid-cols-4">
+  {% for label, value in [
+    ("Released", time(m.created, "%Y-%m-%d")), ("Context", m.context_length|num ~ " tokens"),
+    ("Input, per 1M tokens", "$%.2f" % m.pricing.input_per_1m), ("Output, per 1M tokens", "$%.2f" % m.pricing.output_per_1m),
+  ] %}
+  <div class="bg-surface px-4 py-3"><dt class="text-xs text-muted">{{ label }}</dt><dd class="mt-0.5 font-semibold">{{ value }}</dd></div>
+  {% endfor %}
+</dl>
+{% if m.source_run %}<p class="mt-3 text-sm text-muted">Trained in run <code class="mono text-ink">{{ m.source_run }}</code>.</p>{% endif %}
+
+<section class="mt-10" aria-labelledby="card-h">
+  <h2 id="card-h" class="casual text-2xl font-[760] tracking-tight">Model card</h2>
+  {% if card %}
+  {# Shown as the Markdown source: readable as is, and nothing to sanitize. #}
+  <pre class="panel mono mt-4 max-w-4xl overflow-x-auto p-6 text-[13px] leading-relaxed whitespace-pre-wrap">{{ card }}</pre>
+  {% else %}
+  <p class="mt-3 text-sm text-muted">This release has no MODEL_CARD.md.</p>
+  {% endif %}
+</section>
+
+{% if evals %}
+<section class="mt-10" aria-labelledby="eval-h">
+  <h2 id="eval-h" class="casual text-2xl font-[760] tracking-tight">Evaluation results</h2>
+  <div class="mt-4 max-w-4xl">{{ code_block("evals", evals|pretty_json) }}</div>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_macros.html" import brand %}
+{# Shell for logged-out visitors: landing, docs, models, status, login and signup. #}
+
+{% block body %}
+<a href="#main" class="sr-only z-50 rounded-lg bg-surface px-3 py-2 focus:not-sr-only focus:fixed focus:top-3 focus:left-3">Skip to content</a>
+<header class="border-b border-rule bg-paper/90 backdrop-blur {% block header_class %}sticky top-0 z-20{% endblock %}">
+  <div class="mx-auto flex h-16 max-w-6xl items-center gap-6 px-4 md:px-8">
+    {{ brand("/") }}
+    <nav aria-label="Main" class="hidden items-center gap-5 text-sm font-semibold text-muted sm:flex">
+      {% for href, label in [("/docs", "API reference"), ("/models", "Models & pricing"), ("/status", "Status")] %}
+      <a href="{{ href }}" class="hover:text-ink {{ 'text-ink' if request.url.path.startswith(href) }}" {% if request.url.path.startswith(href) %}aria-current="page"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </nav>
+    <div class="ml-auto flex items-center gap-2">
+      <a href="/login" class="btn px-3 text-muted hover:text-ink">Log in</a>
+      <a href="/signup" class="btn btn-primary">Sign up</a>
+    </div>
+  </div>
+  <nav aria-label="Sections" class="flex gap-5 overflow-x-auto border-t border-rule px-4 py-2 text-sm font-semibold text-muted sm:hidden">
+    <a href="/docs" class="hover:text-ink">API reference</a>
+    <a href="/models" class="hover:text-ink">Models & pricing</a>
+    <a href="/status" class="hover:text-ink">Status</a>
+  </nav>
+</header>
+
+<main id="main" class="{% block main_class %}mx-auto w-full max-w-6xl px-4 py-10 md:px-8{% endblock %}">
+  {% if flash %}
+  <div role="status" class="mb-6 rounded-xl border border-reagent/30 bg-reagent-soft px-4 py-3 text-sm">{{ flash }}</div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="border-t border-rule">
+  <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-8 text-sm text-muted md:px-8">
+    <span class="casual font-bold text-ink">mini-lab</span>
+    <span>An open-source AI lab in miniature.</span>
+    <a href="/docs" class="hover:text-ink">API reference</a>
+    <a href="/status" class="hover:text-ink">Status</a>
+  </div>
+</footer>
+{% endblock %}

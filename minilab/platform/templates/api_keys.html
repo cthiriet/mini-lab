@@ -1,0 +1,90 @@
+{% extends "layout.html" %}
+{% from "_macros.html" import copy_button, time %}
+{% block title %}API keys · mini-lab{% endblock %}
+
+{% block content %}
+<h1 class="page-title">API keys</h1>
+<p class="page-lede">Keys let your code call the API on behalf of {{ ctx.org.name }}. Treat them like passwords: anyone with a key can spend your credits.</p>
+
+{% if secret %}
+<section class="mt-8 rounded-xl border-2 border-reagent bg-surface p-5 sm:p-6" aria-labelledby="secret-h">
+  <h2 id="secret-h" class="casual text-xl font-[760]">Save your new key</h2>
+  <p class="mt-1 text-sm text-muted">Copy it now and store it somewhere safe. We only keep a fingerprint of it, so this is the only time it will be shown.</p>
+  <div class="mt-4 flex flex-col gap-2 sm:flex-row">
+    <label for="new-secret" class="sr-only">Secret key for {{ new_key.name }}</label>
+    <input id="new-secret" class="field mono min-w-0 flex-1 select-all" readonly value="{{ secret }}">
+    {{ copy_button("#new-secret", "Copy key") }}
+  </div>
+  <p class="mt-3 text-sm text-muted">Next: set it as <code class="mono text-ink">MINILAB_API_KEY</code> in your shell and run the quickstart from the <a href="/overview" class="link">overview</a>.</p>
+</section>
+<script>
+  // Drop the POST from history so a reload doesn't create another key.
+  history.replaceState(null, "", "/api-keys");
+</script>
+{% endif %}
+
+<section class="panel mt-8 p-5 sm:p-6" aria-labelledby="create-h">
+  <h2 id="create-h" class="font-semibold">Create a key</h2>
+  {% if error %}<p role="alert" class="mt-3 rounded-lg border border-bad/30 bg-bad/5 px-3 py-2 text-sm text-bad">{{ error }}</p>{% endif %}
+  <form method="post" action="/api-keys" class="mt-4 grid grid-cols-1 items-start gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_12rem_auto]">
+    <div>
+      <label for="key-name" class="label">Name</label>
+      <input id="key-name" name="name" class="field" maxlength="80" placeholder="Story generator" required>
+    </div>
+    <div>
+      <label for="key-project" class="label">Project</label>
+      <select id="key-project" name="project_id" class="field">
+        {% for p in projects %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="key-limit" class="label">Spend limit <span class="font-normal text-muted">(optional)</span></label>
+      <div class="relative">
+        <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted">$</span>
+        <input id="key-limit" name="spend_limit_usd" class="field mono pl-7" inputmode="decimal" placeholder="No limit" aria-describedby="key-limit-hint">
+      </div>
+      <p id="key-limit-hint" class="hint">The key stops working once it has spent this much.</p>
+    </div>
+    <button class="btn btn-primary md:mt-[1.625rem]">Create key</button>
+  </form>
+</section>
+
+<section class="mt-8" aria-labelledby="keys-h">
+  <h2 id="keys-h" class="sr-only">Your keys</h2>
+  {% if keys %}
+  <div class="panel overflow-x-auto">
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>Key</th><th>Project</th><th>Created</th><th>Last used</th><th class="text-right">Spend</th><th><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+      {% for k in keys %}
+        <tr class="{{ 'text-muted' if k.revoked_at }}">
+          <td class="font-semibold">{{ k.name }}</td>
+          <td class="mono text-[13px] whitespace-nowrap">{{ k.key_hint }}</td>
+          <td class="whitespace-nowrap">{{ k.project_name }}</td>
+          <td>{{ time(k.created_at, "%Y-%m-%d") }}</td>
+          <td>{% if k.last_used_at %}{{ time(k.last_used_at) }}{% else %}<span class="text-muted">Never</span>{% endif %}</td>
+          <td class="mono text-right whitespace-nowrap">
+            {{ k.spend_micros|usd }}{% if k.spend_limit_micros is not none %}<span class="text-muted"> of {{ k.spend_limit_micros|usd(2) }}</span>{% endif %}
+          </td>
+          <td class="text-right">
+            {% if k.revoked_at %}
+              <span class="text-xs font-semibold whitespace-nowrap">Revoked {{ time(k.revoked_at, "%Y-%m-%d") }}</span>
+            {% else %}
+              <form method="post" action="/api-keys/{{ k.id }}/revoke" data-confirm="Revoke “{{ k.name }}”? Requests using this key will fail immediately.">
+                <button class="btn btn-danger px-2.5 py-1 text-xs">Revoke</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="rounded-xl border border-dashed border-rule px-6 py-10 text-center">
+    <p class="font-semibold">No keys yet</p>
+    <p class="mt-1 text-sm text-muted">Create one above to call the API from your own code.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
