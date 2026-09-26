@@ -2,11 +2,12 @@
 # The whole training pipeline, from downloading data to a released model.
 #
 #   bash speedrun.sh small     # ~16 min on an Apple M5 Pro (MPS), ~36 min CPU-only -> models/mini-1
-#   bash speedrun.sh tiny      # smoke test, ~20 s                                  -> models/mini-tiny
+#   bash speedrun.sh tiny      # smoke test, ~20 s                                  -> runs/tiny/models/mini-tiny
 #
 # Environment: RUN (run directory, default runs/<preset>), DEVICE (auto|cpu|mps|cuda; default
 # auto = cuda, else mps, else cpu, with RL and eval preferring the CPU over mps),
-# MINILAB_DATA_DIR (download cache, default data/), MINILAB_MODELS_DIR (default models/).
+# MINILAB_DATA_DIR (download cache, default data/), MINILAB_MODELS_DIR (default models/, or
+# $RUN/models for the tiny smoke test, so it never shows up next to real models).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -16,7 +17,7 @@ RUN="${RUN:-runs/${PRESET}}"
 DEVICE="${DEVICE:-auto}"
 case "$PRESET" in
   small) ID="mini-1" ;;
-  tiny) ID="mini-tiny" ;;
+  tiny) ID="mini-tiny"; export MINILAB_MODELS_DIR="${MINILAB_MODELS_DIR:-$RUN/models}" ;;
   *) ID="mini-${PRESET}" ;;
 esac
 [ -f "$CONFIG" ] || { echo "no such config: $CONFIG" >&2; exit 1; }

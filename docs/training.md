@@ -8,7 +8,7 @@ shows up in a fixed eval.
 
 ```bash
 bash speedrun.sh small            # ~16 min on an Apple M5 Pro (MPS + CPU), ~36 min CPU-only -> models/mini-1
-bash speedrun.sh tiny             # ~20 s smoke test (CI)                                   -> models/mini-tiny
+bash speedrun.sh tiny             # ~20 s smoke test (CI)                                   -> runs/tiny/models/mini-tiny
 DEVICE=cpu bash speedrun.sh small # force the CPU
 ```
 
