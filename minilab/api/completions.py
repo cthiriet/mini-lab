@@ -1,6 +1,7 @@
 """POST /v1/chat/completions.
 
-    authenticate -> validate -> resolve model -> quota -> rate limit -> inference -> bill
+    authenticate -> rate limit (requests) -> validate -> resolve model -> quota
+        -> check prompt length -> rate limit (tokens) -> inference -> bill
 
 Every authenticated request is logged, failures included (with cost 0). With
 `stream: true` the inference server's events are translated into OpenAI

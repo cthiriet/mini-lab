@@ -36,7 +36,7 @@ rl               7.37  100%  100%  100%  100%  91%   0%     89%        97%      
 |---|---|
 | `ppl` | perplexity on held-out TinyStories (the official validation file, never trained on) |
 | `Nd` | exact-match accuracy on 100 N-digit additions, greedy. Chat stages are asked in the chat format ("What is 347 + 58?"), and the whole visible answer must be exactly `The answer is 405.` The base model has never seen a chat token, so it gets the raw-text prompt `347 + 58 =` and must continue with the sum, without a scratchpad. |
-| `6d*` | held out: no 6-digit number appears anywhere in training (length generalization) |
+| `6d*` | held out: no 6-digit number is ever an operand in training (length generalization). Some 5-digit sums have 6 digits, but they are only ever answers. |
 | `5d@T=1` | 5-digit questions sampled at temperature 1, the API default |
 | `tool call` | with `tools=["calculator"]` (1-5 digits): the first turn is exactly one calculator call, whose expression evaluates to the right answer, and nothing else |
 | `tool ans` | ...and after the tool result is appended, the final answer is exactly right |
@@ -73,7 +73,7 @@ What each stage did:
   from ~0% to 91-100%, and with them calculator calls on long numbers and format
   adherence. Instruction following is kept, because it is in the RL mix. Perplexity on
   raw stories creeps up slightly (6.3 → 7.4 over SFT + RL): the alignment tax.
-- Nothing reaches 6 digits, which never appear in training.
+- Nothing reaches 6 digits: no 6-digit number is ever an operand in training.
 
 Wall-clock of the small speedrun on an Apple M5 Pro (18 cores, 64 GB):
 
@@ -412,8 +412,8 @@ eval, which pick the CPU over MPS. `--device` forces a device. The loop avoids a
 - It is a toy: children's stories and addition, no world knowledge. Stories are
   simple and sometimes drift or repeat. The context is 256 tokens.
 - No length generalization: 6-digit additions fail (the model copies the long
-  numbers wrong). The scratchpad makes each step local, but restating a longer
-  number than ever seen is still out of distribution.
+  numbers wrong). The scratchpad makes each step local, but restating an operand
+  longer than any seen in training is still out of distribution.
 - Instruction following covers exactly the four trained system prompts. Other
   instructions are ignored. Refusal is keyed on surface patterns and can misfire on
   unusual phrasings.
