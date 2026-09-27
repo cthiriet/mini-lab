@@ -21,7 +21,9 @@ from minilab.registry import ModelInfo, Pricing, write_release
 from minilab.settings import get_settings
 from minilab.train.trainer import STAGES
 
-PRICING = Pricing(input_per_1m=0.50, output_per_1m=1.50)  # USD per 1M tokens
+# USD per 1M tokens: the frontier flagship tier (Claude Fable 5.1, GPT-6 Astra), so that a
+# tiny model's tiny answers still cost something you can see: about a cent per story.
+PRICING = Pricing(input_per_1m=10.0, output_per_1m=50.0)
 
 
 def release(run: Path, stage: str, model_id: str, models_dir: Path) -> Path:

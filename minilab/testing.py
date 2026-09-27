@@ -32,7 +32,7 @@ def make_random_release(models_dir: str | Path, model_id: str = "mini-random", s
     save_checkpoint(out, model, tok, {"stage": "random"})
     write_release(out, ModelInfo(
         id=model_id, created=int(time.time()), description="Random weights, for testing the serving stack.",
-        context_length=model.config.block_size, pricing=Pricing(input_per_1m=0.50, output_per_1m=1.50),
+        context_length=model.config.block_size, pricing=Pricing(input_per_1m=10.0, output_per_1m=50.0),
     ))
     return out
 

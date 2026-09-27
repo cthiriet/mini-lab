@@ -12,7 +12,7 @@ release.json:
       "created": 1760000000,              # unix seconds
       "description": "...",
       "context_length": 256,
-      "pricing": {"input_per_1m": 0.50, "output_per_1m": 1.50},   # USD per 1M tokens
+      "pricing": {"input_per_1m": 10.0, "output_per_1m": 50.0},   # USD per 1M tokens
       "source_run": "runs/2026-09-25-small"
     }
 """
@@ -26,8 +26,8 @@ from pathlib import Path
 
 @dataclass
 class Pricing:
-    input_per_1m: float = 0.50   # USD per 1M prompt tokens
-    output_per_1m: float = 1.50  # USD per 1M completion tokens
+    input_per_1m: float = 10.0   # USD per 1M prompt tokens
+    output_per_1m: float = 50.0  # USD per 1M completion tokens
 
     def cost_micros(self, prompt_tokens: int, completion_tokens: int) -> int:
         """Cost in micro-dollars (1e-6 USD). USD/1M tokens == micro-USD/token."""

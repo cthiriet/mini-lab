@@ -347,8 +347,9 @@ samples. `eval/model_card.py` writes `MODEL_CARD.md`: architecture, data, per-st
 training stats, the eval table and samples.
 
 `release.py` copies the checkpoint to `models/<id>/` (`MINILAB_MODELS_DIR`) with
-`release.json` (`registry.ModelInfo`: context length 256, pricing $0.50 / $1.50 per
-1M input/output tokens), `eval.json` and `MODEL_CARD.md`.
+`release.json` (`registry.ModelInfo`: context length 256, pricing $10 / $50 per 1M
+input/output tokens, the flagship tier of Claude Fable 5.1 and GPT-6 Astra, so that
+a story costs about a cent), `eval.json` and `MODEL_CARD.md`.
 
 ## What we tuned, and why
 

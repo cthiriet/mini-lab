@@ -97,7 +97,7 @@ def test_release_and_model_card(model_and_tok, tmp_path: Path):
     out = release(run, "rl", "mini-test", tmp_path / "models")
     info = load_model_info(out)
     assert info.id == "mini-test" and info.context_length == 64
-    assert info.pricing.input_per_1m == 0.50 and info.pricing.output_per_1m == 1.50
+    assert info.pricing.input_per_1m == 10.0 and info.pricing.output_per_1m == 50.0
     card = (out / "MODEL_CARD.md").read_text()
     assert card.startswith("# mini-test") and "pretrain (base)" in card
     assert (out / "eval.json").exists()

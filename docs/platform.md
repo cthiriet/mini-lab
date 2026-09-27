@@ -115,7 +115,7 @@ data: {"type": "delta", "content": "347 + 58"}
 data: {"type": "delta", "reasoning": "…"}                       # scratchpad
 data: {"type": "tool", "name": "calculator", "input": "347 + 58", "output": "405", "ok": true}
 data: {"type": "error", "status": 429, "code": "insufficient_quota", "message": "…"}
-data: {"type": "done", "finish_reason": "stop", "usage": {…}, "cost": "$0.000114", "request_ids": […], "latency_ms": …, "ttft_ms": …}
+data: {"type": "done", "finish_reason": "stop", "usage": {…}, "cost": "$0.003510", "request_ids": […], "latency_ms": …, "ttft_ms": …}
 ```
 
 **Tool loop.** With the calculator enabled, the request declares the `calculator`

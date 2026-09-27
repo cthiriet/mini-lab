@@ -233,7 +233,7 @@ objects with mini-lab extras:
 {"object": "list", "data": [{
   "id": "mini-2", "object": "model", "created": 1760000000, "owned_by": "mini-lab",
   "description": "...", "context_length": 256,
-  "pricing": {"input_per_1m": 0.5, "output_per_1m": 1.5}
+  "pricing": {"input_per_1m": 10.0, "output_per_1m": 50.0}
 }]}
 ```
 
