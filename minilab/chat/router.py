@@ -19,16 +19,24 @@ router = APIRouter()
 CHAT_TEMPERATURE = 0.6
 
 
+def estimate_tokens(text: str) -> int:
+    """~4 characters per token, except digits: the tokenizer always splits them, one token
+    each. (Counting them as ~4 per token kept 7 turns of additions, 171 real tokens, and
+    left too little room for a 5-digit scratchpad.)"""
+    digits = sum(c.isdigit() for c in text)
+    return digits + (len(text) - digits) // 4
+
+
 def recent_turns(messages: list[dict], context_length: int) -> list[dict]:
     """The most recent turns whose prompt leaves about half the context for the answer.
 
     The model's context is tiny (a few hundred tokens): after a long story, the whole
     conversation would still *fit*, but leave no room to reply. So, like a short memory,
-    we keep only the latest turns (~4 characters per token, a few template tokens per
-    message), always starting at a user message."""
+    we keep only the latest turns (a few template tokens per message), always starting at
+    a user message."""
     budget, used, start = context_length // 2, 0, len(messages)
     for i in range(len(messages) - 1, -1, -1):
-        used += len(messages[i].get("content") or "") // 4 + 4
+        used += estimate_tokens(messages[i].get("content") or "") + 4
         if used > budget and start < len(messages):
             break
         start = i

@@ -61,12 +61,14 @@ def story_batches(tok: Tokenizer, stories: list[str], batch_size: int, block_siz
 
 def chat_batch(tok: Tokenizer, conversations: list[dict], block_size: int) -> Batch:
     """One padded row per conversation; targets are -1 except on assistant tokens (only
-    the last assistant turn when conv["train_on"] == "last": the rest is just context)."""
+    the answer to the last user message when conv["train_on"] == "last": the rest is just
+    context). That answer can span several assistant turns: the calculator call, then,
+    after the tool's result, the final answer."""
     rows = []
     for conv in conversations:
         ids, mask = render_conversation(tok, conv["messages"], conv.get("tools"))
         if conv.get("train_on") == "last":
-            last = len(ids) - 1 - ids[::-1].index(tok.special("<|assistant_start|>"))
+            last = len(ids) - 1 - ids[::-1].index(tok.special("<|user_start|>"))
             mask = [0] * last + mask[last:]
         ids, mask = ids[:block_size + 1], mask[:block_size + 1]
         rows.append((ids[:-1], [t if m else -1 for t, m in zip(ids[1:], mask[1:])]))

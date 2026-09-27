@@ -169,6 +169,21 @@ def instruction_conversation(rng: random.Random, instruction: str, digits: list[
     return {"messages": [{"role": "system", "content": INSTRUCTIONS[instruction]}, *messages], "tools": tools}
 
 
+def new_question_conversation(rng: random.Random, digits: list[int], stories: StoryPool, tools: bool) -> dict:
+    """A new, unrelated addition after an earlier answer: it has its own operands. Every other
+    multi-turn conversation is a follow-up that builds on the last total, and with only those
+    the model learned that a second addition always starts from it ("766 + 989" after "The
+    answer is 405." became 405 + 989)."""
+    first = rng.choices(["arithmetic", "story", "greeting"], weights=[0.6, 0.2, 0.2])[0]
+    history = single_turn(rng, first, digits, stories, tools)
+    if first == "story":  # a short one, so the new question still fits the context
+        history[-1] = assistant(" ".join(re.findall(r"[^.!?]+[.!?]", history[-1]["content"])[:2]).strip()
+                                or history[-1]["content"])
+    messages = arithmetic.client_history(history, compact=rng.random() < 0.5)
+    messages += arithmetic.exchange(rng, digits, tools)[0]
+    return {"messages": messages, "tools": ["calculator"] if tools else None, "train_on": "last"}
+
+
 def sft_conversation(rng: random.Random, mix: dict[str, float], digits: list[int], stories: StoryPool,
                      tool_frac: float) -> dict:
     tools = rng.random() < tool_frac
@@ -183,11 +198,14 @@ def sft_conversation(rng: random.Random, mix: dict[str, float], digits: list[int
         return instruction_conversation(rng, rng.choice(["number_only", *INSTRUCTIONS]), digits, stories)
     if kind == "followup":  # short numbers, so every operand stays within the trained lengths
         messages, total = arithmetic.exchange(rng, [1, 2], tools)
+        compact = rng.random() < 0.5
         for _ in range(rng.randint(1, 2)):
             turn, total = arithmetic.followup(rng, total, [1, 2], tools)
-            messages = arithmetic.without_reasoning(messages) + turn
+            messages = arithmetic.client_history(messages, compact) + turn
         # the history's answers have no scratchpad: context to read, not answers to imitate
         return {"messages": messages, "tools": ["calculator"] if tools else None, "train_on": "last"}
+    if kind == "new_question":
+        return new_question_conversation(rng, digits, stories, tools)
     elif kind == "refusal":
         messages = [user(fill(rng, rng.choice(OUT_OF_SCOPE))), assistant(rng.choice(REFUSALS))]
     elif kind == "identity":

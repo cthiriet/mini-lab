@@ -109,6 +109,10 @@ def test_reward(tok):
     assert reward(tok, tok.encode("Sure! The answer is 7.") + [end], sure) == 1.0
     assert reward(tok, tok.encode("Sure! Bye!") + [end], sure) == 0.0  # the hack RL found
     assert reward(tok, tok.encode("The answer is 7.") + [end], sure) == 0.0
+    new = {"kind": "new_question", "messages": [{"role": "user", "content": "766 + 989"}], "a": 766, "b": 989, "answer": 1755, "tools": None}
+    assert reward(tok, tok.encode("The answer is 1755.") + [end], new) == 1.0
+    assert reward(tok, tok.encode("The answer is 1394.") + [end], new) == 0.0  # 405 + 989: the last total reused
+    assert reward(tok, call, {**new, "a": 3, "b": 4, "answer": 7, "tools": ["calculator"]}) == 1.0
     assert reward(tok, tok.encode("Once upon a time, there was a cat.") + [end], {"kind": "one_sentence", "messages": []}) == 1.0
     assert reward(tok, tok.encode("Once upon a time. The end.") + [end], {"kind": "one_sentence", "messages": []}) == 0.0
 

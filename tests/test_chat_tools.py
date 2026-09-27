@@ -75,3 +75,8 @@ def test_recent_turns_leaves_room_for_the_answer():
     short = [{"role": "user", "content": "Hi!"}, {"role": "assistant", "content": "Hello!"}, {"role": "user", "content": "What is 2 + 2?"}]
     assert recent_turns(short, 256) == short
     assert recent_turns([{"role": "user", "content": "x" * 5000}], 256)[0]["content"] == "x" * 5000  # never empty
+    # digits are one token each: 20 turns of 3-digit additions keep far fewer turns than 20
+    additions = [m for i in range(20) for m in ({"role": "user", "content": f"What is {100 + i} + {250 + i}?"},
+                                                 {"role": "assistant", "content": f"The answer is {350 + 2 * i}."})]
+    kept = recent_turns(additions + [{"role": "user", "content": "What is 34521 + 88790?"}], 256)
+    assert sum(m["role"] == "user" for m in kept) <= 6

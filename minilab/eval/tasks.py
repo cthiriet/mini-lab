@@ -30,7 +30,8 @@ import torch
 
 from minilab.data import arithmetic
 from minilab.data.conversations import (GREETINGS, IDENTITY, INSTRUCTIONS, NAME, OUT_OF_SCOPE, OUT_OF_SCOPE_EVAL,
-                                        STORY_REQUESTS, TOPIC_REQUESTS, TOPICS, fill, is_refusal, mentions, user)
+                                        STORY_REQUESTS, TOPIC_REQUESTS, TOPICS, assistant, fill, is_refusal, mentions,
+                                        user)
 from minilab.data.loader import story_batches
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
@@ -38,7 +39,8 @@ from minilab.tokenizer.chat import parse_completion, render_prompt
 from minilab.train.trainer import evaluate_loss
 
 EVAL_SEED = 1234
-INSTRUCTION_KINDS = ["number_only", "no_calculator", "one_sentence", "sure", "followup", "refusal", "identity"]
+INSTRUCTION_KINDS = ["number_only", "no_calculator", "one_sentence", "sure", "followup", "new_question", "refusal",
+                     "identity"]
 STORY_EVAL_REQUESTS = ["Tell me a story about {t}.", "Can you tell me a story about {t}?", "Write a short story about {t}."]
 CHAT_PROMPTS = [  # scored for format only, and kept as samples in eval.json
     ([user("Hi!")], None),
@@ -94,6 +96,19 @@ def make_problem(kind: str, rng: random.Random, digits: list[int], held_out: boo
         turn, total = arithmetic.followup(rng, a, [1, 2], tools=False)
         return {"kind": kind, "messages": arithmetic.without_reasoning(messages) + turn[:1], "tools": None,
                 "a": a, "b": total - a, "answer": total}
+    if kind == "new_question":  # a fresh addition after an earlier answer: its own operands, not the last total
+        tools = rng.random() < 0.5
+        first = rng.choice(["add", "add", "story", "greeting"])
+        if first == "add":
+            history = arithmetic.client_history(arithmetic.exchange(rng, digits, tools)[0], rng.random() < 0.5)
+        elif first == "story":
+            history = [user(rng.choice(STORY_REQUESTS)),
+                       assistant("Once upon a time, there was a little cat named Tom. Tom liked to play in the sun.")]
+        else:
+            users, replies = rng.choice(GREETINGS)
+            history = [user(rng.choice(users)), assistant(rng.choice(replies))]
+        p = arithmetic.prompt(rng, arithmetic.sample_digits(rng, digits), tools)
+        return {**p, "kind": kind, "messages": history + p["messages"], "tools": ["calculator"] if tools else None}
     if kind == "refusal":
         question = fill(rng, rng.choice(OUT_OF_SCOPE_EVAL if held_out else OUT_OF_SCOPE))
         return {"kind": kind, "messages": [user(question)], "tools": ["calculator"] if rng.random() < 0.5 else None}
@@ -152,7 +167,8 @@ def grade(tok: Tokenizer, completion: list[int], problem: dict) -> bool:
         return False
     S = tok.special
     specials = [t for t in completion[:completion.index(S("<|assistant_end|>"))] if tok.is_special(t)]
-    if problem["kind"] == "tool" and problem["messages"][-1]["role"] != "tool":  # the call itself
+    calls = problem["kind"] == "tool" or (problem["kind"] == "new_question" and problem["tools"])
+    if calls and problem["messages"][-1]["role"] != "tool":  # the call itself
         expression = arithmetic.call_expression(c.tool_calls[0]) if len(c.tool_calls) == 1 else None
         return specials == [S("<|tool_call_start|>"), S("<|tool_call_end|>")] and not c.content.strip() \
             and expression is not None and arithmetic.calculator(expression) == str(problem["answer"])
@@ -162,7 +178,7 @@ def grade(tok: Tokenizer, completion: list[int], problem: dict) -> bool:
 def check_answer(content: str, problem: dict) -> bool:
     """Is this visible answer exactly right for the problem?"""
     kind = problem["kind"]
-    if kind in ("add", "tool", "no_calculator", "followup"):  # "tool" here: the answer after the result
+    if kind in ("add", "tool", "no_calculator", "followup", "new_question"):  # "tool": the answer after the result
         return content == arithmetic.answer_text(problem["a"], problem["b"])
     if kind == "number_only":
         return content == str(problem["answer"])

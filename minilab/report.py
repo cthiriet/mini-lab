@@ -41,6 +41,7 @@ EVAL_ROWS = [
     ("instructions.one_sentence", "· system prompt: one sentence", "pct"),
     ("instructions.sure", "· system prompt: start with “Sure”", "pct"),
     ("instructions.followup", "· multi-turn follow-up", "pct"),
+    ("instructions.new_question", "· new question after an answer", "pct"),
     ("instructions.refusal", "· refuses out-of-scope questions", "pct"),
     ("instructions.identity", "· knows who it is", "pct"),
     ("instructions.over_refusal", "· answers in-scope requests (no over-refusal)", "inv"),

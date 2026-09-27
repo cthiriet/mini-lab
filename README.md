@@ -25,13 +25,13 @@ Each part of a real lab has a minimal, readable version here:
 | **Platform** | Sign-up, orgs and projects, API keys, usage, logs, billing (Stripe), playground, docs | [`minilab/platform`](minilab/platform), [docs/platform.md](docs/platform.md) |
 | **Product** | A ChatGPT-like chat app with a calculator tool | [`minilab/chat`](minilab/chat) |
 
-Everything runs on a CPU. The whole training pipeline, from raw text to a released model, runs in about 44 minutes on a laptop CPU, or about 22 minutes with an Apple Silicon GPU.
+Everything runs on a CPU. The whole training pipeline, from raw text to a released model, runs in about 45 minutes on a laptop CPU, or about 23 minutes with an Apple Silicon GPU.
 
 ## The model: `mini-2`
 
 A 5.8M-parameter GPT that writes short children's stories and adds numbers, either step by step or with a calculator tool. It's tiny on purpose: every training stage has an effect you can measure.
 
-It replaces `mini-1`: same data and size, but pretrained with [Muon](docs/training.md#what-we-tuned-and-why) instead of AdamW, and a math specialist distilled into the SFT model instead of a single RL run. Story perplexity went from 7.37 to 6.36 and 5-digit additions from 91% to 100%.
+It replaces `mini-1`: same data and size, but pretrained with [Muon](docs/training.md#what-we-tuned-and-why) instead of AdamW, and a math specialist distilled into the SFT model instead of a single RL run. Story perplexity went from 7.37 to 6.39 and 5-digit additions from 91% to 100%.
 
 | Stage | What it teaches |
 |---|---|

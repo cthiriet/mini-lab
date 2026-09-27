@@ -1,5 +1,5 @@
-# The speedrun: the whole pipeline in ~44 minutes on a laptop CPU (Apple M5 Pro), or
-# ~22 minutes when training runs on the Mac's GPU (--device auto picks MPS).
+# The speedrun: the whole pipeline in ~45 minutes on a laptop CPU (Apple M5 Pro), or
+# ~23 minutes when training runs on the Mac's GPU (--device auto picks MPS).
 seed = 0
 optimizer = "muon"          # the hidden matrices on Muon, embedding and norms on AdamW (train/trainer.py)
 
@@ -59,7 +59,7 @@ lr = 3e-4
 warmup = 20
 digits = [1, 2, 3]
 tool_frac = 0.3
-mix = { plain = 0.35, instruction = 0.35, followup = 0.12, refusal = 0.12, identity = 0.06 }
+mix = { plain = 0.23, instruction = 0.35, followup = 0.12, new_question = 0.12, refusal = 0.12, identity = 0.06 }
 eval_every = 200
 log_every = 25
 
@@ -82,7 +82,7 @@ steps = 300
 prompts_per_step = 32       # one answer each: 4x fewer samples than [rl]
 digits = [1, 2, 3, 4, 5]
 chat_digits = [1, 2, 3]
-mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05 }
+mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05, story = 0.05 }
 teachers = { add = "rl_math", tool = "rl_math" }   # every other kind: the SFT model
 max_new_tokens = 224
 temperature = 1.0
@@ -98,7 +98,7 @@ prompts_per_step = 16
 group_size = 8
 digits = [1, 2, 3, 4, 5]    # additions: every length seen in pretraining; 4-5 are new in chat
 chat_digits = [1, 2, 3]     # the other problems (instructions...) keep the chat lengths
-mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05 }
+mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05 }
 max_new_tokens = 224         # room for a whole story ("Sure! Once upon a time...")
 temperature = 1.0
 lr = 1e-4

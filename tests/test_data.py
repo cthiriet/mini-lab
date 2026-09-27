@@ -180,6 +180,12 @@ def test_chat_batch_trains_on_last_turn_only(tok):
     assert tok.decode(trained) == "Goodbye!<|assistant_end|>"
     assert (y_all[0] != -1).sum() > len(trained)
 
+    # the last answer includes its calculator call, not just the final answer after the result
+    with_tool = messages[:2] + arithmetic.exchange(random.Random(0), [2], tools=True)[0]
+    _, y_tool = chat_batch(tok, [{"messages": with_tool, "tools": ["calculator"], "train_on": "last"}], block_size=256)
+    trained = y_tool[0][y_tool[0] != -1].tolist()
+    assert trained.count(tok.special("<|tool_call_start|>")) == 1 and trained.count(tok.special("<|assistant_end|>")) == 2
+
 
 def test_chat_batch_truncates(tok):
     conv = {"messages": [{"role": "user", "content": "Tell me a story."}, {"role": "assistant", "content": " ".join(STORIES * 5)}]}

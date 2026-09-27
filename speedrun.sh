@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The whole training pipeline, from downloading data to a released model.
 #
-#   bash speedrun.sh small     # ~22 min on an Apple M5 Pro (MPS), ~44 min CPU-only -> models/mini-2
+#   bash speedrun.sh small     # ~23 min on an Apple M5 Pro (MPS), ~45 min CPU-only -> models/mini-2
 #   bash speedrun.sh tiny      # smoke test, ~20 s                                  -> runs/tiny/models/mini-tiny
 #
 # Environment: RUN (run directory, default runs/<preset>), DEVICE (auto|cpu|mps|cuda; default

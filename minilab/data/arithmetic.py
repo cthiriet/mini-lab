@@ -200,6 +200,15 @@ def without_reasoning(messages: list[dict]) -> list[dict]:
     return [{k: v for k, v in m.items() if k != "reasoning"} for m in messages]
 
 
+def client_history(messages: list[dict], compact: bool = False) -> list[dict]:
+    """The history as a client sends it back: never the scratchpads, and with compact, not
+    the calculator round trips either (the chat app only keeps each turn's final answer)."""
+    history = without_reasoning(messages)
+    if compact:
+        history = [m for m in history if m["role"] != "tool" and not m.get("tool_calls")]
+    return history
+
+
 def followup(rng: random.Random, total: int, digits: list[int], tools: bool) -> tuple[list[dict], int]:
     """A follow-up about the previous result ("And add 25 to that?") and its answer."""
     c = sample_number(rng, rng.choice(digits))
