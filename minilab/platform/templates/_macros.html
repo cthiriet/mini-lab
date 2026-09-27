@@ -1,10 +1,10 @@
 {# Small building blocks shared by every page. #}
 
 {% macro flask_icon(level=0.55, fill_class="text-reagent", uid="brand", size=18, bubbles=False) -%}
-{# The mini-lab mark: the flask of docs/assets/logo.svg, drawn inline so the glass
-   follows the text colour in both themes. `level` (0..1) sets how full it is,
-   measured on the body, below the neck: 0.55 is the logo's own level. `bubbles`
-   adds the ones escaping through the neck, as on the logo. #}
+{# The balance gauge: a flask whose liquid shows how much credit is left, drawn
+   inline so the glass follows the text colour in both themes. `level` (0..1)
+   sets how full it is, measured on the body, below the neck. `bubbles` adds the
+   ones escaping through the neck. The brand itself is `logo` below. #}
 <svg viewBox="0 0 120 128" width="{{ '%.1f' % (size * 0.9375) }}" height="{{ size }}" aria-hidden="true" class="shrink-0">
   <defs><clipPath id="flask-{{ uid }}"><path d="M53 18v32L23 100a8 8 0 0 0 7 12h60a8 8 0 0 0 7-12L67 50V18z"/></clipPath></defs>
   {% set top = 112 - (62 * level) %}
@@ -24,9 +24,28 @@
 </svg>
 {%- endmacro %}
 
+{% macro logo(size=20) -%}
+{# The mini-lab mark, as docs/assets/logo.svg draws it: a chip wired out like a
+   neural net. Inline so the traces follow the text colour in both themes. #}
+<svg viewBox="0 0 64 64" width="{{ size }}" height="{{ size }}" aria-hidden="true" class="shrink-0">
+  <g fill="none" stroke-width="2.2">
+    {% for a in (0, 90, 180, 270) %}
+    <g transform="rotate({{ a }} 32 32)">
+      <path d="M28.5 26V16.5L24.9 12.9" stroke="currentColor" stroke-linejoin="round"/>
+      <path d="M35.5 26V13.9" stroke="currentColor"/>
+      <circle cx="22.5" cy="10.5" r="2.3" stroke="#C4236A"/>
+      <circle cx="35.5" cy="10.5" r="2.3" stroke="#C4236A"/>
+    </g>
+    {% endfor %}
+  </g>
+  <rect x="22" y="22" width="20" height="20" rx="4.5" fill="#C4236A"/>
+  <rect x="28" y="28" width="8" height="8" rx="1.8" fill="#F4A6C8"/>
+</svg>
+{%- endmacro %}
+
 {% macro brand(href="/") -%}
 <a href="{{ href }}" class="casual inline-flex items-center gap-2 text-lg font-[820] tracking-tight">
-  {{ flask_icon(0.55, "text-reagent", "brand-" ~ href|length, 20, bubbles=True) }}<span>mini-lab</span>
+  {{ logo(20) }}<span>mini-lab</span>
 </a>
 {%- endmacro %}
 

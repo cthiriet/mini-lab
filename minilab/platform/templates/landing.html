@@ -1,5 +1,5 @@
 {% extends "public.html" %}
-{% from "_macros.html" import flask_icon, code_block %}
+{% from "_macros.html" import logo, code_block %}
 {% block title %}mini-lab: a whole AI lab, small enough to read{% endblock %}
 {% block main_class %}w-full{% endblock %}
 
@@ -30,7 +30,7 @@
     {# A real-looking exchange with the model: this is what the lab produces. #}
     <figure class="panel relative shadow-[0_1px_0_var(--color-rule),0_24px_48px_-24px_rgb(21_26_45/0.25)]">
       <figcaption class="flex items-center gap-2 border-b border-rule px-5 py-3 text-sm">
-        {{ flask_icon(0.55, "text-reagent", "hero", 16, bubbles=True) }}
+        {{ logo(16) }}
         <span class="font-semibold">{{ model_id }}</span>
         <span class="text-muted">in the chat app</span>
       </figcaption>

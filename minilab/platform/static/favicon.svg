@@ -1,25 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 128" width="120" height="128" role="img" aria-label="mini-lab">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="mini-lab">
   <style>
-    .glass { stroke: #151A2D; }
-    @media (prefers-color-scheme: dark) { .glass { stroke: #E8EAF3; } }
+    .trace { stroke: #151A2D; }
+    @media (prefers-color-scheme: dark) { .trace { stroke: #E8EAF3; } }
   </style>
-  <defs>
-    <clipPath id="inside">
-      <path d="M53 18v32L23 100a8 8 0 0 0 7 12h60a8 8 0 0 0 7-12L67 50V18z"/>
-    </clipPath>
-  </defs>
-  <!-- the liquid, with a gentle wave on top -->
-  <g clip-path="url(#inside)">
-    <path d="M0 78 q10 -6 20 0 t20 0 t20 0 t20 0 t20 0 t20 0 V128 H0z" fill="#C4236A"/>
-    <circle cx="48" cy="98" r="4.5" fill="#F4A6C8"/>
-    <circle cx="66" cy="90" r="3.2" fill="#F4A6C8"/>
-    <circle cx="74" cy="102" r="2.4" fill="#F4A6C8"/>
+  <!-- a chip wired out like a neural net: two traces a side, each ending on a via -->
+  <g fill="none" stroke-width="2.2">
+    <g transform="rotate(0 32 32)"><path d="M28.5 26V16.5L24.9 12.9" stroke-linejoin="round" class="trace"/><path d="M35.5 26V13.9" class="trace"/><circle cx="22.5" cy="10.5" r="2.3" stroke="#C4236A"/><circle cx="35.5" cy="10.5" r="2.3" stroke="#C4236A"/></g>
+    <g transform="rotate(90 32 32)"><path d="M28.5 26V16.5L24.9 12.9" stroke-linejoin="round" class="trace"/><path d="M35.5 26V13.9" class="trace"/><circle cx="22.5" cy="10.5" r="2.3" stroke="#C4236A"/><circle cx="35.5" cy="10.5" r="2.3" stroke="#C4236A"/></g>
+    <g transform="rotate(180 32 32)"><path d="M28.5 26V16.5L24.9 12.9" stroke-linejoin="round" class="trace"/><path d="M35.5 26V13.9" class="trace"/><circle cx="22.5" cy="10.5" r="2.3" stroke="#C4236A"/><circle cx="35.5" cy="10.5" r="2.3" stroke="#C4236A"/></g>
+    <g transform="rotate(270 32 32)"><path d="M28.5 26V16.5L24.9 12.9" stroke-linejoin="round" class="trace"/><path d="M35.5 26V13.9" class="trace"/><circle cx="22.5" cy="10.5" r="2.3" stroke="#C4236A"/><circle cx="35.5" cy="10.5" r="2.3" stroke="#C4236A"/></g>
   </g>
-  <!-- bubbles escaping from the flask -->
-  <circle cx="62" cy="62" r="3" fill="#C4236A"/>
-  <circle cx="57" cy="40" r="2.4" fill="#C4236A" opacity="0.75"/>
-  <circle cx="63" cy="24" r="1.8" fill="#C4236A" opacity="0.5"/>
-  <!-- the glass -->
-  <path class="glass" d="M46 12h28M53 12v38L23 100a8 8 0 0 0 7 12h60a8 8 0 0 0 7-12L67 50V12"
-        fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="22" y="22" width="20" height="20" rx="4.5" fill="#C4236A"/>
+  <rect x="28" y="28" width="8" height="8" rx="1.8" fill="#F4A6C8"/>
 </svg>

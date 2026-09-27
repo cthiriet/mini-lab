@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import brand, balance_badge, org_switcher, flask_icon %}
+{% from "_macros.html" import brand, balance_badge, org_switcher, logo %}
 {% block title %}Chat · mini-lab{% endblock %}
 {% block body_class %}overflow-hidden{% endblock %}
 
@@ -53,7 +53,7 @@
 
     <div id="scroller" class="flex-1 overflow-y-auto">
       <div id="empty-state" class="mx-auto flex min-h-full max-w-2xl flex-col items-center justify-center px-4 py-12 text-center">
-        <div class="text-muted">{{ flask_icon(0.55, "text-reagent", "chat-empty", 48, bubbles=True) }}</div>
+        <div class="text-muted">{{ logo(48) }}</div>
         <h1 class="casual mt-5 text-3xl font-[800] tracking-tight">What should we try?</h1>
         <p class="mt-2 max-w-md text-muted">This model is tiny: it tells short stories for children and adds numbers, step by step or with a calculator. Start with one of these.</p>
         <ul class="mt-8 flex flex-wrap justify-center gap-2" aria-label="Suggestions">
@@ -85,7 +85,7 @@
 </template>
 <template id="tpl-assistant">
   <li class="group flex items-start gap-3">
-    <img src="/static/favicon.svg" width="19" height="20" alt="" class="mt-0.5 h-5 w-auto shrink-0">
+    <img src="/static/favicon.svg" width="20" height="20" alt="" class="mt-0.5 size-5 shrink-0">
 
     <div class="min-w-0 flex-1 space-y-2">
       <details data-reasoning hidden class="rounded-lg border border-rule px-3 py-2 text-sm">

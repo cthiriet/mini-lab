@@ -1,10 +1,10 @@
 {% extends "layout.html" if ctx else "public.html" %}
-{% from "_macros.html" import flask_icon %}
+{% from "_macros.html" import logo %}
 {% block title %}{{ code }} · mini-lab{% endblock %}
 
 {% block content %}
 <div class="mx-auto max-w-md py-16 text-center">
-  <div class="flex justify-center text-muted">{{ flask_icon(0.12, "text-reagent", "error", 56) }}</div>
+  <div class="flex justify-center text-muted">{{ logo(56) }}</div>
   <p class="mono mt-6 text-sm font-semibold text-reagent">{{ code }}</p>
   <h1 class="page-title mt-1">{{ "Page not found" if code == 404 else "Something went wrong" }}</h1>
   <p class="mt-2 text-muted">{{ message }}</p>
