@@ -1,18 +1,32 @@
 {# Small building blocks shared by every page. #}
 
-{% macro flask_icon(level=0.55, fill_class="text-reagent", uid="brand", size=18) -%}
-{# The mini-lab mark: an Erlenmeyer flask. `level` (0..1) sets how full it is. #}
-<svg viewBox="0 0 16 20" width="{{ size * 0.8 }}" height="{{ size }}" aria-hidden="true" class="shrink-0">
-  <defs><clipPath id="flask-{{ uid }}"><path d="M6.6 1.6v5.3L1.9 15.3A2.1 2.1 0 0 0 3.7 18.5h8.6a2.1 2.1 0 0 0 1.8-3.2L9.4 6.9V1.6z"/></clipPath></defs>
-  {% set top = 18.5 - (11.6 * level) %}
-  <rect x="0" y="{{ '%.2f' % top }}" width="16" height="20" clip-path="url(#flask-{{ uid }})" fill="currentColor" class="{{ fill_class }}"/>
-  <path d="M5.4 1.6h5.2M6.6 1.6v5.3L1.9 15.3A2.1 2.1 0 0 0 3.7 18.5h8.6a2.1 2.1 0 0 0 1.8-3.2L9.4 6.9V1.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+{% macro flask_icon(level=0.55, fill_class="text-reagent", uid="brand", size=18, bubbles=False) -%}
+{# The mini-lab mark: the flask of docs/assets/logo.svg, drawn inline so the glass
+   follows the text colour in both themes. `level` (0..1) sets how full it is,
+   measured on the body, below the neck: 0.55 is the logo's own level. `bubbles`
+   adds the ones escaping through the neck, as on the logo. #}
+<svg viewBox="0 0 120 128" width="{{ '%.1f' % (size * 0.9375) }}" height="{{ size }}" aria-hidden="true" class="shrink-0">
+  <defs><clipPath id="flask-{{ uid }}"><path d="M53 18v32L23 100a8 8 0 0 0 7 12h60a8 8 0 0 0 7-12L67 50V18z"/></clipPath></defs>
+  {% set top = 112 - (62 * level) %}
+  <g clip-path="url(#flask-{{ uid }})">
+    <path d="M0 {{ '%.1f' % top }} q10 -6 20 0 t20 0 t20 0 t20 0 t20 0 t20 0 V128 H0z" fill="currentColor" class="{{ fill_class }}"/>
+    {% set tint = 'fill="#F4A6C8"' if fill_class == "text-reagent" else 'fill="#fff" fill-opacity=".5"' %}
+    {% for cx, cy, r in [(48, 98, 4.5), (66, 90, 3.2), (74, 102, 2.4)] if cy - r > top + 3 %}
+    <circle cx="{{ cx }}" cy="{{ cy }}" r="{{ r }}" {{ tint|safe }}/>
+    {% endfor %}
+  </g>
+  {% if bubbles %}
+  <g fill="currentColor" class="{{ fill_class }}">
+    <circle cx="62" cy="62" r="3"/><circle cx="57" cy="40" r="2.4" opacity=".75"/><circle cx="63" cy="24" r="1.8" opacity=".5"/>
+  </g>
+  {% endif %}
+  <path d="M46 12h28M53 12v38L23 100a8 8 0 0 0 7 12h60a8 8 0 0 0 7-12L67 50V12" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
 {%- endmacro %}
 
 {% macro brand(href="/") -%}
 <a href="{{ href }}" class="casual inline-flex items-center gap-2 text-lg font-[820] tracking-tight">
-  {{ flask_icon(0.55, "text-reagent", "brand-" ~ href|length, 20) }}<span>mini-lab</span>
+  {{ flask_icon(0.55, "text-reagent", "brand-" ~ href|length, 20, bubbles=True) }}<span>mini-lab</span>
 </a>
 {%- endmacro %}
 
