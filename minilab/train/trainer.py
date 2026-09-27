@@ -33,7 +33,8 @@ from minilab.checkpoint import save_checkpoint
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
 
-STAGES = ["pretrain", "midtrain", "sft", "rl"]
+STAGES = ["pretrain", "midtrain", "sft", "rl",
+          "rl_math", "distill"]  # the specialists + distillation recipe, an alternative to "rl"
 DEVICES = ["auto", "cpu", "mps", "cuda"]
 
 
@@ -116,12 +117,80 @@ class Logger:
 
 # ---- optimization -------------------------------------------------------------
 
-def make_optimizer(model: GPT, lr: float, weight_decay: float) -> torch.optim.AdamW:
-    """AdamW; weight decay only on matrices (embeddings, linears), not on norm gains."""
+def orthogonalize(g: torch.Tensor, steps: int = 5) -> torch.Tensor:
+    """Newton-Schulz iterations: roughly the closest (semi-)orthogonal matrix to g, i.e.
+    g = U S V^T with every singular value in S pushed toward 1. Keller Jordan's
+    coefficients. bf16 on GPUs, like torch.optim.Muon; float32 on the CPU, where bf16
+    matmuls are ~1000x slower."""
+    a, b, c = 3.4445, -4.7750, 2.0315
+    x = g.to(torch.float32 if g.device.type == "cpu" else torch.bfloat16)
+    x = x / x.norm().clamp(min=1e-7)
+    tall = x.size(0) > x.size(1)
+    if tall:
+        x = x.T
+    for _ in range(steps):
+        A = x @ x.T
+        x = a * x + (b * A + c * A @ A) @ x
+    return (x.T if tall else x).to(g.dtype)
+
+
+class Muon(torch.optim.Optimizer):
+    """Muon (Keller Jordan, 2024): SGD with Nesterov momentum, where each matrix's update
+    is replaced by its orthogonalization, so every direction of the matrix moves at the
+    same speed. The update is then scaled to the size of an AdamW update (Moonshot's
+    0.2 x sqrt(max dim)), so it takes AdamW's learning rate and weight decay."""
+
+    def __init__(self, params, lr: float, weight_decay: float = 0.0, momentum: float = 0.95):
+        super().__init__(params, {"lr": lr, "weight_decay": weight_decay, "momentum": momentum})
+
+    @torch.no_grad()
+    def step(self) -> None:
+        for group in self.param_groups:
+            lr, wd, beta = group["lr"], group["weight_decay"], group["momentum"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                buf = self.state[p].setdefault("momentum", torch.zeros_like(p))
+                buf.lerp_(p.grad, 1 - beta)
+                update = orthogonalize(p.grad.lerp(buf, beta))  # Nesterov
+                p.mul_(1 - lr * wd)
+                p.add_(update, alpha=-lr * 0.2 * max(p.shape) ** 0.5)
+
+
+class Optimizers:
+    """Several optimizers stepped as one (Muon for the matrices, AdamW for the rest)."""
+
+    def __init__(self, *optimizers: torch.optim.Optimizer):
+        self.optimizers = optimizers
+        self.param_groups = [g for o in optimizers for g in o.param_groups]
+
+    def zero_grad(self, set_to_none: bool = True) -> None:
+        for o in self.optimizers:
+            o.zero_grad(set_to_none=set_to_none)
+
+    def step(self) -> None:
+        for o in self.optimizers:
+            o.step()
+
+
+def make_optimizer(model: GPT, lr: float, weight_decay: float, kind: str = "adamw"):
+    """AdamW; weight decay only on matrices (embeddings, linears), not on norm gains.
+
+    kind="muon": the hidden matrices (attention, MLP) get Muon instead, like Kimi,
+    GLM-5 and DeepSeek-V4, with the same lr and weight decay. The embedding (tied to
+    the output head) and the norm gains are not hidden matrices, and stay on AdamW."""
     params = [p for p in model.parameters() if p.requires_grad]
-    groups = [{"params": [p for p in params if p.dim() >= 2], "weight_decay": weight_decay},
-              {"params": [p for p in params if p.dim() < 2], "weight_decay": 0.0}]
-    return torch.optim.AdamW(groups, lr=lr, betas=(0.9, 0.95))
+    matrices = [p for p in params if p.dim() >= 2]
+    vectors = [p for p in params if p.dim() < 2]
+    if kind == "adamw":
+        groups = [{"params": matrices, "weight_decay": weight_decay}, {"params": vectors, "weight_decay": 0.0}]
+        return torch.optim.AdamW(groups, lr=lr, betas=(0.9, 0.95))
+    assert kind == "muon", f"unknown optimizer: {kind}"
+    hidden = [p for p in matrices if p is not model.wte.weight]
+    muon = Muon(hidden, lr=lr, weight_decay=weight_decay)
+    adamw = torch.optim.AdamW([{"params": [model.wte.weight], "weight_decay": weight_decay},
+                               {"params": vectors, "weight_decay": 0.0}], lr=lr, betas=(0.9, 0.95))
+    return Optimizers(muon, adamw)
 
 
 def lr_at(step: int, steps: int, lr: float, warmup: int, min_lr_frac: float = 0.1) -> float:
@@ -147,14 +216,15 @@ def evaluate_loss(model: GPT, batches: list[tuple[torch.Tensor, torch.Tensor]], 
 
 
 def train_loop(model: GPT, batches: Iterator[tuple[torch.Tensor, torch.Tensor]], sc: dict, log: Logger,
-               device: str, val_fn: Callable[[], dict] | None = None) -> dict:
+               device: str, val_fn: Callable[[], dict] | None = None, optimizer: str = "adamw") -> dict:
     """The language-modeling loop shared by pretrain, midtrain and SFT.
 
     `sc` is the stage's config section: steps, lr, warmup, weight_decay, grad_clip,
     min_lr_frac, log_every, eval_every. `val_fn` returns a dict of metrics to log.
+    `optimizer` is the config's top-level `optimizer` ("adamw" or "muon").
     """
     steps, log_every = sc["steps"], sc.get("log_every", 10)
-    opt = make_optimizer(model, sc["lr"], sc.get("weight_decay", 0.0))
+    opt = make_optimizer(model, sc["lr"], sc.get("weight_decay", 0.0), optimizer)
     model.train()
     t0 = time.time()
     tokens = window_tokens = 0

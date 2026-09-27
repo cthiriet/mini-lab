@@ -46,7 +46,7 @@ def main() -> None:
         return {"val_loss": evaluate_loss(model, val_batches, device), "sample": sample_story(model, tok, device)}
 
     log = Logger(run / "pretrain" / "log.jsonl")
-    stats = train_loop(model, batches, sc, log, device, val_fn)
+    stats = train_loop(model, batches, sc, log, device, val_fn, cfg.get("optimizer", "adamw"))
     save_stage(run, "pretrain", model, tok, stats, cfg, device)
 
 

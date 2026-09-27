@@ -41,7 +41,8 @@ def main() -> None:
         return {"val_loss": evaluate_loss(model, val_batches, device)}
 
     log = Logger(run / "sft" / "log.jsonl")
-    stats = train_loop(model, chat_batches(tok, epochs(train, seed + 2), B, T), sc, log, device, val_fn)
+    stats = train_loop(model, chat_batches(tok, epochs(train, seed + 2), B, T), sc, log, device, val_fn,
+                       cfg.get("optimizer", "adamw"))
     save_stage(run, "sft", model, tok, stats, cfg, device, prev)
 
 

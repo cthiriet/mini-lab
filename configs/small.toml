@@ -68,6 +68,36 @@ lr = 1e-4
 warmup = 10
 log_every = 5
 
+# ---- The 2026 recipe, an alternative to [rl]: RL specialists, then on-policy distillation.
+# uv run python -m minilab.train.rl --run runs/small --stage rl_math
+# uv run python -m minilab.train.distill --run runs/small
+
+[rl_math]                   # the math specialist: [rl] on additions and the calculator only
+steps = 300
+prompts_per_step = 16
+group_size = 8
+digits = [1, 2, 3, 4, 5]
+chat_digits = [1, 2, 3]
+mix = { add = 0.75, tool = 0.25 }
+max_new_tokens = 224
+temperature = 1.0
+lr = 1e-4
+warmup = 10
+log_every = 5
+
+[distill]                   # the SFT model learns from the math specialist and from itself
+steps = 300
+prompts_per_step = 32       # one answer each: 4x fewer samples than [rl]
+digits = [1, 2, 3, 4, 5]
+chat_digits = [1, 2, 3]
+mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05 }
+teachers = { add = "rl_math", tool = "rl_math" }   # every other kind: the SFT model
+max_new_tokens = 224
+temperature = 1.0
+lr = 1e-4
+warmup = 10
+log_every = 5
+
 [eval]
 n_per_digit = 100
 n_sampled = 100

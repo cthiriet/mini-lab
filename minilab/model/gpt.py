@@ -1,6 +1,9 @@
 """A small decoder-only transformer (GPT style) with a slot-based KV cache.
 
 - RoPE positions, RMSNorm, GELU MLP, no biases, tied input/output embeddings.
+- Optional 2026-style block (`GPTConfig.mlp`, `qk_norm`, `attn_gate`): a SwiGLU MLP,
+  RMSNorm on queries and keys, and a sigmoid gate on the attention output (Qwen3.5,
+  Kimi K3). Off by default, so older checkpoints load unchanged.
 - `forward` is the training path (full causal attention over a batch).
 - `forward_cached` is the inference path: every sequence lives in a *slot* of a
   shared KVCache and can be at a different position. This is what makes
@@ -25,6 +28,10 @@ class GPTConfig:
     n_head: int = 4
     n_embd: int = 128
     dropout: float = 0.0
+    mlp: str = "gelu"               # "gelu" (GPT-2) or "swiglu" (Llama and every model since)
+    mlp_hidden: int | None = None   # default: 4 x n_embd, the GELU MLP's width
+    qk_norm: bool = False           # RMSNorm on each head's queries and keys, before RoPE
+    attn_gate: bool = False         # output = attention * sigmoid(W_g x), per channel
 
 
 class KVCache:
@@ -65,12 +72,19 @@ class Attention(nn.Module):
         self.qkv = nn.Linear(config.n_embd, 3 * config.n_embd, bias=False)
         self.proj = nn.Linear(config.n_embd, config.n_embd, bias=False)
         self.dropout = config.dropout
+        # QK-norm bounds the attention logits; the gate lets a head output nothing
+        # instead of dumping its attention on the first token (an "attention sink").
+        self.q_norm = nn.RMSNorm(self.head_dim) if config.qk_norm else None
+        self.k_norm = nn.RMSNorm(self.head_dim) if config.qk_norm else None
+        self.gate = nn.Linear(config.n_embd, config.n_embd, bias=False) if config.attn_gate else None
 
     def forward(self, x, cos, sin, cache: KVCache | None = None, layer: int = 0,
                 slots: torch.Tensor | None = None, pos: torch.Tensor | None = None):
         B, T, C = x.shape
         q, k, v = self.qkv(x).split(C, dim=2)
         q, k, v = (t.view(B, T, self.n_head, self.head_dim).transpose(1, 2) for t in (q, k, v))
+        if self.q_norm is not None:
+            q, k = self.q_norm(q), self.k_norm(k)
         q, k = _apply_rope(q, cos, sin), _apply_rope(k, cos, sin)
 
         if cache is None:
@@ -90,16 +104,25 @@ class Attention(nn.Module):
             q_pos = pos[:, None] + torch.arange(T, device=pos.device)          # (B, T)
             mask = torch.arange(L, device=pos.device)[None, None, :] <= q_pos[:, :, None]  # (B, T, L)
             y = F.scaled_dot_product_attention(q, keys, values, attn_mask=mask[:, None].to(x.device))
-        return self.proj(y.transpose(1, 2).reshape(B, T, C))
+        y = y.transpose(1, 2).reshape(B, T, C)
+        if self.gate is not None:
+            y = y * torch.sigmoid(self.gate(x))
+        return self.proj(y)
 
 
 class MLP(nn.Module):
     def __init__(self, config: GPTConfig):
         super().__init__()
-        self.fc = nn.Linear(config.n_embd, 4 * config.n_embd, bias=False)
-        self.proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=False)
+        hidden = config.mlp_hidden or 4 * config.n_embd
+        self.swiglu = config.mlp == "swiglu"
+        # SwiGLU: silu(x W_a) * (x W_b), both halves computed by one matmul.
+        self.fc = nn.Linear(config.n_embd, (2 if self.swiglu else 1) * hidden, bias=False)
+        self.proj = nn.Linear(hidden, config.n_embd, bias=False)
 
     def forward(self, x):
+        if self.swiglu:
+            a, b = self.fc(x).chunk(2, dim=-1)
+            return self.proj(F.silu(a) * b)
         return self.proj(F.gelu(self.fc(x)))
 
 

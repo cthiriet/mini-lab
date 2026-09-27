@@ -56,7 +56,7 @@ def main() -> None:
         return {"val_loss": evaluate_loss(model, val_batches, device)}
 
     log = Logger(run / "midtrain" / "log.jsonl")
-    stats = train_loop(model, batches, sc, log, device, val_fn)
+    stats = train_loop(model, batches, sc, log, device, val_fn, cfg.get("optimizer", "adamw"))
     save_stage(run, "midtrain", model, tok, stats, cfg, device, prev)
 
 

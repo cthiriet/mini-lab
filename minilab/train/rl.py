@@ -106,18 +106,20 @@ def rl_step(model: GPT, tok: Tokenizer, opt: torch.optim.Optimizer, problems: li
 
 
 def main() -> None:
-    args = parse_args("Stage 4: GRPO-style reinforcement learning on addition.", generation=True)
+    args = parse_args("Stage 4: GRPO-style reinforcement learning on addition.", generation=True,
+                      stage={"default": "rl", "help": "config section and output stage, e.g. rl_math for "
+                             "the math specialist of the distillation recipe (see minilab.train.distill)"})
     cfg = load_config(args)
     run, device, seed = Path(args.run), args.device, cfg.get("seed", 0)
     setup(seed, device)
-    sc = cfg["rl"]
+    sc = cfg[args.stage]
     model, tok, prev = load_checkpoint(run / "sft", device=device)
     rng = random.Random(seed + 3)
     gen = torch.Generator(device=device).manual_seed(seed + 3)
-    opt = make_optimizer(model, sc["lr"], sc.get("weight_decay", 0.0))
+    opt = make_optimizer(model, sc["lr"], sc.get("weight_decay", 0.0), cfg.get("optimizer", "adamw"))
     steps = sc["steps"]
 
-    log = Logger(run / "rl" / "log.jsonl")
+    log = Logger(run / args.stage / "log.jsonl")
     t0, tokens = time.time(), 0
     for step in range(steps):
         lr = lr_at(step, steps, sc["lr"], sc.get("warmup", 0), sc.get("min_lr_frac", 0.1))
@@ -131,7 +133,7 @@ def main() -> None:
             log.log(step=step + 1, **stats, lr=lr, elapsed=round(time.time() - t0, 1))
 
     stats = {"steps": steps, "tokens": tokens, "wall_clock_s": round(time.time() - t0, 1)}
-    save_stage(run, "rl", model, tok, stats, cfg, device, prev)
+    save_stage(run, args.stage, model, tok, stats, cfg, device, prev)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from minilab.data import arithmetic
 from minilab.data.loader import packed_batches, pretrain_documents
 from minilab.model.gpt import GPT, GPTConfig
 from minilab.tokenizer.bpe import Tokenizer
+from minilab.train.distill import distill_step
 from minilab.train.rl import reward, rl_step, sample_problem
 from minilab.train.trainer import Logger, evaluate_loss, lr_at, make_optimizer, save_stage, train_loop
 
@@ -38,7 +39,17 @@ def test_optimizer_decays_only_matrices(tok):
     assert no_decay["weight_decay"] == 0.0
 
 
-def test_training_reduces_loss(tok, tmp_path: Path):
+def test_muon_takes_the_hidden_matrices(tok):
+    model = tiny_model(tok)
+    muon, adamw = make_optimizer(model, 1e-3, 0.1, "muon").optimizers
+    hidden = {id(p) for g in muon.param_groups for p in g["params"]}
+    assert id(model.blocks[0].attn.qkv.weight) in hidden and id(model.blocks[0].mlp.fc.weight) in hidden
+    assert id(model.wte.weight) not in hidden  # the embedding (tied to the output head) stays on AdamW
+    assert {id(p) for p in model.parameters()} == hidden | {id(p) for g in adamw.param_groups for p in g["params"]}
+
+
+@pytest.mark.parametrize("optimizer", ["adamw", "muon"])
+def test_training_reduces_loss(tok, tmp_path: Path, optimizer):
     model = tiny_model(tok)
     docs = pretrain_documents(tok, ["Tom has a ball."], [1, 2], arith_frac=0.9, seed=0)
     batches = packed_batches(docs, batch_size=8, block_size=64)
@@ -46,7 +57,7 @@ def test_training_reduces_loss(tok, tmp_path: Path):
     before = evaluate_loss(model, val, "cpu")
     sc = {"steps": 40, "lr": 1e-2, "warmup": 5, "log_every": 20, "eval_every": 40}
     stats = train_loop(model, batches, sc, Logger(tmp_path / "log.jsonl"), "cpu",
-                       lambda: {"val_loss": evaluate_loss(model, val, "cpu")})
+                       lambda: {"val_loss": evaluate_loss(model, val, "cpu")}, optimizer)
     assert stats["val_loss"] < before - 1.0
     assert stats["tokens"] == 40 * 8 * 64
     assert len((tmp_path / "log.jsonl").read_text().splitlines()) == 3  # 2 train logs + 1 eval
@@ -115,3 +126,21 @@ def test_rl_step_runs(tok):
     if stats["informative"] == 0:  # a random model never answers right: nothing to learn
         assert all(torch.equal(a, b) for a, b in zip(before, model.parameters()))
 
+
+
+def test_distill_step(tok):
+    rng = random.Random(0)
+    sc = {"digits": [1, 2], "chat_digits": [1], "mix": {"add": 1, "tool": 1, "refusal": 1}}
+    problems = [(sample_problem(rng, sc), i % 2) for i in range(4)]
+    student = tiny_model(tok)
+    same = tiny_model(tok)  # the same weights: nothing to learn
+    stats = distill_step(student, [same, same], tok, make_optimizer(student, 1e-3, 0.0), problems, 8, 1.0,
+                         torch.Generator().manual_seed(0))
+    assert stats["kl"] == pytest.approx(0.0, abs=1e-6) and 0.0 <= stats["reward"] <= 1.0
+
+    torch.manual_seed(1)
+    other = GPT(student.config)
+    opt = make_optimizer(student, 1e-2, 0.0)
+    kls = [distill_step(student, [same, other], tok, opt, problems, 8, 1.0, torch.Generator().manual_seed(0))["kl"]
+           for _ in range(10)]
+    assert kls[-1] < kls[0]  # the student moves toward its teachers
