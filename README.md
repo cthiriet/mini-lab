@@ -27,11 +27,11 @@ Each part of a real lab has a minimal, readable version here:
 
 Everything runs on a CPU. The whole training pipeline, from raw text to a released model, runs in about 45 minutes on a laptop CPU, or about 23 minutes with an Apple Silicon GPU.
 
-## The model: `mini-2`
+## The model: `mini-2.1`
 
 A 5.8M-parameter GPT that writes short children's stories and adds numbers, either step by step or with a calculator tool. It's tiny on purpose: every training stage has an effect you can measure.
 
-It replaces `mini-1`: same data and size, but pretrained with [Muon](docs/training.md#what-we-tuned-and-why) instead of AdamW, and a math specialist distilled into the SFT model instead of a single RL run. Story perplexity went from 7.37 to 6.39 and 5-digit additions from 91% to 100%.
+Releases are named like the labs' models: a new number for a new recipe, a point release for a significant fix. `mini-2` brought [Muon](docs/training.md#what-we-tuned-and-why) and a math specialist distilled into the SFT model, instead of AdamW and a single RL run (story perplexity 7.37 → 6.39, 5-digit additions 91% → 100%). `mini-2.1` fixes multi-turn chats: follow-ups on a 4-5 digit total went from 37% to 97%. All [releases](docs/training.md#releases).
 
 | Stage | What it teaches |
 |---|---|
@@ -65,7 +65,7 @@ git clone https://github.com/cthiriet/mini-lab && cd mini-lab
 uv sync
 ```
 
-**1. Train a model** (downloads about 100 MB of TinyStories, then trains all five stages and releases `models/mini-2`):
+**1. Train a model** (downloads about 100 MB of TinyStories, then trains all five stages and releases `models/mini-2.1`):
 
 ```bash
 bash speedrun.sh small
@@ -92,7 +92,7 @@ from openai import OpenAI
 
 client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="sk-mini-...")
 reply = client.chat.completions.create(
-    model="mini-2",
+    model="mini-2.1",
     messages=[{"role": "user", "content": "What is 347 + 58?"}],
 )
 print(reply.choices[0].message.content)
@@ -118,7 +118,7 @@ docker compose up --build
                         inference :8001     chat template · KV cache · continuous batching
                              │
                              ▼
-                        models/mini-2       ◄── bash speedrun.sh small
+                        models/mini-2.1     ◄── bash speedrun.sh small
 ```
 
 More in [docs/architecture.md](docs/architecture.md).
@@ -157,7 +157,7 @@ Contributions are welcome, especially ones that make a part of the lab clearer o
 
 ## Limitations
 
-- `mini-2` is a toy. It tells simple stories and adds numbers; it does not know anything else, and says so.
+- `mini-2.1` is a toy. It tells simple stories and adds numbers; it does not know anything else, and says so.
 - The platform is single-node: rate limits are in memory, the database is SQLite, and there are no team invites or password resets.
 - Payments use Stripe in test mode. Without Stripe keys, a clearly labeled test-mode button adds credits.
 

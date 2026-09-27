@@ -39,8 +39,8 @@ from minilab.tokenizer.chat import parse_completion, render_prompt
 from minilab.train.trainer import evaluate_loss
 
 EVAL_SEED = 1234
-INSTRUCTION_KINDS = ["number_only", "no_calculator", "one_sentence", "sure", "followup", "new_question", "refusal",
-                     "identity"]
+INSTRUCTION_KINDS = ["number_only", "no_calculator", "one_sentence", "sure", "followup", "long_followup",
+                     "new_question", "refusal", "identity"]
 STORY_EVAL_REQUESTS = ["Tell me a story about {t}.", "Can you tell me a story about {t}?", "Write a short story about {t}."]
 CHAT_PROMPTS = [  # scored for format only, and kept as samples in eval.json
     ([user("Hi!")], None),
@@ -96,18 +96,29 @@ def make_problem(kind: str, rng: random.Random, digits: list[int], held_out: boo
         turn, total = arithmetic.followup(rng, a, [1, 2], tools=False)
         return {"kind": kind, "messages": arithmetic.without_reasoning(messages) + turn[:1], "tools": None,
                 "a": a, "b": total - a, "answer": total}
-    if kind == "new_question":  # a fresh addition after an earlier answer: its own operands, not the last total
+    if kind == "long_followup":  # a follow-up on a 4-5 digit total, to copy from the history
         tools = rng.random() < 0.5
-        first = rng.choice(["add", "add", "story", "greeting"])
-        if first == "add":
-            history = arithmetic.client_history(arithmetic.exchange(rng, digits, tools)[0], rng.random() < 0.5)
-        elif first == "story":
-            history = [user(rng.choice(STORY_REQUESTS)),
-                       assistant("Once upon a time, there was a little cat named Tom. Tom liked to play in the sun.")]
-        else:
-            users, replies = rng.choice(GREETINGS)
-            history = [user(rng.choice(users)), assistant(rng.choice(replies))]
-        p = arithmetic.prompt(rng, arithmetic.sample_digits(rng, digits), tools)
+        messages, a = arithmetic.exchange(rng, [3, 4], tools)
+        turn, total = arithmetic.followup(rng, a, [1, 2, 3], tools)
+        return {"kind": kind, "messages": arithmetic.client_history(messages, rng.random() < 0.5) + turn[:1],
+                "tools": ["calculator"] if tools else None, "a": a, "b": total - a, "answer": total}
+    if kind == "new_question":  # a fresh addition after 1-3 earlier turns: its own operands, not the last total
+        tools = rng.random() < 0.5
+        history = []
+        for _ in range(rng.choice([1, 1, 2, 3])):
+            first = rng.choice(["add", "add", "story", "greeting"])
+            if first == "add":
+                history += arithmetic.exchange(rng, digits, tools)[0]
+            elif first == "story":
+                history += [user(rng.choice(STORY_REQUESTS)),
+                            assistant("Once upon a time, there was a little cat named Tom. Tom liked to play in the sun.")]
+            else:
+                users, replies = rng.choice(GREETINGS)
+                history += [user(rng.choice(users)), assistant(rng.choice(replies))]
+        history = arithmetic.client_history(history, rng.random() < 0.5)
+        # every length equally often: short questions are where a history trips it up
+        # (a 1-digit operand padded wrong, "3 + 69" -> 33+69)
+        p = arithmetic.prompt(rng, rng.choice(digits), tools)
         return {**p, "kind": kind, "messages": history + p["messages"], "tools": ["calculator"] if tools else None}
     if kind == "refusal":
         question = fill(rng, rng.choice(OUT_OF_SCOPE_EVAL if held_out else OUT_OF_SCOPE))
@@ -167,7 +178,7 @@ def grade(tok: Tokenizer, completion: list[int], problem: dict) -> bool:
         return False
     S = tok.special
     specials = [t for t in completion[:completion.index(S("<|assistant_end|>"))] if tok.is_special(t)]
-    calls = problem["kind"] == "tool" or (problem["kind"] == "new_question" and problem["tools"])
+    calls = problem["kind"] == "tool" or (problem["kind"] in ("new_question", "long_followup") and problem["tools"])
     if calls and problem["messages"][-1]["role"] != "tool":  # the call itself
         expression = arithmetic.call_expression(c.tool_calls[0]) if len(c.tool_calls) == 1 else None
         return specials == [S("<|tool_call_start|>"), S("<|tool_call_end|>")] and not c.content.strip() \
@@ -178,7 +189,7 @@ def grade(tok: Tokenizer, completion: list[int], problem: dict) -> bool:
 def check_answer(content: str, problem: dict) -> bool:
     """Is this visible answer exactly right for the problem?"""
     kind = problem["kind"]
-    if kind in ("add", "tool", "no_calculator", "followup", "new_question"):  # "tool": the answer after the result
+    if kind in ("add", "tool", "no_calculator", "followup", "long_followup", "new_question"):  # "tool": after the result
         return content == arithmetic.answer_text(problem["a"], problem["b"])
     if kind == "number_only":
         return content == str(problem["answer"])

@@ -173,12 +173,15 @@ def new_question_conversation(rng: random.Random, digits: list[int], stories: St
     """A new, unrelated addition after an earlier answer: it has its own operands. Every other
     multi-turn conversation is a follow-up that builds on the last total, and with only those
     the model learned that a second addition always starts from it ("766 + 989" after "The
-    answer is 405." became 405 + 989)."""
-    first = rng.choices(["arithmetic", "story", "greeting"], weights=[0.6, 0.2, 0.2])[0]
-    history = single_turn(rng, first, digits, stories, tools)
-    if first == "story":  # a short one, so the new question still fits the context
-        history[-1] = assistant(" ".join(re.findall(r"[^.!?]+[.!?]", history[-1]["content"])[:2]).strip()
-                                or history[-1]["content"])
+    answer is 405." became 405 + 989). One to three earlier turns."""
+    history = []
+    for _ in range(rng.choice([1, 1, 2, 3])):
+        first = rng.choices(["arithmetic", "story", "greeting"], weights=[0.6, 0.2, 0.2])[0]
+        turn = single_turn(rng, first, digits, stories, tools)
+        if first == "story":  # a short one, so the new question still fits the context
+            turn[-1] = assistant(" ".join(re.findall(r"[^.!?]+[.!?]", turn[-1]["content"])[:2]).strip()
+                                 or turn[-1]["content"])
+        history += turn
     messages = arithmetic.client_history(history, compact=rng.random() < 0.5)
     messages += arithmetic.exchange(rng, digits, tools)[0]
     return {"messages": messages, "tools": ["calculator"] if tools else None, "train_on": "last"}

@@ -63,14 +63,14 @@ mix = { plain = 0.23, instruction = 0.35, followup = 0.12, new_question = 0.12, 
 eval_every = 200
 log_every = 25
 
-[rl_math]                   # the math specialist, GRPO on additions and the calculator only:
+[rl_math]                   # the math specialist, GRPO on math only (additions, calculator, long follow-ups, new questions):
                             # 300 steps x 16 problems x 8 attempts (train/rl.py --stage rl_math)
 steps = 300
 prompts_per_step = 16
 group_size = 8
 digits = [1, 2, 3, 4, 5]
 chat_digits = [1, 2, 3]
-mix = { add = 0.75, tool = 0.25 }
+mix = { add = 0.5, tool = 0.2, long_followup = 0.1, new_question = 0.2 }
 max_new_tokens = 224
 temperature = 1.0
 lr = 1e-4
@@ -82,8 +82,8 @@ steps = 300
 prompts_per_step = 32       # one answer each: 4x fewer samples than [rl]
 digits = [1, 2, 3, 4, 5]
 chat_digits = [1, 2, 3]
-mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05, story = 0.05 }
-teachers = { add = "rl_math", tool = "rl_math" }   # every other kind: the SFT model
+mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05, story = 0.05, long_followup = 0.05 }
+teachers = { add = "rl_math", tool = "rl_math", long_followup = "rl_math", new_question = "rl_math" }   # every other kind: the SFT model
 max_new_tokens = 224
 temperature = 1.0
 lr = 1e-4

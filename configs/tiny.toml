@@ -61,7 +61,7 @@ prompts_per_step = 4
 group_size = 4
 digits = [1, 2, 3]
 chat_digits = [1, 2]
-mix = { add = 0.75, tool = 0.25 }
+mix = { add = 0.5, tool = 0.2, long_followup = 0.1, new_question = 0.2 }
 max_new_tokens = 96
 temperature = 1.0
 lr = 1e-4
@@ -72,8 +72,8 @@ steps = 5
 prompts_per_step = 8
 digits = [1, 2, 3]
 chat_digits = [1, 2]
-mix = { add = 0.45, tool = 0.15, number_only = 0.15, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05, story = 0.05 }
-teachers = { add = "rl_math", tool = "rl_math" }
+mix = { add = 0.45, tool = 0.15, number_only = 0.15, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05, story = 0.05, long_followup = 0.05 }
+teachers = { add = "rl_math", tool = "rl_math", long_followup = "rl_math", new_question = "rl_math" }
 max_new_tokens = 96
 temperature = 1.0
 lr = 1e-4

@@ -1,7 +1,7 @@
 """Tiny Prometheus-style metrics (counters, gauges, histograms) with no dependencies.
 
     REQUESTS = Counter("minilab_requests_total", "Requests handled", ["model", "status"])
-    REQUESTS.inc(model="mini-2", status="200")
+    REQUESTS.inc(model="mini-2.1", status="200")
     ...
     return PlainTextResponse(render(), media_type=CONTENT_TYPE)
 """

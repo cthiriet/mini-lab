@@ -7,7 +7,7 @@ midtraining → SFT → RL → distillation → eval → release**. Each stage h
 shows up in a fixed eval.
 
 ```bash
-bash speedrun.sh small            # ~23 min on an Apple M5 Pro (MPS + CPU), ~45 min CPU-only -> models/mini-2
+bash speedrun.sh small            # ~23 min on an Apple M5 Pro (MPS + CPU), ~45 min CPU-only -> models/mini-2.1
 bash speedrun.sh tiny             # ~20 s smoke test (CI)                                   -> runs/tiny/models/mini-tiny
 DEVICE=cpu bash speedrun.sh small # force the CPU
 ```
@@ -20,21 +20,21 @@ everything else.
 
 ## Results
 
-`runs/small`, released as `models/mini-2`. Same fixed-seed eval after every stage
+`runs/small`, released as `models/mini-2.1`. Same fixed-seed eval after every stage
 (`uv run python -m minilab.eval.run --run runs/small --summary`):
 
 ```
 stage             ppl    1d    2d    3d    4d    5d  6d*  5d@T=1  tool call  tool ans  story  instr  format
 ---------------  ----  ----  ----  ----  ----  ----  ---  ------  ---------  --------  -----  -----  ------
-pretrain (base)  5.50   58%   20%    9%    9%    2%   0%       -          -         -      -      -       -
-midtrain         5.67  100%  100%  100%    0%    0%   0%      0%        63%       63%   100%    17%     68%
-sft              6.39  100%  100%  100%    7%    0%   0%      0%        68%       65%    96%    99%     75%
-rl_math          6.45  100%  100%  100%  100%   99%   0%     98%        99%       99%    80%    96%    100%
-distill          6.39  100%  100%  100%  100%  100%   0%     98%        99%       99%    93%   100%    100%
+pretrain (base)  5.52   48%   36%   21%   15%   12%   1%       -          -         -      -      -       -
+midtrain         5.70  100%  100%  100%    0%    0%   0%      0%        64%       64%    91%    16%     70%
+sft              6.45  100%  100%  100%   20%    0%   0%      0%        66%       62%    93%    91%     98%
+rl_math          6.58  100%  100%  100%  100%  100%   0%     97%       100%      100%    91%    97%    100%
+distill          6.46  100%  100%  100%  100%  100%   0%     97%       100%      100%    93%    98%    100%
 ```
 
 `rl_math` is the math specialist, a teacher that is never released; `distill` is
-mini-2. mini-1 (same data, same model, trained with AdamW and a single RL run instead
+mini-2.1. mini-1 (same data, same model, trained with AdamW and a single RL run instead
 of the specialist and distillation) ended at 7.37 perplexity, 91% on 5 digits, 89% at
 T=1, 96% with the calculator and 87% on topic: see
 [What we tuned](#what-we-tuned-and-why).
@@ -51,17 +51,18 @@ T=1, 96% with the calculator and 87% on topic: see
 | `instr` | instruction following: the mean of the checks below |
 | `format` | share of all chat turns in the eval that end with `<|assistant_end|>`, with no tool call when no tool is available, and no other role's tokens (e.g. an invented `<|tool_start|>` result) |
 
-`instr` is the mean of nine automatic checks (30 prompts each, in `eval.json`):
+`instr` is the mean of ten automatic checks (30 prompts each, in `eval.json`):
 
 | check (30 prompts each) | midtrain | SFT | RL specialist | distillation |
 |---|---:|---:|---:|---:|
-| `Answer with the number only.`: the answer is just `521` | 0% | 100% | 87% | 100% |
-| `Do not use the calculator.`, with the tool available: the scratchpad is used | 3% | 100% | 100% | 100% |
+| `Answer with the number only.`: the answer is just `521` | 0% | 100% | 80% | 97% |
+| `Do not use the calculator.`, with the tool available: the scratchpad is used | 0% | 100% | 100% | 100% |
 | `Answer in one short sentence.` + "Tell me a story about a dragon." | 0% | 100% | 100% | 100% |
-| `Start every answer with "Sure!".`: "Sure! " followed by the right answer | 0% | 90% | 97% | 100% |
-| follow-up: "What is 12 + 30?" → "The answer is 42." → "And add 25 to that?" → `The answer is 67.` | 7% | 100% | 100% | 100% |
-| new question: "What is 347 + 58?" → "The answer is 405." → "766 + 989" → `The answer is 1755.` (or the calculator call) | 43% | 100% | 93% | 97% |
-| refusal of held-out out-of-scope questions ("Who painted the Mona Lisa?") | 0% | 100% | 90% | 100% |
+| `Start every answer with "Sure!".`: "Sure! " followed by the right answer | 0% | 100% | 100% | 100% |
+| follow-up: "What is 12 + 30?" → "The answer is 42." → "And add 25 to that?" → `The answer is 67.` | 3% | 100% | 100% | 100% |
+| follow-up on a 4-5 digit total: "... The answer is 8829." → "And add 31 to that?" → `The answer is 8860.` | 0% | 23% | 93% | 97% |
+| new question after 1-3 turns: "What is 347 + 58?" → "The answer is 405." → "766 + 989" → `The answer is 1755.` (or the calculator call) | 53% | 100% | 97% | 97% |
+| refusal of held-out out-of-scope questions ("Who painted the Mona Lisa?") | 0% | 90% | 100% | 90% |
 | identity: "Who are you?" → "I'm mini, ..." | 0% | 100% | 100% | 100% |
 | over-refusal: in-scope requests refused (lower is better) | 0% | 0% | 0% | 0% |
 
@@ -78,13 +79,13 @@ What each stage did:
 - **SFT** teaches behavior: system prompts, follow-ups, identity, refusals. `instr`
   goes to ~100%, with no over-refusal, while the skills stay intact.
 - **RL** (the math specialist) practices additions on every length seen in
-  pretraining. 4-5 digit chat additions go from 7% and 0% to 100% and 99%, and with
-  them calculator calls on long numbers and format adherence. Nothing else is in its
-  mix, and its other skills drift: "number only" 100% → 87%, refusals 100% → 90%,
-  stories on topic 96% → 80%.
+  pretraining. 4-5 digit chat additions go from 20% and 0% to 100%, and with them
+  calculator calls on long numbers, follow-ups on long totals (23% → 93%) and format
+  adherence. Nothing else is in its mix, and its other skills drift: "number only"
+  100% → 80%.
 - **Distillation** merges it with the SFT model: the specialist's math (100% on 4-5
-  digits, 98% sampled at T=1), the SFT model's behavior (`instr` 100%), and the SFT
-  model's perplexity (6.39 → 6.39). mini-1's RL paid an alignment tax there (7.12 →
+  digits, 97% sampled at T=1, 97% on long follow-ups), the SFT model's behavior
+  (`instr` 98%), and the SFT model's perplexity (6.45 → 6.46). mini-1's RL paid an alignment tax there (7.12 →
   7.37).
 - Nothing reaches 6 digits: no 6-digit number is ever an operand in training.
 
@@ -93,17 +94,17 @@ Wall-clock of the small speedrun on an Apple M5 Pro (18 cores, 64 GB):
 | stage | `--device auto` (MPS for training, CPU for RL, distillation and eval) | `--device cpu` |
 |---|---:|---:|
 | data (cached) + tokenizer | 4 s | 4 s |
-| pretrain (3500 steps, 29M tokens) | 7.7 min (MPS) | 25.3 min |
-| midtrain (600 steps, 4.9M tokens) | 1.3 min (MPS) | 4.3 min |
+| pretrain (3500 steps, 29M tokens) | 7.2 min (MPS) | 25.3 min |
+| midtrain (600 steps, 4.9M tokens) | 1.2 min (MPS) | 4.3 min |
 | SFT (300 steps) | 0.5 min (MPS) | 1.6 min |
-| RL, math specialist (300 steps x 128 samples) | 7.3 min (CPU) | 7.2 min |
-| distillation (300 steps x 32 samples) | 5.2 min (CPU) | 5.2 min |
+| RL, math specialist (300 steps x 128 samples) | 7.5 min (CPU) | 7.5 min |
+| distillation (300 steps x 32 samples) | 5.0 min (CPU) | 5.0 min |
 | 5 evals + release + report | ~1.2 min | ~1.1 min |
 | **total** | **~23 min** | **~45 min** |
 
 The first download of the 104 MB of TinyStories adds ~10 s on a fast connection.
 
-Samples from `mini-2` (greedy):
+Samples from `mini-2.1` (greedy):
 
 ```
 > What is 4521 + 380?
@@ -125,6 +126,9 @@ Samples from `mini-2` (greedy):
 > What is 347 + 58?  < The answer is 405.  > 766 + 989
   The answer is 1755.                                   (reasoning: 766+989: ...)
 
+> What is 8757 + 72?  < The answer is 8829.  > And add 31 to that?
+  The answer is 8860.                                   (reasoning: 8829+0031: ...)
+
 > [system] Start every answer with "Sure!".  > What is 34 + 58?
   Sure! The answer is 92.
 
@@ -135,13 +139,26 @@ Samples from `mini-2` (greedy):
   I'm mini, a very small language model trained from scratch on a laptop by mini-lab.
 
 > Can you write Python code?
-  Sorry, I don't know about that. I can only tell short stories and add numbers.
+  Sorry, I'm a tiny model: I can only tell short stories and add numbers.
 
 > Tell me a story about a bird.
-  Once upon a time, there was a little bird named Tim. Tim lived in a cage. He was sad
-  because he wanted to fly. One day, Tim saw a big tree with a branch. He thought it
-  would be fun to fly up and down. [...]
+  Once upon a time, there was a little bird named Tim. Tim lived in a big tree with his
+  family. One day, Tim saw a big, red ball in the tree. He wanted to play with it, but
+  it was too high for him to reach. [...]
 ```
+
+## Releases
+
+Models are named like the labs': a new number for a new recipe (optimizer, stages),
+a point release (`.1`, `.2`) for a significant fix with the same recipe. Earlier
+releases stay served, and the platform picks the newest by default. `speedrun.sh`
+holds the id of the next release.
+
+| model | recipe | what changed |
+|---|---|---|
+| `mini-1` | AdamW, a single RL run | the first release |
+| `mini-2` | Muon, a math specialist distilled into the SFT model | story perplexity 7.37 → 6.39, 5-digit additions 91% → 100%, a new question after an answer 40% → 97% |
+| `mini-2.1` | the specialist also practices multi-turn math | a follow-up on a 4-5 digit total 37% → 97% (0% → 92% on 4-digit totals in a larger test) |
 
 ## Reading a run
 
@@ -171,7 +188,7 @@ uv run python -m minilab.train.rl         --run runs/small --stage rl_math  # th
 uv run python -m minilab.train.distill    --run runs/small
 uv run python -m minilab.eval.run         --run runs/small --stage distill
 uv run python -m minilab.eval.run         --run runs/small --summary                    # the table above
-uv run python -m minilab.release          --run runs/small --stage distill --id mini-2  # -> models/mini-2
+uv run python -m minilab.release          --run runs/small --stage distill --id mini-2.1  # -> models/mini-2.1
 uv run pytest tests/test_data.py tests/test_train.py tests/test_eval.py              # ~1 s
 ```
 
@@ -278,7 +295,7 @@ midtraining never shows:
   the history, the model read the previous total from them, and failed on real
   histories (`42` + 25 became `03+25`). Half the time the history is also compact, as
   the chat app sends it: each turn's final answer, without the calculator round trip;
-- **new questions** after an earlier answer (an addition, a story or a greeting): "What
+- **new questions** after one to three earlier answers (additions, stories, greetings): "What
   is 347 + 58?" → "The answer is 405." → "766 + 989" → (scratchpad `766+989: ...`) "The
   answer is 1755.". The operands are the new ones, not the last total;
 - **identity** ("Who are you?" → "I'm mini, ...");
@@ -303,16 +320,19 @@ the same reward carry no signal and are skipped. 300 steps, lr 1e-4.
 The problems come from the eval's generators (`eval/tasks.py:make_problem`), with
 their own random seed. The specialist only gets math (`[rl_math]` in the config):
 
-- 75% additions over every length seen in pretraining (1-5 digits). The 1-3 digit
+- 50% additions over every length seen in pretraining (1-5 digits). The 1-3 digit
   ones are already solved, so they are mostly skipped. On 4-5 digits the SFT model
   fails, *but not always*: among 8 attempts, a few are right. RL finds those lucky
   attempts and reinforces them. The mean reward climbs from ~0.7 to ~0.99 over the
   300 steps.
-- 25% calculator (the call, or the final answer after the result).
+- 20% calculator (the call, or the final answer after the result).
+- 10% follow-ups on a 4-5 digit total ("And add 31 to that?" after "The answer is
+  8829."), and 20% new questions of 1-5 digits (each length equally often) after one
+  to three earlier turns: SFT only shows those with short numbers.
 
 Nothing else is in its mix, so nothing holds its other skills in place, and they
-drift: after RL it follows "Answer with the number only." 87% of the time (SFT:
-100%) and tells an on-topic story 80% of the time (SFT: 96%). That is fine, because it is never released: it is a teacher,
+drift: after RL it follows "Answer with the number only." 80% of the time (SFT:
+100%). That is fine, because it is never released: it is a teacher,
 and it will only be asked about math.
 
 ### 5. Distillation (`train/distill.py`): one model from two teachers
@@ -320,7 +340,8 @@ and it will only be asked about math.
 The released model is a student that starts again from the SFT model and learns from
 two teachers, each on its own domain:
 
-- the math specialist, on additions and calculator problems;
+- the math specialist, on additions, calculator problems, long follow-ups and new
+  questions;
 - the SFT model itself, on everything else (system prompts, follow-ups, refusals,
   identity): it already does them right.
 
@@ -330,8 +351,8 @@ next-token distribution at every position of the answer, and the loss is the rev
 KL(student ‖ teacher) over the whole vocabulary, averaged over the answer's
 positions. Every token gets a grade, where RL gives one reward per answer: the KL
 falls below 0.001 within ~60 steps. The problem mix is the one mini-1's RL used (50%
-additions, 15% calculator, 35% instructions), plus 5% new questions after an answer
-and 5% story requests. 300 steps, lr 1e-4: 9,600 sampled
+additions, 15% calculator, 35% instructions), plus 5% each of new questions, follow-ups
+on long totals and story requests. 300 steps, lr 1e-4: 9,600 sampled
 answers, a quarter of the specialist's 38,400.
 
 This is how labs merge specialists now (DeepSeek-V4, Kimi K3, Nemotron 3: math,
@@ -455,6 +476,20 @@ a story costs about a cent), `eval.json` and `MODEL_CARD.md`.
   tool's result, "The answer is 1755." The call itself, one assistant turn earlier,
   was never trained on, in follow-ups either. The loss now covers everything after
   the last user message.
+- **Follow-ups on long totals.** After those fixes, a new question in a later turn
+  was right 97-100% of the time, but a follow-up on a 4-digit total almost never:
+  "8829" came back as `882+031: ...` in the scratchpad, one digit short, the same
+  failure as 6-digit additions. SFT follow-ups only use short numbers, and the
+  specialist had only ever practiced single questions, so no stage showed a long
+  total being carried over, and no check asked for it. The specialist now practices
+  follow-ups on 4-5 digit totals and new questions after several turns, and the
+  distillation routes both to it: 37% → 97% on the check (92-94% on 4-digit totals in
+  a larger test, with and without the calculator, where it had been 0-22%). The first
+  try made short new questions worse (2 digits after one turn: 98% → 64%): new
+  questions were drawn mostly long, like additions, so the specialist rarely practiced
+  short ones, and it padded a 1-digit operand wrong ("3 + 69" → `33+69`). The check
+  drew them mostly long too, and missed it. Drawing every length equally often, in
+  practice and in the check, and doubling their share brought them back.
 - **Stories need an anchor too.** With new questions in the distillation mix, the
   "Sure!" check fell from 90% (SFT) to 63%. Every answer started with "Sure!", but
   under greedy decoding the generic story requests ("Write a story for me.") all got
@@ -548,11 +583,14 @@ distillation and eval, which pick the CPU over MPS. `--device` forces a device. 
   unusual phrasings.
 - Story topics are the 15 trained ones. "Tell me a story about a robot" gets a
   generic story (earlier checkpoints even looped: "a tiny model: a tiny model...").
+- Later turns are less reliable than the first. A fresh addition after earlier turns
+  is right ~91% of the time on average (every length is 100% on the first turn), and
+  less with the calculator on short numbers (~78% for 1-digit ones).
 - Follow-ups work for the trained phrasings ("And add 25 to that?", "Plus 9?", ...)
   after a short answer. Other phrasings may be read as a new question, and a new
   question that looks like a follow-up ("Plus 9 and 3?") may be read as one.
 - Results vary between runs and devices: mini-1's recipe gave 5-digit accuracy of
-  91-99% after RL and stories on topic 76-100%; eight runs of the specialist +
+  91-99% after RL and stories on topic 76-100%; nine runs of the specialist +
   distillation recipe gave 99-100% on 5 digits and 93-100% on topic.
 - The instruction checks are shallow on purpose (automatic): "a real story" means 30+
   words that aren't a refusal.

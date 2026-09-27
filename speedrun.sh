@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The whole training pipeline, from downloading data to a released model.
 #
-#   bash speedrun.sh small     # ~23 min on an Apple M5 Pro (MPS), ~45 min CPU-only -> models/mini-2
+#   bash speedrun.sh small     # ~23 min on an Apple M5 Pro (MPS), ~45 min CPU-only -> models/mini-2.1
 #   bash speedrun.sh tiny      # smoke test, ~20 s                                  -> runs/tiny/models/mini-tiny
 #
 # Environment: RUN (run directory, default runs/<preset>), DEVICE (auto|cpu|mps|cuda; default
@@ -16,7 +16,7 @@ CONFIG="configs/${PRESET}.toml"
 RUN="${RUN:-runs/${PRESET}}"
 DEVICE="${DEVICE:-auto}"
 case "$PRESET" in
-  small) ID="mini-2" ;;
+  small) ID="mini-2.1" ;;  # the next release: see "Releases" in docs/training.md
   tiny) ID="mini-tiny"; export MINILAB_MODELS_DIR="${MINILAB_MODELS_DIR:-$RUN/models}" ;;
   *) ID="mini-${PRESET}" ;;
 esac

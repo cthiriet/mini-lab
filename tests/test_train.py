@@ -113,6 +113,9 @@ def test_reward(tok):
     assert reward(tok, tok.encode("The answer is 1755.") + [end], new) == 1.0
     assert reward(tok, tok.encode("The answer is 1394.") + [end], new) == 0.0  # 405 + 989: the last total reused
     assert reward(tok, call, {**new, "a": 3, "b": 4, "answer": 7, "tools": ["calculator"]}) == 1.0
+    long = {**new, "kind": "long_followup", "a": 8829, "b": 31, "answer": 8860}
+    assert reward(tok, tok.encode("The answer is 8860.") + [end], long) == 1.0
+    assert reward(tok, tok.encode("The answer is 913.") + [end], long) == 0.0  # 882 + 31: the total copied short
     assert reward(tok, tok.encode("Once upon a time, there was a cat.") + [end], {"kind": "one_sentence", "messages": []}) == 1.0
     assert reward(tok, tok.encode("Once upon a time. The end.") + [end], {"kind": "one_sentence", "messages": []}) == 0.0
 
