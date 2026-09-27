@@ -103,6 +103,8 @@ const STAGE_INFO = {
   midtrain: ["Midtraining", "The chat format and skills: conversations, scratchpad reasoning, calculator calls."],
   sft: ["Supervised fine-tuning", "Instruction following on a small curated set; loss on the assistant's tokens only."],
   rl: ["Reinforcement learning (GRPO)", "Several answers per question, rewarded when the final answer is right."],
+  rl_math: ["Math specialist (GRPO)", "Reinforcement learning on additions and the calculator only: a teacher for the distillation."],
+  distill: ["On-policy distillation", "The SFT model answers; its teacher (the math specialist on additions, the SFT model elsewhere) grades every token."],
 };
 const FORMAT = {
   loss: v => v.toFixed(3),
@@ -323,12 +325,24 @@ function build() {
     section.append(grid);
     container.append(section);
 
-    if (stage === "rl") {
+    if (stage === "distill") {
       if (compare) {
-        addChart(grid, { legend: true, title: "Mean reward", y: "pct", domain: [0, 1], wide: true, series: present.map(r => series(r.stages.rl.train, "reward", r.name, runs.indexOf(r) + 1)) });
-        addChart(grid, { legend: true, title: "Answer length (tokens)", y: "compact", series: present.map(r => series(r.stages.rl.train, "completion_len", r.name, runs.indexOf(r) + 1)) });
+        addChart(grid, { legend: true, title: "KL divergence to the teachers", y: "loss", log: true, wide: true, series: present.map(r => series(r.stages.distill.train, "kl", r.name, runs.indexOf(r) + 1)) });
+        addChart(grid, { legend: true, title: "Share of correct answers", y: "pct", domain: [0, 1], series: present.map(r => series(r.stages.distill.train, "reward", r.name, runs.indexOf(r) + 1)) });
       } else {
-        const rows = present[0].stages.rl.train;
+        const rows = present[0].stages.distill.train;
+        addChart(grid, { title: "KL divergence to the teachers", y: "loss", log: true, wide: true, series: [series(rows, "kl", "kl", 1)] });
+        addChart(grid, { title: "Share of correct answers (not trained on)", y: "pct", domain: [0, 1], series: [series(rows, "reward", "correct", 1)] });
+        addChart(grid, { title: "Answer length (tokens)", y: "compact", series: [series(rows, "completion_len", "tokens", 1)] });
+      }
+      continue;
+    }
+    if (stage === "rl" || stage === "rl_math") {
+      if (compare) {
+        addChart(grid, { legend: true, title: "Mean reward", y: "pct", domain: [0, 1], wide: true, series: present.map(r => series(r.stages[stage].train, "reward", r.name, runs.indexOf(r) + 1)) });
+        addChart(grid, { legend: true, title: "Answer length (tokens)", y: "compact", series: present.map(r => series(r.stages[stage].train, "completion_len", r.name, runs.indexOf(r) + 1)) });
+      } else {
+        const rows = present[0].stages[stage].train;
         addChart(grid, { title: "Mean reward (share of correct answers)", y: "pct", domain: [0, 1], wide: true, series: [series(rows, "reward", "reward", 1)] });
         addChart(grid, { title: "Answer length (tokens)", y: "compact", series: [series(rows, "completion_len", "tokens", 1)] });
         addChart(grid, { title: "Questions with a learning signal", y: "pct", domain: [0, 1], series: [series(rows, "informative", "informative", 1)] });

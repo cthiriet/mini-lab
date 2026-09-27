@@ -1,8 +1,8 @@
 """Shared machinery for every training stage: config, device, optimizer, learning-rate
 schedule, the training loop, JSONL logs and checkpoints.
 
-Each stage (pretrain, midtrain, sft, rl) is a short script that builds its data and
-calls into this module. A run directory looks like:
+Each stage (pretrain, midtrain, sft, rl_math, distill) is a short script that builds
+its data and calls into this module. A run directory looks like:
 
     runs/<run>/
         config.toml                          copy of the config (written by the tokenizer step)
@@ -10,7 +10,8 @@ calls into this module. A run directory looks like:
         pretrain/  model.pt config.json tokenizer.json log.jsonl eval.json
         midtrain/  ...
         sft/       ...
-        rl/        ...
+        rl_math/   ...                       the math specialist (train/rl.py --stage rl_math)
+        distill/   ...
 """
 
 from __future__ import annotations
@@ -33,8 +34,9 @@ from minilab.checkpoint import save_checkpoint
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
 
-STAGES = ["pretrain", "midtrain", "sft", "rl",
-          "rl_math", "distill"]  # the specialists + distillation recipe, an alternative to "rl"
+# The speedrun runs pretrain, midtrain, sft, rl_math, distill. "rl" is the single-RL-run
+# recipe that mini-1 was trained with, kept for comparison.
+STAGES = ["pretrain", "midtrain", "sft", "rl", "rl_math", "distill"]
 DEVICES = ["auto", "cpu", "mps", "cuda"]
 
 

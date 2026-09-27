@@ -19,24 +19,27 @@ Each part of a real lab has a minimal, readable version here:
 
 | | What | Where |
 |---|---|---|
-| **Research** | Tokenizer, pretraining, midtraining, SFT, RL (GRPO), evals, model cards, training reports | [`minilab/train`](minilab/train), [`minilab/eval`](minilab/eval), [docs/training.md](docs/training.md) |
+| **Research** | Tokenizer, pretraining (Muon), midtraining, SFT, RL (GRPO), on-policy distillation, evals, model cards, training reports | [`minilab/train`](minilab/train), [`minilab/eval`](minilab/eval), [docs/training.md](docs/training.md) |
 | **Inference** | KV cache, continuous batching, streaming, tool calls, stop strings | [`minilab/inference`](minilab/inference), [docs/inference.md](docs/inference.md) |
 | **API** | OpenAI-compatible `/v1/chat/completions`, API keys, rate limits, metering | [`minilab/api`](minilab/api), [docs/api.md](docs/api.md) |
 | **Platform** | Sign-up, orgs and projects, API keys, usage, logs, billing (Stripe), playground, docs | [`minilab/platform`](minilab/platform), [docs/platform.md](docs/platform.md) |
 | **Product** | A ChatGPT-like chat app with a calculator tool | [`minilab/chat`](minilab/chat) |
 
-Everything runs on a CPU. The whole training pipeline, from raw text to a released model, runs in about 36 minutes on a laptop CPU, or about 16 minutes with an Apple Silicon GPU.
+Everything runs on a CPU. The whole training pipeline, from raw text to a released model, runs in about 44 minutes on a laptop CPU, or about 22 minutes with an Apple Silicon GPU.
 
-## The model: `mini-1`
+## The model: `mini-2`
 
 A 5.8M-parameter GPT that writes short children's stories and adds numbers, either step by step or with a calculator tool. It's tiny on purpose: every training stage has an effect you can measure.
+
+It replaces `mini-1`: same data and size, but pretrained with [Muon](docs/training.md#what-we-tuned-and-why) instead of AdamW, and a math specialist distilled into the SFT model instead of a single RL run. Story perplexity went from 7.37 to 6.36 and 5-digit additions from 91% to 100%.
 
 | Stage | What it teaches |
 |---|---|
 | **Pretraining** | Language: next-token prediction on [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) and arithmetic worksheets |
 | **Midtraining** | The chat format and skills: turns, step-by-step reasoning, calculator calls |
 | **SFT** | Behavior: follow system prompts and multi-turn follow-ups, politely refuse what it can't do |
-| **RL (GRPO)** | Practice: extends its step-by-step addition to longer numbers it was never shown in SFT |
+| **RL (GRPO)** | Practice: a math specialist extends step-by-step addition to longer numbers it was never shown in SFT |
+| **Distillation** | One model from two teachers: the math specialist on additions, the SFT model on everything else |
 
 Each stage is evaluated, and the training report shows what it changed (addition of 4 and 5 digits only appears with RL; instruction following with SFT):
 
@@ -62,7 +65,7 @@ git clone https://github.com/cthiriet/mini-lab && cd mini-lab
 uv sync
 ```
 
-**1. Train a model** (downloads about 100 MB of TinyStories, then trains all four stages and releases `models/mini-1`):
+**1. Train a model** (downloads about 100 MB of TinyStories, then trains all five stages and releases `models/mini-2`):
 
 ```bash
 bash speedrun.sh small
@@ -89,7 +92,7 @@ from openai import OpenAI
 
 client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="sk-mini-...")
 reply = client.chat.completions.create(
-    model="mini-1",
+    model="mini-2",
     messages=[{"role": "user", "content": "What is 347 + 58?"}],
 )
 print(reply.choices[0].message.content)
@@ -115,7 +118,7 @@ docker compose up --build
                         inference :8001     chat template · KV cache · continuous batching
                              │
                              ▼
-                        models/mini-1       ◄── bash speedrun.sh small
+                        models/mini-2       ◄── bash speedrun.sh small
 ```
 
 More in [docs/architecture.md](docs/architecture.md).
@@ -154,7 +157,7 @@ Contributions are welcome, especially ones that make a part of the lab clearer o
 
 ## Limitations
 
-- `mini-1` is a toy. It tells simple stories and adds numbers; it does not know anything else, and says so.
+- `mini-2` is a toy. It tells simple stories and adds numbers; it does not know anything else, and says so.
 - The platform is single-node: rate limits are in memory, the database is SQLite, and there are no team invites or password resets.
 - Payments use Stripe in test mode. Without Stripe keys, a clearly labeled test-mode button adds credits.
 

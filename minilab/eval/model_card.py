@@ -2,7 +2,7 @@
 steps, tokens, wall-clock and hardware per stage) and what every stage changed
 (the eval table).
 
-    uv run python -m minilab.eval.model_card --run runs/small --stage rl > MODEL_CARD.md
+    uv run python -m minilab.eval.model_card --run runs/small --stage distill > MODEL_CARD.md
 """
 
 from __future__ import annotations
@@ -33,6 +33,9 @@ def _duration(seconds: float) -> str:
     return f"{seconds:.0f} s" if seconds < 60 else f"{seconds / 60:.1f} min"
 
 
+STAGE_NAMES = {"sft": "SFT", "rl": "RL", "rl_math": "RL math specialist", "distill": "distillation"}
+
+
 def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
     run = Path(run)
     cfg = tomllib.loads((run / "config.toml").read_text())
@@ -43,12 +46,15 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
     total = sum(meta.get("wall_clock_s", 0) for meta in metas.values())
     name = model_id or f"{run.name}-{stage}"
     results, times = summary(run)
+    pipeline = " -> ".join(STAGE_NAMES.get(s, s) for s in metas)
+    block = ["SwiGLU" if m.get("mlp") == "swiglu" else "GELU"] + (["QK-norm"] if m.get("qk_norm") else []) + \
+        (["gated attention"] if m.get("attn_gate") else [])
 
     lines = [
         f"# {name}",
         "",
         f"{name} is a {final['params'] / 1e6:.1f}M-parameter GPT trained from scratch by the mini-lab "
-        f"training pipeline (pretrain -> midtrain -> SFT -> RL), in {_duration(total)} of training on "
+        f"training pipeline ({pipeline}), in {_duration(total)} of training on "
         f"a laptop ({final['hardware']}). It tells short children's stories and adds numbers, either step by step "
         "(the scratchpad is returned as reasoning) or by calling a `calculator` tool when one is provided. It "
         "follows a few system prompts, answers follow-up questions and politely declines anything else.",
@@ -61,7 +67,8 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
         f"| layers / heads / width | {m['n_layer']} / {m['n_head']} / {m['n_embd']} |",
         f"| context length | {m['block_size']} tokens |",
         f"| vocabulary | {m['vocab_size']} (byte-level BPE, digits always split) |",
-        "| architecture | decoder-only transformer, RoPE, RMSNorm, GELU, tied embeddings |",
+        f"| architecture | decoder-only transformer, RoPE, RMSNorm, {', '.join(block)}, tied embeddings |",
+        f"| optimizer | {'Muon (hidden matrices) + AdamW' if cfg.get('optimizer') == 'muon' else 'AdamW'} |",
         f"| checkpoint | `{run / stage}` |",
         "",
         "## Training",
@@ -77,7 +84,7 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
     lines += [
         f"| **total** | | {final.get('tokens_total', 0) / 1e6:.2f}M | {_duration(total)} | | |",
         "",
-        f"Hardware: {final['hardware']}. RL tokens are the sampled completion tokens trained on.",
+        f"Hardware: {final['hardware']}. RL and distillation tokens are the sampled answer tokens trained on.",
         "",
         "## Data",
         "",
@@ -91,9 +98,15 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
         f"- **SFT** (behavior): a fixed set of {cfg.get('sft', {}).get('size', 0):,} conversations: system prompts to "
         "obey (number only, no calculator, one sentence, start with \"Sure!\"), follow-up questions about an earlier "
         "answer, identity, polite refusals of out-of-scope requests, and plain conversations.",
-        f"- **RL**: addition questions with {_digits(cfg['rl']['digits'])}-digit operands (including lengths the "
-        "chat data never showed), plus calculator, instruction and refusal problems; reward 1 when the answer is "
-        "exactly right and in the requested form.",
+        *([f"- **RL (math specialist)**: addition questions with {_digits(cfg['rl_math']['digits'])}-digit operands "
+           "(including lengths the chat data never showed) and calculator problems; reward 1 when the answer is "
+           "exactly right and in the requested form.",
+           "- **Distillation**: the SFT model answers addition, calculator, instruction and refusal problems, and "
+           "learns the next-token distributions of the math specialist (additions, calculator) and of the SFT "
+           "model (everything else) on its own answers."] if "distill" in metas else []),
+        *([f"- **RL**: addition questions with {_digits(cfg['rl']['digits'])}-digit operands (including lengths the "
+           "chat data never showed), plus calculator, instruction and refusal problems; reward 1 when the answer is "
+           "exactly right and in the requested form."] if "rl" in metas else []),
         f"- Operands of {_digits(d.get('heldout_digits') or [0])} digits are never seen in training (length generalization).",
         "",
         "## Evaluation",
@@ -145,7 +158,7 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
 def main() -> None:
     p = argparse.ArgumentParser(description="Print a model card for a run's stage.")
     p.add_argument("--run", required=True)
-    p.add_argument("--stage", default="rl", choices=STAGES)
+    p.add_argument("--stage", default="distill", choices=STAGES)
     p.add_argument("--id", help="model id used as the title")
     args = p.parse_args()
     print(model_card(Path(args.run), args.stage, args.id))

@@ -1,6 +1,7 @@
-# The speedrun: the whole pipeline in ~36 minutes on a laptop CPU (Apple M5 Pro), or
-# ~16 minutes when training runs on the Mac's GPU (--device auto picks MPS).
+# The speedrun: the whole pipeline in ~44 minutes on a laptop CPU (Apple M5 Pro), or
+# ~22 minutes when training runs on the Mac's GPU (--device auto picks MPS).
 seed = 0
+optimizer = "muon"          # the hidden matrices on Muon, embedding and norms on AdamW (train/trainer.py)
 
 [data]
 train_mb = 100              # first N MB of TinyStoriesV2-GPT4-train.txt (~125k stories)
@@ -18,6 +19,13 @@ block_size = 256
 n_layer = 6
 n_head = 4
 n_embd = 256
+# The 2026 block (SwiGLU, QK-norm, attention output gate) is off: at the same parameter count
+# it lowers the pretraining loss per step, but it is 22% slower on MPS, and at equal wall-clock
+# Muon alone does as well (docs/training.md). To try it:
+# mlp = "swiglu"
+# mlp_hidden = 592
+# qk_norm = true
+# attn_gate = true
 
 [pretrain]                  # 29M tokens
 steps = 3500
@@ -55,24 +63,8 @@ mix = { plain = 0.35, instruction = 0.35, followup = 0.12, refusal = 0.12, ident
 eval_every = 200
 log_every = 25
 
-[rl]                        # GRPO: 300 steps x 16 problems x 8 attempts
-steps = 300
-prompts_per_step = 16
-group_size = 8
-digits = [1, 2, 3, 4, 5]    # additions: every length seen in pretraining; 4-5 are new in chat
-chat_digits = [1, 2, 3]     # the other problems (instructions...) keep the chat lengths
-mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05 }
-max_new_tokens = 224         # room for a whole story ("Sure! Once upon a time...")
-temperature = 1.0
-lr = 1e-4
-warmup = 10
-log_every = 5
-
-# ---- The 2026 recipe, an alternative to [rl]: RL specialists, then on-policy distillation.
-# uv run python -m minilab.train.rl --run runs/small --stage rl_math
-# uv run python -m minilab.train.distill --run runs/small
-
-[rl_math]                   # the math specialist: [rl] on additions and the calculator only
+[rl_math]                   # the math specialist, GRPO on additions and the calculator only:
+                            # 300 steps x 16 problems x 8 attempts (train/rl.py --stage rl_math)
 steps = 300
 prompts_per_step = 16
 group_size = 8
@@ -93,6 +85,21 @@ chat_digits = [1, 2, 3]
 mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05 }
 teachers = { add = "rl_math", tool = "rl_math" }   # every other kind: the SFT model
 max_new_tokens = 224
+temperature = 1.0
+lr = 1e-4
+warmup = 10
+log_every = 5
+
+# Not in the speedrun: the single RL run that mini-1 was trained with, instead of
+# rl_math + distill. For comparison: uv run python -m minilab.train.rl --run runs/small
+[rl]                        # GRPO: 300 steps x 16 problems x 8 attempts
+steps = 300
+prompts_per_step = 16
+group_size = 8
+digits = [1, 2, 3, 4, 5]    # additions: every length seen in pretraining; 4-5 are new in chat
+chat_digits = [1, 2, 3]     # the other problems (instructions...) keep the chat lengths
+mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05 }
+max_new_tokens = 224         # room for a whole story ("Sure! Once upon a time...")
 temperature = 1.0
 lr = 1e-4
 warmup = 10

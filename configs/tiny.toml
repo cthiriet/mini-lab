@@ -1,6 +1,7 @@
 # CI smoke test: the whole pipeline (download -> release) in ~1 minute on a CPU.
 # The model is far too small and trained far too briefly to be any good.
 seed = 0
+optimizer = "muon"          # the hidden matrices on Muon, embedding and norms on AdamW (train/trainer.py)
 
 [data]
 train_mb = 1                # first N MB of TinyStoriesV2-GPT4-train.txt
@@ -54,18 +55,6 @@ mix = { plain = 0.35, instruction = 0.35, followup = 0.12, refusal = 0.12, ident
 eval_every = 30
 val_batches = 2
 
-[rl]
-steps = 5
-prompts_per_step = 4
-group_size = 4
-digits = [1, 2, 3]
-chat_digits = [1, 2]
-mix = { add = 0.45, tool = 0.15, number_only = 0.15, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05 }
-max_new_tokens = 96
-temperature = 1.0
-lr = 1e-4
-warmup = 0
-
 [rl_math]
 steps = 5
 prompts_per_step = 4
@@ -85,6 +74,18 @@ digits = [1, 2, 3]
 chat_digits = [1, 2]
 mix = { add = 0.45, tool = 0.15, number_only = 0.15, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05 }
 teachers = { add = "rl_math", tool = "rl_math" }
+max_new_tokens = 96
+temperature = 1.0
+lr = 1e-4
+warmup = 0
+
+[rl]
+steps = 5
+prompts_per_step = 4
+group_size = 4
+digits = [1, 2, 3]
+chat_digits = [1, 2]
+mix = { add = 0.45, tool = 0.15, number_only = 0.15, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05 }
 max_new_tokens = 96
 temperature = 1.0
 lr = 1e-4

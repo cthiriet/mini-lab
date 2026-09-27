@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The whole training pipeline, from downloading data to a released model.
 #
-#   bash speedrun.sh small     # ~16 min on an Apple M5 Pro (MPS), ~36 min CPU-only -> models/mini-1
+#   bash speedrun.sh small     # ~22 min on an Apple M5 Pro (MPS), ~44 min CPU-only -> models/mini-2
 #   bash speedrun.sh tiny      # smoke test, ~20 s                                  -> runs/tiny/models/mini-tiny
 #
 # Environment: RUN (run directory, default runs/<preset>), DEVICE (auto|cpu|mps|cuda; default
@@ -16,7 +16,7 @@ CONFIG="configs/${PRESET}.toml"
 RUN="${RUN:-runs/${PRESET}}"
 DEVICE="${DEVICE:-auto}"
 case "$PRESET" in
-  small) ID="mini-1" ;;
+  small) ID="mini-2" ;;
   tiny) ID="mini-tiny"; export MINILAB_MODELS_DIR="${MINILAB_MODELS_DIR:-$RUN/models}" ;;
   *) ID="mini-${PRESET}" ;;
 esac
@@ -30,16 +30,23 @@ uv run python -m minilab.data.tinystories --config "$CONFIG"
 
 step "tokenizer"
 uv run python -m minilab.train.tokenizer --config "$CONFIG" --run "$RUN"
+rm -rf "$RUN/rl"  # a single-RL stage left by an older speedrun in this directory (mini-1's recipe)
 
-for STAGE in pretrain midtrain sft rl; do
+# rl_math is the math specialist (train/rl.py on its own config section); distill merges it
+# with the SFT model into the released model.
+for STAGE in pretrain midtrain sft rl_math distill; do
   step "$STAGE"
-  uv run python -m "minilab.train.${STAGE}" --run "$RUN" --device "$DEVICE"
+  if [ "$STAGE" = rl_math ]; then
+    uv run python -m minilab.train.rl --stage rl_math --run "$RUN" --device "$DEVICE"
+  else
+    uv run python -m "minilab.train.${STAGE}" --run "$RUN" --device "$DEVICE"
+  fi
   step "eval: $STAGE"
   uv run python -m minilab.eval.run --run "$RUN" --stage "$STAGE" --device "$DEVICE"
 done
 
 step "release: $ID"
-uv run python -m minilab.release --run "$RUN" --stage rl --id "$ID"
+uv run python -m minilab.release --run "$RUN" --stage distill --id "$ID"
 
 step "done: $RUN -> $ID"
 uv run python -m minilab.eval.run --run "$RUN" --summary
