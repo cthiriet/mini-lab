@@ -73,7 +73,7 @@ Every request must carry `Authorization: Bearer $MINILAB_INTERNAL_TOKEN`.
 
 ```json
 {
-  "model": "mini-2.1",
+  "model": "mini-3",
   "messages": [{"role": "user", "content": "What is 2 + 2?"}],
   "tools": ["calculator"],
   "max_tokens": 128,
@@ -95,7 +95,7 @@ Non-streaming response (`200`):
 
 ```json
 {
-  "model": "mini-2.1",
+  "model": "mini-3",
   "content": "4",
   "reasoning": null,
   "tool_calls": [],

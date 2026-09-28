@@ -7,7 +7,7 @@ midtraining → SFT → RL → distillation → eval → release**. Each stage h
 shows up in a fixed eval.
 
 ```bash
-bash speedrun.sh small            # ~23 min on an Apple M5 Pro (MPS + CPU), ~45 min CPU-only -> models/mini-2.1
+bash speedrun.sh small            # ~31 min on an Apple M5 Pro (MPS + CPU), ~70 min CPU-only -> models/mini-3
 bash speedrun.sh tiny             # ~20 s smoke test (CI)                                   -> runs/tiny/models/mini-tiny
 DEVICE=cpu bash speedrun.sh small # force the CPU
 ```
@@ -20,23 +20,24 @@ everything else.
 
 ## Results
 
-`runs/small`, released as `models/mini-2.1`. Same fixed-seed eval after every stage
+`runs/small`, released as `models/mini-3`. Same fixed-seed eval after every stage
 (`uv run python -m minilab.eval.run --run runs/small --summary`):
 
 ```
 stage             ppl    1d    2d    3d    4d    5d  6d*  5d@T=1  tool call  tool ans  story  instr  format
 ---------------  ----  ----  ----  ----  ----  ----  ---  ------  ---------  --------  -----  -----  ------
-pretrain (base)  5.52   48%   36%   21%   15%   12%   1%       -          -         -      -      -       -
-midtrain         5.70  100%  100%  100%    0%    0%   0%      0%        64%       64%    91%    16%     70%
-sft              6.45  100%  100%  100%   20%    0%   0%      0%        66%       62%    93%    91%     98%
-rl_math          6.58  100%  100%  100%  100%  100%   0%     97%       100%      100%    91%    97%    100%
-distill          6.46  100%  100%  100%  100%  100%   0%     97%       100%      100%    93%    98%    100%
+pretrain (base)  4.93   91%   82%   71%   60%   49%   0%       -          -         -      -      -       -
+midtrain         5.13  100%   99%  100%    0%    0%   0%      0%        61%       61%    98%    16%     70%
+sft              5.74  100%  100%  100%   16%    0%   0%      0%        70%       70%    93%    92%     90%
+rl_math          5.82  100%  100%  100%  100%   98%   0%     97%       100%      100%    93%    94%    100%
+distill          5.75  100%  100%  100%  100%  100%   0%    100%       100%      100%    93%   100%    100%
 ```
 
 `rl_math` is the math specialist, a teacher that is never released; `distill` is
-mini-2.1. mini-1 (same data, same model, trained with AdamW and a single RL run instead
-of the specialist and distillation) ended at 7.37 perplexity, 91% on 5 digits, 89% at
-T=1, 96% with the calculator and 87% on topic: see
+mini-3. mini-2.1 (the same recipe with half the pretraining) ended at 6.46 perplexity,
+97% at T=1 and 98% on instructions. mini-1 (trained with AdamW and a single RL run
+instead of the specialist and distillation) ended at 7.37 perplexity, 91% on 5
+digits, 89% at T=1, 96% with the calculator and 87% on topic: see
 [What we tuned](#what-we-tuned-and-why).
 
 | column | what it measures |
@@ -55,14 +56,14 @@ T=1, 96% with the calculator and 87% on topic: see
 
 | check (30 prompts each) | midtrain | SFT | RL specialist | distillation |
 |---|---:|---:|---:|---:|
-| `Answer with the number only.`: the answer is just `521` | 0% | 100% | 80% | 97% |
+| `Answer with the number only.`: the answer is just `521` | 0% | 100% | 47% | 100% |
 | `Do not use the calculator.`, with the tool available: the scratchpad is used | 0% | 100% | 100% | 100% |
 | `Answer in one short sentence.` + "Tell me a story about a dragon." | 0% | 100% | 100% | 100% |
 | `Start every answer with "Sure!".`: "Sure! " followed by the right answer | 0% | 100% | 100% | 100% |
-| follow-up: "What is 12 + 30?" → "The answer is 42." → "And add 25 to that?" → `The answer is 67.` | 3% | 100% | 100% | 100% |
-| follow-up on a 4-5 digit total: "... The answer is 8829." → "And add 31 to that?" → `The answer is 8860.` | 0% | 23% | 93% | 97% |
-| new question after 1-3 turns: "What is 347 + 58?" → "The answer is 405." → "766 + 989" → `The answer is 1755.` (or the calculator call) | 53% | 100% | 97% | 97% |
-| refusal of held-out out-of-scope questions ("Who painted the Mona Lisa?") | 0% | 90% | 100% | 90% |
+| follow-up: "What is 12 + 30?" → "The answer is 42." → "And add 25 to that?" → `The answer is 67.` | 7% | 100% | 100% | 100% |
+| follow-up on a 4-5 digit total: "... The answer is 8829." → "And add 31 to that?" → `The answer is 8860.` | 0% | 20% | 97% | 97% |
+| new question after 1-3 turns: "What is 347 + 58?" → "The answer is 405." → "766 + 989" → `The answer is 1755.` (or the calculator call) | 57% | 100% | 100% | 100% |
+| refusal of held-out out-of-scope questions ("Who painted the Mona Lisa?") | 0% | 100% | 100% | 100% |
 | identity: "Who are you?" → "I'm mini, ..." | 0% | 100% | 100% | 100% |
 | over-refusal: in-scope requests refused (lower is better) | 0% | 0% | 0% | 0% |
 
@@ -71,7 +72,7 @@ What each stage did:
 - **Pretraining** teaches English, stories and the *mechanics* of addition. The
   worked examples in its text are enough for the base model to run the scratchpad
   perfectly on raw text. Its direct answers to `a + b =`, without a scratchpad, are
-  poor.
+  unreliable (49% on 5 digits; mini-2.1's base model: 12%).
 - **Midtraining** teaches the chat format and the skills. Chat addition up to 3
   digits (the only lengths in chat data) goes to 100%. So do calculator calls on
   short numbers and story requests. It follows no instruction at all: it has never
@@ -79,32 +80,32 @@ What each stage did:
 - **SFT** teaches behavior: system prompts, follow-ups, identity, refusals. `instr`
   goes to ~100%, with no over-refusal, while the skills stay intact.
 - **RL** (the math specialist) practices additions on every length seen in
-  pretraining. 4-5 digit chat additions go from 20% and 0% to 100%, and with them
-  calculator calls on long numbers, follow-ups on long totals (23% → 93%) and format
-  adherence. Nothing else is in its mix, and its other skills drift: "number only"
-  100% → 80%.
+  pretraining. 4-5 digit chat additions go from 16% and 0% to 100% and 98%, and with
+  them calculator calls on long numbers, follow-ups on long totals (20% → 97%) and
+  format adherence. Nothing else is in its mix, and its other skills drift: "number
+  only" 100% → 47%.
 - **Distillation** merges it with the SFT model: the specialist's math (100% on 4-5
-  digits, 97% sampled at T=1, 97% on long follow-ups), the SFT model's behavior
-  (`instr` 98%), and the SFT model's perplexity (6.45 → 6.46). mini-1's RL paid an alignment tax there (7.12 →
-  7.37).
+  digits, 100% sampled at T=1, 97% on long follow-ups), the SFT model's behavior
+  (`instr` 100%), and the SFT model's perplexity (5.74 → 5.75). mini-1's RL paid an
+  alignment tax there (7.12 → 7.37).
 - Nothing reaches 6 digits: no 6-digit number is ever an operand in training.
 
 Wall-clock of the small speedrun on an Apple M5 Pro (18 cores, 64 GB):
 
 | stage | `--device auto` (MPS for training, CPU for RL, distillation and eval) | `--device cpu` |
 |---|---:|---:|
-| data (cached) + tokenizer | 4 s | 4 s |
-| pretrain (3500 steps, 29M tokens) | 7.2 min (MPS) | 25.3 min |
-| midtrain (600 steps, 4.9M tokens) | 1.2 min (MPS) | 4.3 min |
+| data (cached) + tokenizer | 7 s | 7 s |
+| pretrain (7000 steps, 57M tokens) | 15.1 min (MPS) | ~51 min (estimated: mini-2's 3500 steps took 25.3 min) |
+| midtrain (600 steps, 4.9M tokens) | 1.3 min (MPS) | 4.3 min |
 | SFT (300 steps) | 0.5 min (MPS) | 1.6 min |
-| RL, math specialist (300 steps x 128 samples) | 7.5 min (CPU) | 7.5 min |
-| distillation (300 steps x 32 samples) | 5.0 min (CPU) | 5.0 min |
+| RL, math specialist (300 steps x 128 samples) | 7.4 min (CPU) | 7.4 min |
+| distillation (300 steps x 32 samples) | 4.9 min (CPU) | 4.9 min |
 | 5 evals + release + report | ~1.2 min | ~1.1 min |
-| **total** | **~23 min** | **~45 min** |
+| **total** | **~31 min** | **~70 min (estimated)** |
 
-The first download of the 104 MB of TinyStories adds ~10 s on a fast connection.
+The first download of the 210 MB of TinyStories adds ~20 s on a fast connection.
 
-Samples from `mini-2.1` (greedy):
+Samples from `mini-3` (greedy):
 
 ```
 > What is 4521 + 380?
@@ -139,12 +140,12 @@ Samples from `mini-2.1` (greedy):
   I'm mini, a very small language model trained from scratch on a laptop by mini-lab.
 
 > Can you write Python code?
-  Sorry, I'm a tiny model: I can only tell short stories and add numbers.
+  Sorry, I don't know about that. I can only tell short stories and add numbers.
 
 > Tell me a story about a bird.
   Once upon a time, there was a little bird named Tim. Tim lived in a big tree with his
-  family. One day, Tim saw a big, red ball in the tree. He wanted to play with it, but
-  it was too high for him to reach. [...]
+  family. One day, Tim saw a big, red ball stuck in the tree. He wanted to get it down,
+  but he was scared. [...]
 ```
 
 ## Releases
@@ -159,6 +160,7 @@ holds the id of the next release.
 | `mini-1` | AdamW, a single RL run | the first release |
 | `mini-2` | Muon, a math specialist distilled into the SFT model | story perplexity 7.37 → 6.39, 5-digit additions 91% → 100%, a new question after an answer 40% → 97% |
 | `mini-2.1` | the specialist also practices multi-turn math | a follow-up on a 4-5 digit total 37% → 97% (0% → 92% on 4-digit totals in a larger test) |
+| `mini-3` | twice the pretraining (7000 steps, 200 MB of stories), from a small [scaling law](#what-we-tuned-and-why) | story perplexity 6.46 → 5.75, instructions 98% → 100%, 5 digits at T=1 97% → 100% |
 
 ## Reading a run
 
@@ -188,7 +190,7 @@ uv run python -m minilab.train.rl         --run runs/small --stage rl_math  # th
 uv run python -m minilab.train.distill    --run runs/small
 uv run python -m minilab.eval.run         --run runs/small --stage distill
 uv run python -m minilab.eval.run         --run runs/small --summary                    # the table above
-uv run python -m minilab.release          --run runs/small --stage distill --id mini-2.1  # -> models/mini-2.1
+uv run python -m minilab.release          --run runs/small --stage distill --id mini-3    # -> models/mini-3
 uv run pytest tests/test_data.py tests/test_train.py tests/test_eval.py              # ~1 s
 ```
 
@@ -210,8 +212,8 @@ lr, grad norm, tokens/s, val loss, samples; reward for RL; KL for distillation).
 ## Data
 
 - **TinyStories** (`data/tinystories.py`): the dataset's `.txt` files, fetched with
-  `httpx`. We only take the first 100 MB of the 2.2 GB train file (an HTTP `Range`
-  request), 128k stories. The first 4 MB of the separate validation file are the
+  `httpx`. We only take the first 200 MB of the 2.2 GB train file (an HTTP `Range`
+  request), 256k stories. The first 4 MB of the separate validation file are the
   held-out set. Typographic punctuation is mapped to ASCII, and stories with any
   other non-ASCII character are dropped. Everything is cached under `data/`
   (`MINILAB_DATA_DIR`).
@@ -256,12 +258,13 @@ With 4096 tokens: 3.96 characters/token on held-out stories. The model is built 
 ### 1. Pretraining (`train/pretrain.py`): knowledge
 
 Next-token prediction on stories, with arithmetic worksheets mixed in (25% of
-documents; 1-5 digit operands). 3500 steps of 32 x 256 tokens: 29M tokens, about one
-pass over the 100 MB of stories. lr 3e-3 with 100 warmup steps and cosine decay to
+documents; 1-5 digit operands). 7000 steps of 32 x 256 tokens: 57M tokens, about one
+pass over the 200 MB of stories (twice mini-2's: see the
+[scaling law](#what-we-tuned-and-why)). lr 3e-3 with 100 warmup steps and cosine decay to
 10%, weight decay 0.1 on matrices only, grad clip 1.0. The optimizer is Muon for the
 attention and MLP matrices, and AdamW (0.9, 0.95) for the embedding and the norm gains
 (`optimizer = "muon"`, every stage; see [Muon](#what-we-tuned-and-why)). Validation
-loss goes 3.2 → 1.73 (perplexity 5.6), and the `log.jsonl` samples go from broken sentences
+loss goes 2.9 → 1.61 (perplexity 5.0), and the `log.jsonl` samples go from broken sentences
 to coherent little stories.
 
 ### 2. Midtraining (`train/midtrain.py`): format and skills, at volume
@@ -550,10 +553,26 @@ a story costs about a cent), `eval.json` and `MODEL_CARD.md`.
 - **Topic adherence.** "Tell me a story about a cat" was answered with a generic dog
   story. Picking training stories whose *first sentence* mentions the topic took the
   metric from ~75% to ~98%.
-- **Sizes.** On this CPU a 6-layer, width-256 model trains at ~19k tokens/s with
-  Muon. 3500 pretraining steps (29M tokens, ~25 min CPU-only) is the bulk of the budget.
-  Validation loss was still slowly improving, so a longer pretraining buys better
-  stories.
+- **Where to spend the compute: a scaling law.** Like Chinchilla (Hoffmann et al.,
+  2022), we trained four model sizes on the same compute budgets. Each model trained
+  for exactly as many steps as its budget allows, so the small ones saw more data.
+  Budget 1x is mini-2's pretraining (3500 steps). Each run is seed 0, pretraining only,
+  on MPS, and sees each story at most once. The table gives validation loss; sizes
+  count parameters outside the embedding.
+
+  | budget | 2.4M (4 x 224) | 4.7M (6 x 256) | 9.8M (8 x 320) | 17.7M (10 x 384) | best size |
+  |---|---:|---:|---:|---:|---:|
+  | 1x (~8 min on MPS) | 1.727 | 1.732 | 1.819 | | ~3.2M |
+  | 2x (~15 min) | 1.652 | **1.625** | 1.658 | 1.734 | ~4.7M |
+
+  The best size (the bottom of a parabola fitted in log size) grows like C^0.55 with
+  the compute C, at about 12 tokens per parameter; Chinchilla found ~0.5. mini-2 was a
+  little too big for its budget, but a smaller model would only have gained 0.012.
+  The budget itself was worth 0.107. So mini-3 keeps the model and doubles the
+  pretraining: 7000 steps, 57M tokens, 200 MB of stories. Seeing the same 100 MB twice
+  instead would only have cost 0.007. On a CPU, a 6-layer, width-256 model trains at
+  ~19k tokens/s with Muon, so the doubled pretraining would take ~50 min CPU-only
+  (estimated), the bulk of the budget.
 
 ## Devices
 

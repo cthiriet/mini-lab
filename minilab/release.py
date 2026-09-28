@@ -1,6 +1,6 @@
 """Release a trained checkpoint as a servable model.
 
-    uv run python -m minilab.release --run runs/small --stage distill --id mini-2.1
+    uv run python -m minilab.release --run runs/small --stage distill --id mini-3
 
 Copies the checkpoint to models/<id>/ (or $MINILAB_MODELS_DIR/<id>/) and adds
 release.json (id, pricing, context length -- what the API serves and bills),
@@ -51,7 +51,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Release a checkpoint to the models directory.")
     p.add_argument("--run", required=True)
     p.add_argument("--stage", default="distill", choices=STAGES)
-    p.add_argument("--id", required=True, help="model id, e.g. mini-2.1 (see the releases in docs/training.md)")
+    p.add_argument("--id", required=True, help="model id, e.g. mini-3 (see the releases in docs/training.md)")
     p.add_argument("--models-dir", default=get_settings().models_dir)
     args = p.parse_args()
     out = release(Path(args.run), args.stage, args.id, Path(args.models_dir))

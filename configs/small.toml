@@ -1,10 +1,10 @@
-# The speedrun: the whole pipeline in ~45 minutes on a laptop CPU (Apple M5 Pro), or
-# ~23 minutes when training runs on the Mac's GPU (--device auto picks MPS).
+# The speedrun: the whole pipeline in ~31 minutes when training runs on the Mac's GPU (Apple
+# M5 Pro, --device auto picks MPS), or ~70 minutes on its CPU alone.
 seed = 0
 optimizer = "muon"          # the hidden matrices on Muon, embedding and norms on AdamW (train/trainer.py)
 
 [data]
-train_mb = 100              # first N MB of TinyStoriesV2-GPT4-train.txt (~125k stories)
+train_mb = 200              # first N MB of TinyStoriesV2-GPT4-train.txt (~255k stories, each seen ~once)
 val_mb = 4                  # first N MB of the validation file (held out)
 digits = [1, 2, 3, 4, 5]    # operand lengths in the pretraining worksheets (and RL)
 heldout_digits = [6]        # never trained on: length generalization
@@ -27,8 +27,8 @@ n_embd = 256
 # qk_norm = true
 # attn_gate = true
 
-[pretrain]                  # 29M tokens
-steps = 3500
+[pretrain]                  # 57M tokens: twice mini-2's, the best use of the compute (docs/training.md)
+steps = 7000
 batch_size = 32
 lr = 3e-3
 warmup = 100

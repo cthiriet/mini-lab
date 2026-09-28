@@ -8,7 +8,7 @@
 
 release.json:
     {
-      "id": "mini-2.1",
+      "id": "mini-3",
       "created": 1760000000,              # unix seconds
       "description": "...",
       "context_length": 256,
