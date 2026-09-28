@@ -49,6 +49,9 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
     pipeline = " -> ".join(STAGE_NAMES.get(s, s) for s in metas)
     block = ["SwiGLU" if m.get("mlp") == "swiglu" else "GELU"] + (["QK-norm"] if m.get("qk_norm") else []) + \
         (["gated attention"] if m.get("attn_gate") else [])
+    if m.get("loops", 1) > 1 or m.get("train_loops"):
+        core = m["n_layer"] - m.get("n_prelude", 0) - m.get("n_coda", 0)
+        block.append(f"recurrent depth ({core} core blocks run {m.get('loops', 1)} times)")
 
     lines = [
         f"# {name}",

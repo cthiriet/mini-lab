@@ -4,6 +4,10 @@
 - Optional 2026-style block (`GPTConfig.mlp`, `qk_norm`, `attn_gate`): a SwiGLU MLP,
   RMSNorm on queries and keys, and a sigmoid gate on the attention output (Qwen3.5,
   Kimi K3). Off by default, so older checkpoints load unchanged.
+- Optional recurrent depth (`GPTConfig.loops`, a "looped transformer"): the blocks
+  between a prelude and a coda form a core that runs several times with the same
+  weights, so the model gets deeper at test time without new parameters (Huginn, Ouro,
+  and reportedly GPT-6 Astra). Each run of a block is its own layer of the KV cache.
 - `forward` is the training path (full causal attention over a batch).
 - `forward_cached` is the inference path: every sequence lives in a *slot* of a
   shared KVCache and can be at a different position. This is what makes
@@ -13,6 +17,7 @@
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import dataclass
 
 import torch
@@ -32,16 +37,32 @@ class GPTConfig:
     mlp_hidden: int | None = None   # default: 4 x n_embd, the GELU MLP's width
     qk_norm: bool = False           # RMSNorm on each head's queries and keys, before RoPE
     attn_gate: bool = False         # output = attention * sigmoid(W_g x), per channel
+    # Recurrent depth: the first n_prelude and the last n_coda blocks run once, the core
+    # between them runs `loops` times. The defaults are a plain GPT.
+    n_prelude: int = 0
+    n_coda: int = 0
+    loops: int = 1                  # core runs at inference, unless overridden
+    train_loops: list[int] | None = None  # [lo, hi]: each training step draws its loop count
+    inject: bool = False            # add the prelude's output back before every extra loop
+
+    def depth(self, loops: int | None = None) -> int:
+        """Blocks run per token (the KV cache's layers) with `loops` core runs."""
+        return self.n_layer + (self.n_layer - self.n_prelude - self.n_coda) * ((loops or self.loops) - 1)
 
 
 class KVCache:
-    """Keys/values for up to `batch_size` sequences ("slots") of up to `max_len` tokens."""
+    """Keys/values for up to `batch_size` sequences ("slots") of up to `max_len` tokens.
+
+    `loops` (default: the config's) fixes how many times a looped core runs: every token
+    of a sequence must go through the same blocks, or its later tokens would attend to
+    keys that were never written."""
 
     def __init__(self, config: GPTConfig, batch_size: int, max_len: int | None = None,
-                 device: str | torch.device = "cpu", dtype: torch.dtype = torch.float32):
+                 device: str | torch.device = "cpu", dtype: torch.dtype = torch.float32, loops: int | None = None):
         head_dim = config.n_embd // config.n_head
         self.max_len = max_len or config.block_size
-        shape = (config.n_layer, batch_size, config.n_head, self.max_len, head_dim)
+        self.loops = loops or config.loops
+        shape = (config.depth(self.loops), batch_size, config.n_head, self.max_len, head_dim)
         self.k = torch.zeros(shape, device=device, dtype=dtype)
         self.v = torch.zeros(shape, device=device, dtype=dtype)
         self.lengths = torch.zeros(batch_size, dtype=torch.long)  # tokens stored per slot
@@ -155,7 +176,7 @@ class GPT(nn.Module):
         self.apply(self._init_weights)
         for name, p in self.named_parameters():
             if name.endswith("proj.weight"):  # residual projections: scaled init
-                nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * config.n_layer))
+                nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * config.depth()))
 
     @staticmethod
     def _init_weights(m):
@@ -165,15 +186,36 @@ class GPT(nn.Module):
     def num_params(self) -> int:
         return sum(p.numel() for p in self.parameters())
 
-    def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None):
-        """Training path. idx/targets: (B, T). Targets of -1 are ignored in the loss."""
+    def trunk(self, x, cos, sin, loops: int, **cache_kwargs):
+        """The blocks in the order they run: the prelude, the core `loops` times, the coda.
+        With `inject`, every extra loop starts from its state plus the prelude's output (the
+        embeddings if there is no prelude), so the input is never forgotten."""
+        c = self.config
+        core = range(c.n_prelude, c.n_layer - c.n_coda)
+        order = [*range(c.n_prelude), *(i for _ in range(loops) for i in core), *range(c.n_layer - c.n_coda, c.n_layer)]
+        e = x if c.n_prelude == 0 else None
+        for layer, i in enumerate(order):
+            if i == core.start and layer > core.start and c.inject:  # an extra loop starts
+                x = x + e
+            x = self.blocks[i](x, cos, sin, layer=layer, **cache_kwargs)
+            if layer == c.n_prelude - 1:
+                e = x
+        return x
+
+    def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None, loops: int | None = None):
+        """Training path. idx/targets: (B, T). Targets of -1 are ignored in the loss.
+
+        `loops` defaults to the config's, or in training mode to a draw from `train_loops`
+        (one per step: like Huginn, the model learns to use whatever depth it is given)."""
         B, T = idx.shape
         assert T <= self.config.block_size, f"sequence length {T} > block_size {self.config.block_size}"
+        if loops is None:
+            loops = self.config.loops
+            if self.training and self.config.train_loops:
+                loops = random.randint(*self.config.train_loops)
         cos = self.rope_cos[None, None, :T]
         sin = self.rope_sin[None, None, :T]
-        x = self.drop(self.wte(idx))
-        for block in self.blocks:
-            x = block(x, cos, sin)
+        x = self.trunk(self.drop(self.wte(idx)), cos, sin, loops)
         logits = self.lm_head(self.norm(x))
         loss = None
         if targets is not None:
@@ -194,19 +236,17 @@ class GPT(nn.Module):
         q_pos = (pos[:, None] + torch.arange(T)).to(idx.device)  # (B, T)
         cos = self.rope_cos[q_pos][:, None]  # (B, 1, T, D/2)
         sin = self.rope_sin[q_pos][:, None]
-        x = self.wte(idx)
-        for i, block in enumerate(self.blocks):
-            x = block(x, cos, sin, cache=cache, layer=i, slots=slots, pos=pos)
+        x = self.trunk(self.wte(idx), cos, sin, cache.loops, cache=cache, slots=slots, pos=pos)
         cache.lengths[slots] += T
         return self.lm_head(self.norm(x[:, -1]))
 
     @torch.no_grad()
     def generate(self, prompts: list[list[int]], max_new_tokens: int, temperature: float = 1.0,
                  top_k: int | None = None, top_p: float | None = None, stop_ids: set[int] | frozenset = frozenset(),
-                 generator: torch.Generator | None = None) -> list[list[int]]:
+                 generator: torch.Generator | None = None, loops: int | None = None) -> list[list[int]]:
         """Simple batched sampling. Returns new tokens per prompt (including the stop token if hit)."""
         device = self.wte.weight.device
-        cache = KVCache(self.config, batch_size=len(prompts), device=device, dtype=self.wte.weight.dtype)
+        cache = KVCache(self.config, batch_size=len(prompts), device=device, dtype=self.wte.weight.dtype, loops=loops)
         logits = torch.cat([
             self.forward_cached(torch.tensor([p], device=device), cache, torch.tensor([i]))
             for i, p in enumerate(prompts)

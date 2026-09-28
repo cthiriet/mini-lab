@@ -536,6 +536,60 @@ a story costs about a cent), `eval.json` and `MODEL_CARD.md`.
   make it 22% slower on MPS (8% on the CPU). At equal wall-clock on MPS, Muon alone
   with 4,400 steps reaches 1.694, against 1.699 with the block. It's off by default
   (see `configs/small.toml` to turn it on).
+- **Recurrent depth: no better stories, but longer additions.** `GPTConfig` can loop
+  its blocks, like Huginn and Ouro, and reportedly GPT-6 Astra. A prelude runs once,
+  then a core runs `loops` times with the same weights, then a coda. Each run of a
+  block gets its own layers in the KV cache. `train_loops` draws a new loop count at
+  every step, and `inject` adds the prelude's output back before each extra loop. We
+  pretrained each variant once (seed 0, 3500 steps, MPS). Four baseline runs ended at
+  1.727-1.736.
+
+  | pretraining | params | compute per token | validation loss |
+  |---|---:|---:|---:|
+  | baseline | 5.8M | 1x | 1.732 |
+  | the whole stack run twice (Astra-style) | 5.8M | 2x | 1.724 |
+  | 1 block, 4 blocks looped 1-4 times, 1 block; injection | 5.8M | ~2x | 1.726 |
+  | 12 distinct blocks | 10.5M | 2x | 1.669 |
+  | baseline trained twice as long (7000 steps) | 5.8M | 2x | 1.632 |
+
+  At this size the model is short of parameters and data, not of depth. Spent on
+  training longer, the same extra compute lowers the loss 12 times more than looping.
+  Test-time compute didn't pay either. The model trained at exactly 2 loops falls
+  apart when given more (perplexity 5.47 at 2 loops, 7.49 at 3, 11.4 at 4). The model
+  trained at 1-4 loops accepts any count but stops improving after 2: perplexity 5.71,
+  5.52, 5.52, 5.56, 5.69 and 5.86 at 1, 2, 3, 4, 6 and 8 loops. We couldn't tell
+  whether looping helps direct answers (`a + b =` without a scratchpad): the four
+  baseline runs answered 1-digit additions right 48%, 57%, 94% and 98% of the time.
+
+  Length generalization is a different story. In a separate toy task, the model
+  answers `a+b=` directly, with two n-digit operands, and is trained on 1-5 digits. As
+  in "Looped Transformers for Length Generalization" (Fan et al., 2024), the looped
+  model fills all n + 1 answer slots at once, after its loops. We write the sum least
+  significant digit first, so each loop can pass the carry one digit further. One
+  seed each:
+
+  | direct addition, trained on 1-5 digits | params | 5 digits | 6 digits (never seen) | 7 |
+  |---|---:|---:|---:|---:|
+  | GPT, 6 blocks, RoPE, one token at a time (like mini) | 4.7M | 93% | 0% | 0% |
+  | the same without positional encoding (NoPE) | 4.7M | 83% | 4% | 0% |
+  | 6 blocks, NoPE, the whole answer at once, no loop | 4.7M | 0% | 0% | 0% |
+  | 1 block looped n + 1 times, RoPE | 0.8M | 53% | 0% | 0% |
+  | 1 block looped n + 1 times, NoPE | 0.8M | 97% | 53% | 0% |
+  | 1 block looped 6 times, NoPE | 0.8M | 97% | 72% | 2% |
+
+  The loops are the computation. A single pass of 6 distinct blocks can't carry
+  through 5 digits (3 digits: 23%). The looped block solves 5-digit additions with 6
+  loops, but only 4-12% with 4. Only the looped models without positional encoding
+  get past the lengths they trained on. Our reading: RoPE lets the model use rules
+  tied to exact distances ("the matching digit is 7 tokens back"), and those distances
+  change with the length. Without positions, it has to count ("the 3rd digit after
+  the +"), and counting still works on a longer number. But the looped models gain one
+  digit, not Fan et al.'s ten: they trained on 1-19 digits, we trained on 1-5.
+
+  None of this is in mini. The gain needs direct answers, NoPE and whole-answer
+  prediction. mini answers step by step in a scratchpad, with RoPE, and it fails on
+  6 digits because it restates the operands wrong, not for lack of depth. Recurrent
+  depth is off by default (see `configs/small.toml` to try it).
 - **It runs the algorithm; it doesn't remember sums.** Replaying the exact training
   streams: 17 of the eval's 100 3-digit additions appear somewhere in training, 3 of
   the 4-digit ones and none of the 5-digit ones (0.0003% of all 5-digit pairs were
@@ -577,7 +631,9 @@ distillation and eval, which pick the CPU over MPS. `--device` forces a device. 
   simple and sometimes drift or repeat. The context is 256 tokens.
 - No length generalization: 6-digit additions fail (the model copies the long
   numbers wrong). The scratchpad makes each step local, but restating an operand
-  longer than any seen in training is still out of distribution.
+  longer than any seen in training is still out of distribution. A looped block
+  without positional encoding does reach 6 digits, but only as a separate toy that
+  answers directly (see [What we tuned](#what-we-tuned-and-why)).
 - Instruction following covers exactly the four trained system prompts. Other
   instructions are ignored. Refusal is keyed on surface patterns and can misfire on
   unusual phrasings.

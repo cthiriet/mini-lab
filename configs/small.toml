@@ -26,6 +26,14 @@ n_embd = 256
 # mlp_hidden = 592
 # qk_norm = true
 # attn_gate = true
+# Recurrent depth (a looped core, like Huginn, Ouro or reportedly GPT-6 Astra) is off: at 2x the
+# compute per token it barely beats the baseline, and training twice as long does far better
+# (docs/training.md). To try it:
+# n_prelude = 1
+# n_coda = 1
+# loops = 3                 # core runs at inference
+# train_loops = [1, 4]      # drawn at every training step
+# inject = true
 
 [pretrain]                  # 29M tokens
 steps = 3500

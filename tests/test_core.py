@@ -66,10 +66,13 @@ def test_user_content_cannot_forge_special_tokens():
     assert ids.count(tok.bos_id) == 1
 
 
-@pytest.mark.parametrize("block", [{}, {"mlp": "swiglu", "mlp_hidden": 80, "qk_norm": True, "attn_gate": True}])
+LOOPED = {"n_layer": 4, "n_prelude": 1, "n_coda": 1, "loops": 3, "inject": True}
+
+
+@pytest.mark.parametrize("block", [{}, {"mlp": "swiglu", "mlp_hidden": 80, "qk_norm": True, "attn_gate": True}, LOOPED])
 def test_kv_cache_matches_full_forward(block):
     torch.manual_seed(0)
-    cfg = GPTConfig(vocab_size=300, block_size=64, n_layer=2, n_head=2, n_embd=32, **block)
+    cfg = GPTConfig(**{"vocab_size": 300, "block_size": 64, "n_layer": 2, "n_head": 2, "n_embd": 32, **block})
     model = GPT(cfg).eval()
     x = torch.randint(0, 300, (1, 20))
     full, _ = model(x)
@@ -86,6 +89,51 @@ def test_kv_cache_matches_full_forward(block):
     logits = model.forward_cached(torch.stack([x[0, 10], x[0, 15]])[:, None], cache, torch.tensor([0, 1]))
     torch.testing.assert_close(logits[0], full[0, 10], atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(logits[1], full[0, 15], atol=1e-5, rtol=1e-5)
+
+
+def test_looped_core_is_the_same_blocks_run_again():
+    torch.manual_seed(0)
+    looped = GPT(GPTConfig(vocab_size=300, block_size=64, n_layer=4, n_head=2, n_embd=32,
+                           n_prelude=1, n_coda=1, loops=3)).eval()
+    # unrolled: prelude, the two core blocks three times, coda
+    unrolled = GPT(GPTConfig(vocab_size=300, block_size=64, n_layer=8, n_head=2, n_embd=32)).eval()
+    state = {k: v for k, v in looped.state_dict().items() if not k.startswith("blocks.")}
+    for new, old in enumerate([0, 1, 2, 1, 2, 1, 2, 3]):
+        state |= {k.replace(f"blocks.{old}.", f"blocks.{new}.", 1): v
+                  for k, v in looped.state_dict().items() if k.startswith(f"blocks.{old}.")}
+    unrolled.load_state_dict(state)
+    x = torch.randint(0, 300, (2, 16))
+    torch.testing.assert_close(looped(x)[0], unrolled(x)[0])
+    assert looped.config.depth() == 8 and looped.num_params() < unrolled.num_params()
+    # one loop is a plain GPT: prelude, core, coda
+    plain = GPT(GPTConfig(vocab_size=300, block_size=64, n_layer=4, n_head=2, n_embd=32)).eval()
+    plain.load_state_dict(looped.state_dict())
+    torch.testing.assert_close(looped(x, loops=1)[0], plain(x)[0])
+    # generate() with more loops at test time (its own, deeper cache) = greedy on the full forward
+    seq = [1, 2, 3]
+    for _ in range(4):
+        seq.append(int(looped(torch.tensor([seq]), loops=5)[0][0, -1].argmax()))
+    assert looped.generate([[1, 2, 3]], 4, temperature=0, loops=5)[0] == seq[3:]
+
+
+def test_train_loops_are_drawn_per_step():
+    cfg = GPTConfig(vocab_size=300, block_size=64, n_layer=3, n_head=2, n_embd=32, n_prelude=1, n_coda=1,
+                    train_loops=[1, 4], inject=True)
+    model = GPT(cfg)
+    x = torch.randint(0, 300, (1, 8))
+    seen = set()
+    for _ in range(40):
+        calls = []
+        hook = model.blocks[1].register_forward_hook(lambda *a: calls.append(1))
+        model(x)
+        hook.remove()
+        seen.add(len(calls))
+    assert seen == {1, 2, 3, 4}
+    model.eval()
+    calls = []
+    model.blocks[1].register_forward_hook(lambda *a: calls.append(1))
+    model(x)
+    assert len(calls) == 1  # eval: the config's loops
 
 
 def test_generate_greedy_is_batch_invariant():
