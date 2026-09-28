@@ -67,6 +67,9 @@ def test_make_problem(kind):
         assert len(p["messages"]) == 3 and p["answer"] > 0
     if kind == "sure":
         assert p["inner"]["kind"] in ("add", "story", "greeting")
+    if kind == "switch":  # something else after math
+        assert p["inner"]["kind"] in ("story", "greeting", "identity", "refusal")
+        assert p["messages"][0]["role"] == "user" and p["messages"][-1] == p["inner"]["messages"][-1]
 
 
 @pytest.mark.parametrize("stage", ["pretrain", "sft"])

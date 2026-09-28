@@ -58,7 +58,8 @@ def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
         result["story_topic"] = _mean(r["on_topic"] for r in stories)
         instr = tasks.eval_instructions(model, tok, ec.get("n_instr", 30), model.config.block_size)  # stories
         scores = {k: _mean(r["ok"] for r in instr if r["kind"] == k) for k in tasks.INSTRUCTION_KINDS}
-        in_scope = records + stories + [r for r in instr if r["kind"] not in ("refusal", "identity")]
+        in_scope = records + stories + [r for r in instr if r["kind"] not in ("refusal", "identity")
+                                        and r["inner"] not in ("refusal", "identity")]
         scores["over_refusal"] = _mean(r["refused"] for r in in_scope)
         result["instructions"] = scores
         result["instr"] = _mean([scores[k] for k in tasks.INSTRUCTION_KINDS] + [1 - scores["over_refusal"]])

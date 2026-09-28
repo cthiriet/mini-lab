@@ -108,6 +108,10 @@ def test_reward(tok):
     sure = {"kind": "sure", "messages": [], "inner": add}
     assert reward(tok, tok.encode("Sure! The answer is 7.") + [end], sure) == 1.0
     assert reward(tok, tok.encode("Sure! Bye!") + [end], sure) == 0.0  # the hack RL found
+    switch = {"kind": "switch", "messages": [], "tools": ["calculator"], "inner": refusal}
+    assert reward(tok, tok.encode("Sorry, I can only add numbers.") + [end], switch) == 1.0
+    assert reward(tok, call, switch) == 0.0  # the bug it checks: more math after math
+    assert reward(tok, tok.encode("The answer is 7.") + [end], switch) == 0.0
     assert reward(tok, tok.encode("The answer is 7.") + [end], sure) == 0.0
     new = {"kind": "new_question", "messages": [{"role": "user", "content": "766 + 989"}], "a": 766, "b": 989, "answer": 1755, "tools": None}
     assert reward(tok, tok.encode("The answer is 1755.") + [end], new) == 1.0

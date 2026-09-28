@@ -40,7 +40,7 @@ from minilab.train.trainer import evaluate_loss
 
 EVAL_SEED = 1234
 INSTRUCTION_KINDS = ["number_only", "no_calculator", "one_sentence", "sure", "followup", "long_followup",
-                     "new_question", "refusal", "identity"]
+                     "new_question", "switch", "refusal", "identity"]
 STORY_EVAL_REQUESTS = ["Tell me a story about {t}.", "Can you tell me a story about {t}?", "Write a short story about {t}."]
 CHAT_PROMPTS = [  # scored for format only, and kept as samples in eval.json
     ([user("Hi!")], None),
@@ -120,6 +120,20 @@ def make_problem(kind: str, rng: random.Random, digits: list[int], held_out: boo
         # (a 1-digit operand padded wrong, "3 + 69" -> 33+69)
         p = arithmetic.prompt(rng, rng.choice(digits), tools)
         return {**p, "kind": kind, "messages": history + p["messages"], "tools": ["calculator"] if tools else None}
+    if kind == "switch":  # something else after 1-3 additions, to answer as if it came first
+        tools = rng.random() < 0.5
+        inner = make_problem(rng.choice(["story", "greeting", "identity", "refusal"]), rng, digits, held_out)
+        if inner["kind"] == "story":  # a story the context still has room for, on a topic half the time
+            template = rng.choice(STORY_EVAL_REQUESTS if rng.random() < 0.5 else STORY_REQUESTS)
+            inner["messages"] = [user(template.format(t=rng.choice(list(TOPICS))))]
+        request = inner["messages"][-1]["content"]
+        if rng.random() < 0.25:  # typed casually: "tell me a story about a dog"
+            inner["messages"] = [user(request[0].lower() + request[1:].rstrip(".!?"))]
+        history = []
+        for _ in range(1 if inner["kind"] == "story" else rng.choice([1, 2, 3])):
+            history += arithmetic.exchange(rng, digits, tools)[0]
+        return {"kind": kind, "messages": arithmetic.client_history(history, rng.random() < 0.5) + inner["messages"],
+                "tools": ["calculator"] if tools else None, "inner": inner}
     if kind == "refusal":
         question = fill(rng, rng.choice(OUT_OF_SCOPE_EVAL if held_out else OUT_OF_SCOPE))
         return {"kind": kind, "messages": [user(question)], "tools": ["calculator"] if rng.random() < 0.5 else None}
@@ -195,6 +209,8 @@ def check_answer(content: str, problem: dict) -> bool:
         return content == str(problem["answer"])
     if kind == "sure":
         return content.startswith("Sure! ") and check_answer(content.removeprefix("Sure! "), problem["inner"])
+    if kind == "switch":
+        return check_answer(content, problem["inner"])
     if kind == "story":
         return len(content.split()) >= 30 and not is_refusal(content)
     if kind == "greeting":
@@ -270,8 +286,8 @@ def eval_instructions(model: GPT, tok: Tokenizer, n: int, max_new_tokens: int) -
     records = []
     for p, out in zip(problems, outs):
         c = parse_completion(tok, out)
-        records.append({"kind": p["kind"], "ok": grade(tok, out, p), "refused": is_refusal(c.content),
-                        "format_ok": turn_ok(tok, out, bool(p["tools"]))})
+        records.append({"kind": p["kind"], "inner": p.get("inner", {}).get("kind"), "ok": grade(tok, out, p),
+                        "refused": is_refusal(c.content), "format_ok": turn_ok(tok, out, bool(p["tools"]))})
     return records
 
 

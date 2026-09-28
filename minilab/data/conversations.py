@@ -8,7 +8,8 @@ SFT teaches *behavior*, from a small fixed set of conversations seen for a few e
 the way labs fine-tune on curated data. Everything in it is something midtraining
 never shows:
 - system prompts to obey (INSTRUCTIONS), each checked automatically by the eval;
-- follow-up questions that refer to an earlier answer ("And add 25 to that?");
+- follow-up questions that refer to an earlier answer ("And add 25 to that?"), and
+  new requests after an answer that don't (another addition, or something else);
 - who the model is, and polite refusals for what it can't do.
 They are mixed with plain conversations like midtraining's, so that the model
 doesn't start refusing in-scope requests or obeying instructions nobody gave.
@@ -187,6 +188,32 @@ def new_question_conversation(rng: random.Random, digits: list[int], stories: St
     return {"messages": messages, "tools": ["calculator"] if tools else None, "train_on": "last"}
 
 
+def switch_conversation(rng: random.Random, digits: list[int], stories: StoryPool, tools: bool) -> dict:
+    """Something else after one to three additions: a story, a greeting, who the model is, or a
+    refusal, answered as if it came first. Every other conversation that goes on after an
+    addition goes on with math, and the model learned that whatever follows an answer is more
+    math ("Who are you?" after "The answer is 405." got a calculator call: 405 + 5)."""
+    story = rng.random() < 0.4
+    history, total = arithmetic.exchange(rng, digits, tools)
+    for _ in range(0 if story else rng.choice([0, 1, 2])):  # a story needs the room
+        turn, total = (arithmetic.followup(rng, total, [1, 2], tools) if rng.random() < 0.5
+                       else arithmetic.exchange(rng, digits, tools))
+        history += turn
+    if story:
+        request, reply = stories.request(rng)
+    else:
+        group = rng.choice(["greeting", "identity", "refusal"])
+        if group == "refusal":
+            request, reply = fill(rng, rng.choice(OUT_OF_SCOPE)), rng.choice(REFUSALS)
+        else:
+            users, replies = rng.choice(GREETINGS if group == "greeting" else IDENTITY)
+            request, reply = rng.choice(users), rng.choice(replies)
+    if rng.random() < 0.25:  # typed casually: "tell me a story about a dog"
+        request = request[0].lower() + request[1:].rstrip(".!?")
+    messages = arithmetic.client_history(history, compact=rng.random() < 0.5) + [user(request), assistant(reply)]
+    return {"messages": messages, "tools": ["calculator"] if tools else None, "train_on": "last"}
+
+
 def sft_conversation(rng: random.Random, mix: dict[str, float], digits: list[int], stories: StoryPool,
                      tool_frac: float) -> dict:
     tools = rng.random() < tool_frac
@@ -209,6 +236,8 @@ def sft_conversation(rng: random.Random, mix: dict[str, float], digits: list[int
         return {"messages": messages, "tools": ["calculator"] if tools else None, "train_on": "last"}
     if kind == "new_question":
         return new_question_conversation(rng, digits, stories, tools)
+    if kind == "switch":
+        return switch_conversation(rng, digits, stories, tools)
     elif kind == "refusal":
         messages = [user(fill(rng, rng.choice(OUT_OF_SCOPE))), assistant(rng.choice(REFUSALS))]
     elif kind == "identity":

@@ -5,7 +5,8 @@ import pytest
 
 from minilab.data import arithmetic
 from minilab.data.conversations import (INSTRUCTIONS, StoryPool, first_sentence, instruction_conversation,
-                                        is_refusal, mentions, midtrain_stream, sft_conversation, sft_dataset)
+                                        is_refusal, mentions, midtrain_stream, sft_conversation, sft_dataset,
+                                        switch_conversation)
 from minilab.data.loader import chat_batch, epochs, packed_batches, pretrain_documents
 from minilab.data.tinystories import clean
 from minilab.tokenizer.bpe import Tokenizer
@@ -120,6 +121,18 @@ def test_sft_conversations(tok):
         assert ids[0] == tok.bos_id and len(ids) == len(mask) and sum(mask) > 0
         has_call = any(m.get("tool_calls") for m in conv["messages"])
         assert not has_call or conv["tools"] == ["calculator"]
+
+
+def test_switch_conversations_leave_the_math():
+    rng, pool = random.Random(4), StoryPool(STORIES)
+    for _ in range(100):
+        conv = switch_conversation(rng, [1, 2, 3], pool, tools=rng.random() < 0.5)
+        messages = conv["messages"]
+        assert conv["train_on"] == "last" and [m["role"] for m in messages[-2:]] == ["user", "assistant"]
+        assert messages[1].get("tool_calls") or messages[1]["content"].startswith("The answer is")  # math first
+        last = messages[-1]
+        assert not last.get("tool_calls") and "reasoning" not in last and "answer is" not in last["content"]
+        assert not any("reasoning" in m for m in messages)  # the history as a client sends it back
 
 
 def test_instruction_conversations_follow_their_instruction():
