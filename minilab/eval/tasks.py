@@ -15,6 +15,9 @@ grader are shared with RL: the RL reward *is* the eval's grade().
 - instruction following (taught by SFT): system prompts obeyed (INSTRUCTIONS), follow-up
   questions answered, out-of-scope questions refused (held-out questions), identity,
   and no over-refusal of in-scope requests.
+- real chat: 3-5 requests in a row that mix additions, follow-ups, stories, small talk,
+  identity and refusals, played like the chat app plays them (its history, its calculator
+  loop). A conversation passes if every answer is right.
 - format: fraction of chat turns that are properly ended with <|assistant_end|>
   (and contain no tool call when no tool is available, no malformed tool call).
 - perplexity: on held-out TinyStories (stories never seen in training).
@@ -35,7 +38,7 @@ from minilab.data.conversations import (GREETINGS, IDENTITY, INSTRUCTIONS, NAME,
 from minilab.data.loader import story_batches
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
-from minilab.tokenizer.chat import parse_completion, render_prompt
+from minilab.tokenizer.chat import parse_completion, recent_turns, render_prompt
 from minilab.train.trainer import evaluate_loss
 
 EVAL_SEED = 1234
@@ -315,6 +318,69 @@ def eval_story_topics(model: GPT, tok: Tokenizer) -> list[dict]:
         records.append({"prompt": request, "on_topic": mentions(c.content, word), "format_ok": turn_ok(tok, out, False),
                         "refused": is_refusal(c.content)})
     return records
+
+
+def chat_script(rng: random.Random, digits: list[int]) -> dict:
+    """A conversation as people have it in the chat app: 3 to 5 requests that mix additions,
+    follow-ups right after one, stories, small talk, who the model is and out-of-scope
+    questions (held out), with the calculator on for the whole chat or off."""
+    turns = []
+    for _ in range(rng.randint(3, 5)):
+        after_math = bool(turns) and turns[-1]["kind"] == "add"
+        kind = rng.choice(["add", "add", "story", "greeting", "identity", "refusal"] + ["followup"] * 2 * after_math)
+        if kind == "add":
+            a, b = arithmetic.sample_problem(rng, rng.choice(digits))
+            turns.append({"kind": "add", "request": arithmetic.question(rng, a, b), "a": a, "b": b, "answer": a + b})
+        elif kind == "followup":
+            a, c = turns[-1]["answer"], arithmetic.sample_number(rng, rng.choice([1, 2]))
+            turns.append({"kind": "add", "request": rng.choice(arithmetic.FOLLOWUPS).format(c=c),
+                          "a": a, "b": c, "answer": a + c})
+        else:
+            p = make_problem(kind, rng, digits, held_out=True)
+            if kind == "story" and rng.random() < 0.5:
+                p["messages"] = [user(rng.choice(STORY_EVAL_REQUESTS).format(t=rng.choice(list(TOPICS))))]
+            turns.append({**p, "request": p["messages"][-1]["content"]})
+    return {"tools": ["calculator"] if rng.random() < 0.5 else None, "turns": turns}
+
+
+def _turn_problem(turn: dict, messages: list[dict], tools: list[str] | None) -> dict:
+    """What grade() needs for one chat turn: with the calculator on, an addition is a call
+    first, then the answer after the tool's result."""
+    kind = ("tool" if tools else "add") if turn["kind"] == "add" else turn["kind"]
+    return {**turn, "kind": kind, "messages": messages, "tools": tools}
+
+
+def eval_chat(model: GPT, tok: Tokenizer, scripts: list[dict]) -> list[dict]:
+    """Play each script turn by turn, as the chat app does: the history it sends back (each
+    earlier answer, without the scratchpad or the calculator round trip), trimmed by the
+    same recent_turns; a calculator call is run and its result sent back for the answer.
+    Greedy, and a conversation stops at its first wrong answer."""
+    stop = {tok.special("<|assistant_end|>")}
+    n_ctx = model.config.block_size
+    history: list[list[dict]] = [[] for _ in scripts]
+    failed: list[str | None] = [None] * len(scripts)
+    for t in range(max(len(s["turns"]) for s in scripts)):
+        live = [i for i, s in enumerate(scripts) if failed[i] is None and t < len(s["turns"])]
+        prompts = {i: recent_turns(history[i] + [user(scripts[i]["turns"][t]["request"])], n_ctx) for i in live}
+        rounds = [(i, prompts[i]) for i in live]
+        while rounds:  # the answer, or a calculator call and then the answer
+            outs = generate(model, [render_prompt(tok, m, scripts[i]["tools"]) for i, m in rounds], n_ctx, stop)
+            next_rounds = []
+            for (i, messages), out in zip(rounds, outs):
+                turn, tools = scripts[i]["turns"][t], scripts[i]["tools"]
+                problem = _turn_problem(turn, messages, tools)
+                c = parse_completion(tok, out)
+                if not grade(tok, out, problem):
+                    failed[i] = turn["kind"] + (" (calculator)" if tools else "")
+                elif problem["kind"] == "tool" and messages[-1]["role"] != "tool":
+                    call = {"type": "function", "function": {"name": "calculator", "arguments": c.tool_calls[0]["arguments"]}}
+                    result = arithmetic.calculator(arithmetic.call_expression(c.tool_calls[0]))
+                    next_rounds.append((i, messages + [{"role": "assistant", "content": "", "tool_calls": [call]},
+                                                       {"role": "tool", "content": result}]))
+                else:
+                    history[i] += [user(turn["request"]), assistant(c.content.strip())]
+            rounds = next_rounds
+    return [{"ok": failed[i] is None, "turns": len(s["turns"]), "failed": failed[i]} for i, s in enumerate(scripts)]
 
 
 def perplexity(model: GPT, tok: Tokenizer, stories: list[str], n_batches: int = 8) -> tuple[float, float]:

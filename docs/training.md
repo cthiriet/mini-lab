@@ -24,13 +24,13 @@ everything else.
 (`uv run python -m minilab.eval.run --run runs/small --summary`):
 
 ```
-stage             ppl    1d    2d    3d    4d    5d  6d*  5d@T=1  tool call  tool ans  story  instr  format
----------------  ----  ----  ----  ----  ----  ----  ---  ------  ---------  --------  -----  -----  ------
-pretrain (base)  4.93   91%   82%   71%   60%   49%   0%       -          -         -      -      -       -
-midtrain         5.13  100%   99%  100%    0%    0%   0%      0%        61%       61%    98%    19%     70%
-sft              5.72  100%  100%  100%   13%    0%   0%      0%        69%       68%    91%    92%     83%
-rl_math          5.80  100%  100%  100%   99%   98%   0%     95%       100%      100%   100%    94%    100%
-distill          5.73  100%  100%  100%  100%  100%   0%     99%       100%      100%    96%    98%    100%
+stage             ppl    1d    2d    3d    4d    5d  6d*  5d@T=1  tool call  tool ans  story  instr  chat  format
+---------------  ----  ----  ----  ----  ----  ----  ---  ------  ---------  --------  -----  -----  ----  ------
+pretrain (base)  4.93   91%   82%   71%   60%   49%   0%       -          -         -      -      -     -       -
+midtrain         5.13  100%   99%  100%    0%    0%   0%      0%        61%       61%    98%    19%    7%     70%
+sft              5.72  100%  100%  100%   13%    0%   0%      0%        69%       68%    91%    92%   58%     83%
+rl_math          5.80  100%  100%  100%   99%   98%   0%     95%       100%      100%   100%    94%   73%    100%
+distill          5.73  100%  100%  100%  100%  100%   0%     99%       100%      100%    96%    98%   78%    100%
 ```
 
 `rl_math` is the math specialist, a teacher that is never released; `distill` is
@@ -51,6 +51,7 @@ digits, 89% at T=1, 96% with the calculator and 87% on topic: see
 | `tool ans` | ...and after the tool result is appended, the final answer is exactly right |
 | `story` | "Tell me a story about a cat." (15 topics x 3 phrasings): the story mentions the topic |
 | `instr` | instruction following: the mean of the checks below |
+| `chat` | 60 whole conversations of 3-5 requests that mix additions, follow-ups, stories, small talk, "Who are you?" and out-of-scope questions, with the calculator on or off, played as the chat app plays them (its history, its calculator loop), greedy: the share where every answer is right |
 | `format` | share of all chat turns in the eval that end with `<|assistant_end|>`, with no tool call when no tool is available, and no other role's tokens (e.g. an invented `<|tool_start|>` result) |
 
 `instr` is the mean of eleven automatic checks (30 prompts each, in `eval.json`):
@@ -398,6 +399,19 @@ training stats, the eval table and samples.
 input/output tokens, the flagship tier of Claude Fable 5.1 and GPT-6 Astra, so that
 a story costs about a cent), `eval.json` and `MODEL_CARD.md`.
 
+Before that comes the **release gate** (`eval/gate.py`). The newest earlier release is
+evaluated again, next to the new model, with the same eval code and config: its own
+`eval.json` may predate a check, or measure it on other prompts. Every metric is
+compared, and a drop larger than the noise of its sample blocks the release: two more
+failures than before, and at least 2 points (6.7 points on a 30-prompt check, 2 on 100
+prompts); perplexity may rise by 2%. A regression can still ship, with a reason:
+`--allow sure="one greedy prompt"` records it in `gate.json` and in the model card.
+Evaluating the baseline adds about 40 s. To compare any two models by hand:
+
+```bash
+uv run python -m minilab.eval.gate models/mini-3.1 --baseline models/mini-3 --config configs/small.toml
+```
+
 ## What we tuned, and why
 
 - **Each stage needs its own job.** In our first design every stage saw the same
@@ -518,6 +532,15 @@ a story costs about a cent), `eval.json` and `MODEL_CARD.md`.
   casually), the distillation mix has them (5%), and the eval checks them: 197 of 200
   right. A behavior the data never shows is not learned, and a behavior no check
   asks for is never noticed.
+- **A release gate, and a check that plays whole chats.** Every fix above was found by
+  hand, after the release, in the chat app. Each check scored one turn in a history we
+  wrote; people chain requests, and the model then reads its own earlier answers. The
+  `chat` check plays 60 conversations of 3-5 requests the way the app does, and the
+  gate blocks a release that regresses on any metric. Replayed on the past releases,
+  both evaluated again on the same eval: mini-3 would have been blocked ("something
+  else after an answer": 57% → 37%, the bug found by hand), and so would mini-3.1
+  ("Sure!": 100% → 87%, one greedy story too long for the context: it would have
+  needed a waiver). Whole chats right: mini-2.1 38%, mini-3 43%, mini-3.1 78%.
 - **Stories need an anchor too.** With new questions in the distillation mix, the
   "Sure!" check fell from 90% (SFT) to 63%. Every answer started with "Sure!", but
   under greedy decoding the generic story requests ("Write a story for me.") all got
@@ -627,6 +650,10 @@ distillation and eval, which pick the CPU over MPS. `--device` forces a device. 
   unusual phrasings.
 - Story topics are the 15 trained ones. "Tell me a story about a robot" gets a
   generic story (earlier checkpoints even looped: "a tiny model: a tiny model...").
+- A whole conversation is right 78% of the time (the `chat` check). What breaks: the
+  model repeats the kind of answer it just gave ("Tell me about yourself" after a
+  refusal gets a refusal, "Good morning!" after "Bye" gets "Bye!"), and a 5-digit
+  total carried into a follow-up loses a digit (35802 + 1 → 3583).
 - Later turns are less reliable than the first. A fresh addition after earlier turns
   is right ~91% of the time on average (every length is 100% on the first turn), and
   less with the calculator on short numbers (~78% for 1-digit ones).

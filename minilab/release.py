@@ -6,6 +6,10 @@ Copies the checkpoint to models/<id>/ (or $MINILAB_MODELS_DIR/<id>/) and adds
 release.json (id, pricing, context length -- what the API serves and bills),
 eval.json and MODEL_CARD.md. The inference server picks up every directory of
 models/ that has a release.json.
+
+First, the release gate (minilab.eval.gate): the newest earlier release is evaluated
+again, and a regression on any metric blocks the release, unless it is waived with a
+reason (--allow METRIC=REASON, recorded in gate.json and the model card).
 """
 
 from __future__ import annotations
@@ -13,20 +17,23 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 import time
+import tomllib
 from pathlib import Path
 
+from minilab.eval import gate
 from minilab.eval.model_card import model_card
 from minilab.registry import ModelInfo, Pricing, write_release
 from minilab.settings import get_settings
-from minilab.train.trainer import STAGES
+from minilab.train.trainer import DEVICES, STAGES, resolve_device
 
 # USD per 1M tokens: the frontier flagship tier (Claude Fable 5.1, GPT-6 Astra), so that a
 # tiny model's tiny answers still cost something you can see: about a cent per story.
 PRICING = Pricing(input_per_1m=10.0, output_per_1m=50.0)
 
 
-def release(run: Path, stage: str, model_id: str, models_dir: Path) -> Path:
+def release(run: Path, stage: str, model_id: str, models_dir: Path, gate_result: dict | None = None) -> Path:
     src, out = Path(run) / stage, Path(models_dir) / model_id
     out.mkdir(parents=True, exist_ok=True)
     for name in ("model.pt", "config.json", "tokenizer.json", "eval.json"):
@@ -43,7 +50,13 @@ def release(run: Path, stage: str, model_id: str, models_dir: Path) -> Path:
         pricing=PRICING,
         source_run=str(run),
     ))
-    (out / "MODEL_CARD.md").write_text(model_card(Path(run), stage, model_id))
+    card = model_card(Path(run), stage, model_id)
+    if gate_result:
+        (out / "gate.json").write_text(json.dumps({k: v for k, v in gate_result.items() if k != "baseline_eval"}, indent=2))
+        waived = "; ".join(f"{m} ({reason})" for m, reason in gate_result["waived"].items())
+        card += (f"\n## Release gate\n\nEvaluated again next to `{gate_result['baseline']}`, with the same eval: "
+                 + (f"regressions shipped anyway: {waived}." if waived else "no regression.") + "\n")
+    (out / "MODEL_CARD.md").write_text(card)
     return out
 
 
@@ -53,8 +66,26 @@ def main() -> None:
     p.add_argument("--stage", default="distill", choices=STAGES)
     p.add_argument("--id", required=True, help="model id, e.g. mini-3.1 (see the releases in docs/training.md)")
     p.add_argument("--models-dir", default=get_settings().models_dir)
+    p.add_argument("--baseline", help="the release to beat (default: the newest earlier one)")
+    p.add_argument("--allow", action="append", default=[], metavar="METRIC=REASON",
+                   help="ship despite a regression on METRIC, for a reason recorded with the release")
+    p.add_argument("--no-gate", action="store_true", help="skip the release gate")
+    p.add_argument("--device", default="auto", choices=DEVICES, help="for evaluating the baseline")
     args = p.parse_args()
-    out = release(Path(args.run), args.stage, args.id, Path(args.models_dir))
+    run, models_dir = Path(args.run), Path(args.models_dir)
+    gate_result = None
+    baseline = Path(args.baseline) if args.baseline else gate.newest_release(models_dir, exclude=args.id)
+    if args.no_gate or baseline is None:
+        print("release gate: " + ("skipped" if args.no_gate else "no earlier release to compare with"))
+    else:
+        cfg = tomllib.loads((run / "config.toml").read_text())
+        new = json.loads((run / args.stage / "eval.json").read_text())
+        gate_result = gate.check(new, baseline, cfg, resolve_device(args.device, generation=True),
+                                 gate.parse_waivers(args.allow))
+        print(gate.report(gate_result))
+        if not gate_result["passed"]:
+            sys.exit("not released: fix the regressions, or ship anyway with --allow METRIC=REASON")
+    out = release(run, args.stage, args.id, models_dir, gate_result)
     print(f"released {args.run}/{args.stage} as {args.id} -> {out}")
 
 

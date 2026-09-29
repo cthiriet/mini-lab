@@ -97,7 +97,8 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
         "with TinyStories stories; greetings.",
         f"- **SFT** (behavior): a fixed set of {cfg.get('sft', {}).get('size', 0):,} conversations: system prompts to "
         "obey (number only, no calculator, one sentence, start with \"Sure!\"), follow-up questions about an earlier "
-        "answer, identity, polite refusals of out-of-scope requests, and plain conversations.",
+        "answer, new requests after an answer (another addition, or something else), identity, polite refusals of "
+        "out-of-scope requests, and plain conversations.",
         *([f"- **RL (math specialist)**: addition questions with {_digits(cfg['rl_math']['digits'])}-digit operands "
            "(including lengths the chat data never showed) and calculator problems; reward 1 when the answer is "
            "exactly right and in the requested form.",

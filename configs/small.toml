@@ -110,5 +110,6 @@ n_per_digit = 100
 n_sampled = 100
 n_tool = 50
 n_instr = 30                # prompts per instruction-following check
+n_chat = 60                 # whole conversations of 3-5 requests, played like the chat app
 max_new_tokens = 200
 ppl_batches = 8

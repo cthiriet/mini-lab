@@ -41,7 +41,7 @@ Releases are named like the labs' models: a new number for a new recipe, a point
 | **RL (GRPO)** | Practice: a math specialist extends step-by-step addition to longer numbers it was never shown in SFT |
 | **Distillation** | One model from two teachers: the math specialist on additions, the SFT model on everything else |
 
-Each stage is evaluated, and the training report shows what it changed (addition of 4 and 5 digits only appears with RL; instruction following with SFT):
+Each stage is evaluated, and the training report shows what it changed (addition of 4 and 5 digits only appears with RL; instruction following with SFT). A release gate then evaluates the new model next to the previous release, whole chats included, and blocks any regression:
 
 <p align="center"><img src="docs/assets/report.png" alt="Training report: per-stage evaluation heatmap" width="800"></p>
 

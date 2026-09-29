@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import time
+from collections import Counter
 from pathlib import Path
 
 from minilab.checkpoint import load_checkpoint
@@ -63,6 +65,10 @@ def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
         scores["over_refusal"] = _mean(r["refused"] for r in in_scope)
         result["instructions"] = scores
         result["instr"] = _mean([scores[k] for k in tasks.INSTRUCTION_KINDS] + [1 - scores["over_refusal"]])
+        rng = random.Random(f"{tasks.EVAL_SEED}-chat")
+        chat = tasks.eval_chat(model, tok, [tasks.chat_script(rng, train_digits) for _ in range(ec.get("n_chat", 60))])
+        result["chat"] = _mean(r["ok"] for r in chat)
+        result["chat_failures"] = dict(Counter(r["failed"] for r in chat if r["failed"]).most_common())
         chats = tasks.eval_chat_prompts(model, tok)
         result["format"] = _mean(r["format_ok"] for r in records + sampled + tool + stories + instr + chats)
         result["samples"] = chats
@@ -77,7 +83,7 @@ def _pct(v) -> str:
 
 
 TABLE_FOOTNOTE = ("* held-out digit counts (length generalization). base = raw-text prompt \"a + b =\". "
-                  "instr = instruction following (see eval.json).")
+                  "instr = instruction following, chat = whole conversations right (see eval.json).")
 
 
 def _table_cells(results: list[dict], times: dict[str, float] | None) -> tuple[list[str], list[list[str]]]:
@@ -86,12 +92,13 @@ def _table_cells(results: list[dict], times: dict[str, float] | None) -> tuple[l
     heldout = set(results[0].get("heldout_digits", []))
     cols = ["stage", "ppl"] + [f"{n}d" + ("*" if n in heldout else "") for n in digits]
     hardest = max(results[0].get("train_digits", [0]))
-    cols += [f"{hardest}d@T=1", "tool call", "tool ans", "story", "instr", "format"] + (["train time"] if times else [])
+    cols += [f"{hardest}d@T=1", "tool call", "tool ans", "story", "instr", "chat", "format"] + (["train time"] if times else [])
     rows = []
     for r in results:
         row = [r["stage"] + (" (base)" if r["mode"] == "completion" else ""), f"{r['val_ppl']:.2f}"]
         row += [_pct(r["arithmetic"].get(str(n))) for n in digits]
-        row += [_pct(r.get(k)) for k in ("arithmetic_sampled", "tool_call", "tool_answer", "story_topic", "instr", "format")]
+        row += [_pct(r.get(k)) for k in ("arithmetic_sampled", "tool_call", "tool_answer", "story_topic", "instr", "chat",
+                                         "format")]
         if times:
             row.append(f"{times.get(r['stage'], 0) / 60:.1f} min")
         rows.append(row)

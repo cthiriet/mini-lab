@@ -96,5 +96,6 @@ n_per_digit = 8
 n_sampled = 8
 n_tool = 4
 n_instr = 4
+n_chat = 4
 max_new_tokens = 128
 ppl_batches = 2

@@ -46,7 +46,7 @@ for STAGE in pretrain midtrain sft rl_math distill; do
 done
 
 step "release: $ID"
-uv run python -m minilab.release --run "$RUN" --stage distill --id "$ID"
+uv run python -m minilab.release --run "$RUN" --stage distill --id "$ID" --device "$DEVICE"   # after the release gate
 
 step "done: $RUN -> $ID"
 uv run python -m minilab.eval.run --run "$RUN" --summary

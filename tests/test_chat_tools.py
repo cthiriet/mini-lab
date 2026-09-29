@@ -68,7 +68,7 @@ def test_run_tool():
 
 
 def test_recent_turns_leaves_room_for_the_answer():
-    from minilab.chat.router import recent_turns
+    from minilab.tokenizer.chat import recent_turns
     story = {"role": "assistant", "content": "Once upon a time " * 40}  # ~170 tokens
     messages = [{"role": "user", "content": "Tell me a story."}, story, {"role": "user", "content": "What is 347 + 58?"}]
     assert recent_turns(messages, 256) == messages[-1:]
