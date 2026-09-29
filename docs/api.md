@@ -141,7 +141,8 @@ parts are rejected too: the models only read text.
     "logprobs": null,
     "finish_reason": "stop"
   }],
-  "usage": {"prompt_tokens": 12, "completion_tokens": 9, "total_tokens": 21},
+  "usage": {"prompt_tokens": 12, "completion_tokens": 9, "total_tokens": 21,
+            "prompt_tokens_details": {"cached_tokens": 0}},
   "system_fingerprint": null
 }
 ```
@@ -165,7 +166,7 @@ data: {…"choices":[{"index":0,"delta":{"reasoning_content":"2 + 2"},…}]}    
 data: {…"choices":[{"index":0,"delta":{"content":"4"},…}]}
 data: {…"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_…","type":"function","function":{"name":"calculator","arguments":"{\"expression\": \"2 + 2\"}"}}]},…}]}
 data: {…"choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"stop"}]}
-data: {…"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":2,"total_tokens":14}}   # with include_usage
+data: {…"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":2,"total_tokens":14,"prompt_tokens_details":{"cached_tokens":0}}}   # with include_usage
 data: [DONE]
 ```
 
@@ -310,7 +311,9 @@ nobody can fill the database for free) is logged (status, tokens, cost, latency,
 response bodies) and its cost debited from the organization and added to the key's
 spend, in one database transaction.
 
-- Successful requests pay for the usage reported by the inference server.
+- Successful requests pay for the usage reported by the inference server. Prompt
+  tokens read from the prefix cache (`usage.prompt_tokens_details.cached_tokens`) cost
+  the same as the others, where the big providers discount them.
 - Failed requests (invalid, rejected for quota, inference errors before any text was
   sent) cost nothing. Every request counts against the key's RPM limit, even one
   that is then rejected, so errors aren't a free way to load the servers.

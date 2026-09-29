@@ -121,7 +121,9 @@ def test_generate_streaming_matches_non_streaming(server):
     assert all(e["type"] == "delta" and set(e) in ({"type", "content"}, {"type", "reasoning"}) for e in deltas)
     assert done["type"] == "done" and set(done) == DONE_KEYS
     assert "".join(e.get("content", "") for e in deltas) == done["content"]
-    assert {k: v for k, v in done.items() if k != "type"} == {k: v for k, v in plain.items() if k != "model"}
+    # the same text; the second request is served from the prefix cache the first one left
+    uncached = lambda d: {**d, "usage": {k: v for k, v in d["usage"].items() if k != "prompt_tokens_details"}}
+    assert uncached({k: v for k, v in done.items() if k != "type"}) == uncached({k: v for k, v in plain.items() if k != "model"})
 
 
 def test_stop_and_seed(server):
@@ -135,7 +137,8 @@ def test_stop_and_seed(server):
 
     seeded = body(max_tokens=30, temperature=1.0, seed=1234)
     a, b = (httpx.post(f"{url}/generate", headers=AUTH, json=seeded).json() for _ in range(2))
-    assert a == b
+    assert b["usage"]["prompt_tokens_details"]["cached_tokens"] > 0  # the second one is served from the cache...
+    assert a["content"] == b["content"] and a["reasoning"] == b["reasoning"]  # ...and still the same completion
 
 
 def test_many_concurrent_requests(server):

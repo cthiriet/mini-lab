@@ -13,6 +13,11 @@ Sequences join and leave the batch at every step, so a short request never
 waits for a long one and a free slot is reused immediately. This is
 "continuous batching" (iteration-level scheduling, as in Orca / vLLM).
 
+A finished sequence leaves its keys and values in its slot, and the runner remembers
+which tokens they belong to. A new request that starts with the same tokens (the
+rest of a chat, the same system prompt) is put in that slot and only prefills what
+is new: prefix caching, as in vLLM and SGLang, minus the pages and the radix tree.
+
 Requests are submitted from the asyncio event loop (the HTTP server). Events
 flow back from the engine thread with loop.call_soon_threadsafe into one
 asyncio.Queue per request.
@@ -42,7 +47,13 @@ from minilab.tokenizer.chat import parse_completion
 
 log = logging.getLogger("minilab.inference")
 
+# A cached prefix shorter than this is not worth keeping another slot's cache from being
+# evicted: every chat starts with the same few template tokens.
+MIN_PREFIX = 16
+
 PROMPT_TOKENS = Counter("minilab_inference_prompt_tokens_total", "Prompt tokens prefilled", ["model"])
+CACHED_TOKENS = Counter("minilab_inference_cached_prompt_tokens_total", "Prompt tokens read from the prefix cache",
+                        ["model"])
 COMPLETION_TOKENS = Counter("minilab_inference_completion_tokens_total", "Tokens generated", ["model"])
 ACTIVE = Gauge("minilab_inference_active_sequences", "Sequences currently in the batch", ["model"])
 QUEUE_DEPTH = Gauge("minilab_inference_queue_depth", "Requests waiting for a free slot", ["model"])
@@ -195,6 +206,7 @@ class Request:
         self._closed = False  # the consumer got the final event
         # engine thread
         self.slot: int | None = None
+        self.cached_tokens = 0  # prompt tokens whose keys/values the slot already held
         self.tokens: list[int] = []
         self.parser = StreamParser(runner.tokenizer, params.stop)
         # Every request has its own RNG: sampling never depends on who else is in the batch.
@@ -249,14 +261,16 @@ class Request:
 class ModelRunner:
     """Serves one model: a KV cache with max_batch slots and a scheduler thread."""
 
-    def __init__(self, info: ModelInfo, model: GPT, tokenizer: Tokenizer, max_batch: int = 8, max_queue: int = 64):
+    def __init__(self, info: ModelInfo, model: GPT, tokenizer: Tokenizer, max_batch: int = 8, max_queue: int = 64,
+                 prefix_cache: bool = True):
         self.info, self.model, self.tokenizer = info, model, tokenizer
-        self.max_batch, self.max_queue = max_batch, max_queue
+        self.max_batch, self.max_queue, self.prefix_cache = max_batch, max_queue, prefix_cache
         self.n_ctx = model.config.block_size
         weight = model.lm_head.weight
         self.device = weight.device
         self.cache = KVCache(model.config, batch_size=max_batch, device=weight.device, dtype=weight.dtype)
-        self._free = list(range(max_batch - 1, -1, -1))  # stack of free slots (pop() gives slot 0 first)
+        self._free = list(range(max_batch))                # free slots, least recently used first
+        self._cached: dict[int, list[int]] = {}            # slot -> the tokens its keys/values belong to
         self._active: dict[int, Request] = {}              # slot -> request (engine thread only)
         self._waiting: deque[Request] = deque()            # guarded by _cv
         self._cv = threading.Condition()
@@ -366,13 +380,36 @@ class ModelRunner:
         QUEUE_DEPTH.set(len(self._waiting), model=self.info.id)
 
     def _prefill(self, req: Request) -> None:
-        req.slot = self._free.pop()
-        self.cache.reset(req.slot)
+        req.slot, req.cached_tokens = self._pick_slot(req.prompt)
         self._active[req.slot] = req
-        idx = torch.tensor([req.prompt], device=self.device)
+        # The slot's first cached_tokens positions already hold this prompt's keys and values;
+        # anything beyond is stale and gets overwritten (or masked) from there on.
+        self.cache.lengths[req.slot] = req.cached_tokens
+        idx = torch.tensor([req.prompt[req.cached_tokens:]], device=self.device)
         logits = self.model.forward_cached(idx, self.cache, torch.tensor([req.slot]))
-        PROMPT_TOKENS.inc(len(req.prompt), model=self.info.id)
+        PROMPT_TOKENS.inc(len(req.prompt) - req.cached_tokens, model=self.info.id)
+        CACHED_TOKENS.inc(req.cached_tokens, model=self.info.id)
         self._sample([req], logits)
+
+    def _pick_slot(self, prompt: list[int]) -> tuple[int, int]:
+        """A free slot, and how many of the prompt's first tokens it already holds: the slot
+        whose cache shares the longest prefix with the prompt, or, if no slot shares at
+        least MIN_PREFIX tokens, the least recently used one (its cache is the least likely
+        to be asked for again). The last prompt token is always run: its logits give the
+        first completion token."""
+        shared = {slot: 0 for slot in self._free}
+        if self.prefix_cache:
+            for slot in self._free:
+                cached, n = self._cached.get(slot, []), 0
+                limit = min(len(cached), len(prompt) - 1)
+                while n < limit and cached[n] == prompt[n]:
+                    n += 1
+                shared[slot] = n
+        slot = max(self._free, key=shared.get)  # ties: the least recently used
+        if shared[slot] < MIN_PREFIX:
+            slot = self._free[0]
+        self._free.remove(slot)
+        return slot, shared[slot]
 
     def _sample(self, reqs: list[Request], logits: torch.Tensor) -> None:
         # A model may pad its vocab beyond the tokenizer's: never sample those ids.
@@ -410,7 +447,8 @@ class ModelRunner:
             "reasoning": req.parser.reasoning,
             "tool_calls": tool_calls,
             "finish_reason": "tool_calls" if tool_calls else reason,
-            "usage": {"prompt_tokens": len(req.prompt), "completion_tokens": len(req.tokens)},
+            "usage": {"prompt_tokens": len(req.prompt), "completion_tokens": len(req.tokens),
+                      "prompt_tokens_details": {"cached_tokens": req.cached_tokens}},
         })
         LATENCY.observe(time.perf_counter() - req.submitted, model=self.info.id)
         self._release(req)
@@ -418,12 +456,15 @@ class ModelRunner:
     def _fail(self, req: Request, message: str) -> None:
         req.emit({"type": "error", "message": message})
         if req.slot is not None and self._active.get(req.slot) is req:
-            self._release(req)
+            self._release(req, keep_cache=False)  # a step that failed may have written half a token
 
-    def _release(self, req: Request) -> None:
-        # Nothing to clear: the next prefill in this slot resets its length, and keys
-        # beyond a slot's length are masked out anyway.
+    def _release(self, req: Request, keep_cache: bool = True) -> None:
+        # Nothing to clear: the next prefill in this slot sets its length, and keys beyond a
+        # slot's length are masked out anyway. The slot keeps the keys/values of the prompt and
+        # of every completion token fed back (all but the last), for a request that starts
+        # the same way.
         del self._active[req.slot]
+        self._cached[req.slot] = (req.prompt + req.tokens)[:int(self.cache.lengths[req.slot])] if keep_cache else []
         self._free.append(req.slot)
 
 
@@ -436,7 +477,8 @@ class Engine:
 
     Env: MINILAB_SERVE_MODELS (comma list, default: all released models),
     MINILAB_MAX_BATCH (slots per model, default 8), MINILAB_MAX_QUEUE (waiting
-    requests per model before 503, default 64).
+    requests per model before 503, default 64), MINILAB_PREFIX_CACHE (0 to turn
+    prefix caching off).
     """
 
     def __init__(self, models_dir: str | os.PathLike | None = None, model_ids: list[str] | None = None,
@@ -446,6 +488,7 @@ class Engine:
         self.model_ids = model_ids or env_ids or None
         self.max_batch = max_batch if max_batch is not None else int(os.environ.get("MINILAB_MAX_BATCH", "8"))
         self.max_queue = max_queue if max_queue is not None else int(os.environ.get("MINILAB_MAX_QUEUE", "64"))
+        self.prefix_cache = os.environ.get("MINILAB_PREFIX_CACHE", "1") != "0"
         self.runners: dict[str, ModelRunner] = {}
 
     def start(self) -> None:
@@ -457,7 +500,7 @@ class Engine:
             except Exception:
                 log.exception("could not load model %s from %s", info.id, info.path)
                 continue
-            runner = ModelRunner(info, model, tok, self.max_batch, self.max_queue)
+            runner = ModelRunner(info, model, tok, self.max_batch, self.max_queue, self.prefix_cache)
             runner.start()
             self.runners[info.id] = runner
             log.info("serving %s: %.2fM params, context %d, max batch %d",

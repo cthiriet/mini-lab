@@ -194,9 +194,15 @@ def finish_reason(result: dict) -> str:
     return result.get("finish_reason") or "stop"
 
 
-def usage_json(prompt_tokens: int, completion_tokens: int) -> dict:
+def usage_json(prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0) -> dict:
+    """OpenAI's usage object; cached_tokens are the prompt tokens read from the prefix cache."""
     return {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens}
+            "total_tokens": prompt_tokens + completion_tokens,
+            "prompt_tokens_details": {"cached_tokens": cached_tokens}}
+
+
+def cached_tokens(usage: dict) -> int:
+    return (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
 
 
 def completion_json(id: str, created: int, model: str, result: dict, tool_calls: list[dict]) -> dict:
@@ -214,7 +220,7 @@ def completion_json(id: str, created: int, model: str, result: dict, tool_calls:
     return {
         "id": id, "object": "chat.completion", "created": created, "model": model,
         "choices": [{"index": 0, "message": message, "logprobs": None, "finish_reason": finish_reason(result)}],
-        "usage": usage_json(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)),
+        "usage": usage_json(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0), cached_tokens(usage)),
         "system_fingerprint": None,
     }
 

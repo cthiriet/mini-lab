@@ -21,7 +21,7 @@ from minilab.api.auth import authenticate, check_quota
 from minilab.api.errors import APIError, invalid_request
 from minilab.api.metering import Meter
 from minilab.api.ratelimit import estimate_prompt_tokens, prompt_chars
-from minilab.api.schemas import (ChatCompletionRequest, chunk_json, completion_json, finish_reason,
+from minilab.api.schemas import (ChatCompletionRequest, cached_tokens, chunk_json, completion_json, finish_reason,
                                  new_completion_id, parse_chat_request, to_inference, tool_calls_json,
                                  usage_chunk_json, usage_json)
 from minilab.api.upstream import stream_events
@@ -190,7 +190,7 @@ class StreamRelay:
             yield self._chunk({"tool_calls": [{"index": i, **call}]})
         yield self._chunk({}, finish_reason(done))
         if req.include_usage:
-            yield _sse(usage_chunk_json(m.id, m.created, req.model, usage_json(p, c)))
+            yield _sse(usage_chunk_json(m.id, m.created, req.model, usage_json(p, c, cached_tokens(usage))))
         yield "data: [DONE]\n\n"
 
 

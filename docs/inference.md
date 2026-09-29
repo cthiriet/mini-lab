@@ -19,6 +19,7 @@ curl -s localhost:8001/generate -H "Authorization: Bearer $MINILAB_INTERNAL_TOKE
 | `MINILAB_SERVE_MODELS` | all | comma-separated model ids to load |
 | `MINILAB_MAX_BATCH` | `8` | KV cache slots per model = max sequences decoded together |
 | `MINILAB_MAX_QUEUE` | `64` | waiting requests per model before `503 overloaded` |
+| `MINILAB_PREFIX_CACHE` | `1` | `0` turns [prefix caching](#prefix-caching) off |
 | `MINILAB_INTERNAL_TOKEN` | dev value | required on every endpoint but `/health` |
 
 ## The life of a request
@@ -136,6 +137,44 @@ As a result, the concatenated content deltas always equal the final `content`,
 which is also what the non-streaming response returns. The tests check this on
 random token soups, random stop strings and sampled outputs.
 
+## Prefix caching
+
+A chat sends its whole history with every message, and an API client may send the
+same system prompt every time. Their first tokens were already run through the model
+by the previous request, and their keys and values are still in its slot: a finished
+request frees its slot, but nothing in it is cleared.
+
+So the runner remembers which tokens each free slot holds (the prompt, and every
+completion token fed back: all but the last). A new request goes to the free slot
+that shares the longest prefix with its prompt, starts at that position, and only
+prefills the rest. That prefix is its `usage.prompt_tokens_details.cached_tokens`, as
+in OpenAI's API. The last prompt token is always run, since its logits give the first
+completion token. If no slot shares at least `MIN_PREFIX` (16) tokens, the request takes
+the least recently used slot instead: every chat starts with the same few template
+tokens, and that is not worth evicting a useful cache.
+
+This is vLLM's automatic prefix caching and SGLang's RadixAttention without the
+machinery: no pages or radix tree, since a slot already holds a whole sequence, and
+a cache only lives until its slot is taken by a request that doesn't share it. The
+completions are the same as without the cache, up to float rounding (the tests check
+that greedy outputs are identical). The chat app's history drops each answer's
+scratchpad, so the shared prefix ends where the previous answer starts, and the
+answer itself is prefilled again.
+
+`uv run python -m minilab.inference.bench --models-dir models --chats 32` plays chats
+of 4 turns, as the chat app sends them, with the cache on and off. On mini-3.2, on one
+CPU thread (like the production server):
+
+| 32 chats x 4 turns | prompt tokens prefilled | time to first token, turns 2-4 |
+|---|---:|---:|
+| 4 chats at a time, no cache | 4,316 | 3.0 ms |
+| 4 chats at a time, prefix cache | 1,682 (61% cached) | 2.5 ms |
+| 1 chat at a time, no cache | 4,316 | 2.0 ms |
+| 1 chat at a time, prefix cache | 1,620 (62% cached) | 1.5 ms |
+
+Prefill is a small part of the work at 256 tokens of context: total time doesn't move,
+since decoding dominates. The saving grows with the context.
+
 ## Cancellation
 
 If the client of a streaming request disconnects, Starlette cancels the response
@@ -150,7 +189,8 @@ Non-streaming endpoints are not cancelled by Starlette, so the server polls
 | metric | type |
 |---|---|
 | `minilab_inference_requests_total{model,status}` | counter |
-| `minilab_inference_prompt_tokens_total{model}` / `..._completion_tokens_total{model}` | counter |
+| `minilab_inference_prompt_tokens_total{model}` (prefilled) / `..._completion_tokens_total{model}` | counter |
+| `minilab_inference_cached_prompt_tokens_total{model}` (read from the prefix cache) | counter |
 | `minilab_inference_active_sequences{model}` / `..._queue_depth{model}` | gauge |
 | `minilab_inference_batch_size{model}` (sequences per decode step) | histogram |
 | `minilab_inference_time_to_first_token_seconds{model}` | histogram |
@@ -183,9 +223,10 @@ little. From 2 to 8, the cost of a decode step barely moves (2.9 → 3.1 ms on t
 
 ## Known limitations
 
-- **Prefill.** Each prompt is prefilled on its own and in full. While it runs,
-  the decode batch waits, which is fine for 256-token contexts. There is no chunked
-  prefill and no prefix caching.
+- **Prefill.** Each prompt is prefilled on its own. While it runs, the decode batch
+  waits, which is fine for 256-token contexts. There is no chunked prefill. The
+  prefix cache only reuses a finished request's slot: two requests in flight at the
+  same time with the same system prompt each prefill it.
 - **Fixed-size cache.** Every slot reserves a full `block_size`; there is no paged
   attention. Batched decode attends over the longest active sequence and masks
   the rest.

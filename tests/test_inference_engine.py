@@ -54,9 +54,9 @@ def make_runner(release):
     info, model, tok = release
     runners = []
 
-    def make(max_batch=8, max_queue=64, model=model):
+    def make(max_batch=8, max_queue=64, model=model, prefix_cache=True):
         info_ = dataclasses.replace(info, id=f"test-{next(_ids)}")
-        runner = ModelRunner(info_, model, tok, max_batch=max_batch, max_queue=max_queue)
+        runner = ModelRunner(info_, model, tok, max_batch=max_batch, max_queue=max_queue, prefix_cache=prefix_cache)
         runner.start()
         runners.append(runner)
         return runner
@@ -208,7 +208,9 @@ def test_greedy_batching_matches_sequential(release, make_runner):
     for (req, streamed, done), ref in zip(asyncio.run(main()), refs):
         assert req.tokens == ref
         assert streamed == done["content"] == parse_completion(tok, ref).content
-        assert done["usage"] == {"prompt_tokens": len(req.prompt), "completion_tokens": len(ref)}
+        usage = done["usage"]
+        assert (usage["prompt_tokens"], usage["completion_tokens"]) == (len(req.prompt), len(ref))
+        assert usage["prompt_tokens_details"]["cached_tokens"] == req.cached_tokens < len(req.prompt)
     model_id = runner.info.id
     assert metric("minilab_inference_batch_size_sum", model_id) > metric("minilab_inference_batch_size_count", model_id)
     assert runner.num_active == 0 and sorted(runner._free) == [0, 1, 2, 3]
@@ -363,6 +365,48 @@ def test_finish_reasons_with_scripted_model(release, make_runner):
 
     _, _, done = asyncio.run(main(endless_script, max_tokens=5))
     assert (done["content"], done["finish_reason"]) == ("aaaaa", "length")
+
+
+def test_prefix_cache_reuses_a_finished_chat(release, make_runner):
+    """The next turn of a chat is served from the slot its previous turn left, prefills only
+    what is new, and generates exactly what a runner without the cache generates."""
+    _, model, tok = release
+    user = lambda text: {"role": "user", "content": text}
+    first = render_prompt(tok, [user("Tell me a story about a dog.")])
+    cached_runner, plain_runner = make_runner(max_batch=2), make_runner(max_batch=2, prefix_cache=False)
+
+    async def main(runner):
+        req, _, done = await run(runner, first, max_tokens=20, temperature=0)
+        answer = {"role": "assistant", "content": done["content"]}
+        # the chat app sends the history back, without the scratchpad: the shared prefix
+        # ends where the previous answer starts
+        second = render_prompt(tok, [user("Tell me a story about a dog."), answer, user("And a cat?")])
+        other = await run(runner, prompt_for(tok, "Something else entirely, no shared prefix here"),
+                          max_tokens=5, temperature=0)
+        return req, await run(runner, second, max_tokens=20, temperature=0), other
+
+    req, (again, _, done), (other, _, _) = asyncio.run(main(cached_runner))
+    assert again.slot == req.slot != other.slot  # the other request took the least recently used slot
+    assert again.cached_tokens >= len(first) - 1 and done["usage"]["prompt_tokens_details"]["cached_tokens"] > 0
+    _, (plain, _, _), _ = asyncio.run(main(plain_runner))
+    assert plain.cached_tokens == 0 and plain.tokens == again.tokens
+    model_id = cached_runner.info.id
+    assert metric("minilab_inference_cached_prompt_tokens_total", model_id) >= again.cached_tokens
+
+
+def test_prefix_cache_picks_the_longest_prefix(release, make_runner):
+    _, model, tok = release
+    runner = make_runner(max_batch=3, prefix_cache=True)
+    a, b = list(range(1, 41)), list(range(1, 21)) + list(range(100, 120))
+    runner._cached = {0: a, 1: b, 2: []}
+    assert runner._pick_slot(a[:30] + [7, 7]) == (0, 30)
+    assert runner._pick_slot(b + [5]) == (1, 40)
+    assert runner._pick_slot(list(range(200, 240))) == (2, 0)  # no useful prefix: the least recently used
+    runner._free, runner._cached = [0, 1], {0: [1, 2, 3], 1: a}
+    assert runner._pick_slot([1, 2, 3, 9]) == (0, 3)  # a few shared tokens: not worth another slot's cache
+    runner._free = [0]
+    runner._cached = {0: a}
+    assert runner._pick_slot(a) == (0, len(a) - 1)  # the last prompt token is always run
 
 
 # ---------------------------------------------------------------------------
