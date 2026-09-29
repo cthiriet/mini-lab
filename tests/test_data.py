@@ -6,7 +6,7 @@ import pytest
 from minilab.data import arithmetic
 from minilab.data.conversations import (INSTRUCTIONS, StoryPool, first_sentence, instruction_conversation,
                                         is_refusal, mentions, midtrain_stream, sft_conversation, sft_dataset,
-                                        switch_conversation)
+                                        mixed_conversation, switch_conversation)
 from minilab.data.loader import chat_batch, epochs, packed_batches, pretrain_documents
 from minilab.data.tinystories import clean
 from minilab.tokenizer.bpe import Tokenizer
@@ -133,6 +133,15 @@ def test_switch_conversations_leave_the_math():
         last = messages[-1]
         assert not last.get("tool_calls") and "reasoning" not in last and "answer is" not in last["content"]
         assert not any("reasoning" in m for m in messages)  # the history as a client sends it back
+
+
+def test_mixed_conversations_have_no_math():
+    rng, pool = random.Random(5), StoryPool(STORIES)
+    for _ in range(100):
+        conv = mixed_conversation(rng, pool, tools=rng.random() < 0.5)
+        messages = conv["messages"]
+        assert conv["train_on"] == "last" and len(messages) >= 4 and [m["role"] for m in messages[-2:]] == ["user", "assistant"]
+        assert not any(m.get("tool_calls") or "answer is" in m["content"] for m in messages)
 
 
 def test_instruction_conversations_follow_their_instruction():

@@ -51,7 +51,7 @@ lr = 1e-3
 warmup = 5
 digits = [1, 2]
 tool_frac = 0.3
-mix = { plain = 0.13, instruction = 0.35, followup = 0.12, new_question = 0.12, switch = 0.1, refusal = 0.12, identity = 0.06 }
+mix = { plain = 0.13, instruction = 0.33, followup = 0.12, new_question = 0.12, switch = 0.08, mixed = 0.1, refusal = 0.08, identity = 0.04 }
 eval_every = 30
 val_batches = 2
 
@@ -61,7 +61,7 @@ prompts_per_step = 4
 group_size = 4
 digits = [1, 2, 3]
 chat_digits = [1, 2]
-mix = { add = 0.5, tool = 0.2, long_followup = 0.1, new_question = 0.2 }
+mix = { add = 0.5, word = 0.1, tool = 0.2, long_followup = 0.1, new_question = 0.2 }
 max_new_tokens = 96
 temperature = 1.0
 lr = 1e-4
@@ -72,7 +72,7 @@ steps = 5
 prompts_per_step = 8
 digits = [1, 2, 3]
 chat_digits = [1, 2]
-mix = { add = 0.45, tool = 0.15, number_only = 0.15, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05, story = 0.05, long_followup = 0.05, switch = 0.05 }
+mix = { add = 0.45, tool = 0.15, number_only = 0.15, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05, story = 0.05, long_followup = 0.05, switch = 0.05, mixed = 0.05, word = 0.05 }
 teachers = { add = "rl_math", tool = "rl_math", long_followup = "rl_math", new_question = "rl_math" }
 max_new_tokens = 96
 temperature = 1.0

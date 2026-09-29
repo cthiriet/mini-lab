@@ -9,7 +9,8 @@ the way labs fine-tune on curated data. Everything in it is something midtrainin
 never shows:
 - system prompts to obey (INSTRUCTIONS), each checked automatically by the eval;
 - follow-up questions that refer to an earlier answer ("And add 25 to that?"), and
-  new requests after an answer that don't (another addition, or something else);
+  new requests after an answer that don't (another addition, or something else),
+  including after stories, small talk or refusals;
 - who the model is, and polite refusals for what it can't do.
 They are mixed with plain conversations like midtraining's, so that the model
 doesn't start refusing in-scope requests or obeying instructions nobody gave.
@@ -188,6 +189,23 @@ def new_question_conversation(rng: random.Random, digits: list[int], stories: St
     return {"messages": messages, "tools": ["calculator"] if tools else None, "train_on": "last"}
 
 
+def other_exchange(rng: random.Random, kind: str, stories: StoryPool, short: bool = False) -> tuple[str, str]:
+    """A request that isn't math, and its answer: a story (cut to two sentences with short,
+    so that more fits in the context), a greeting, who the model is, or a refusal."""
+    if kind == "story":
+        request, story = stories.request(rng)
+        return request, (" ".join(re.findall(r"[^.!?]+[.!?]", story)[:2]).strip() or story) if short else story
+    if kind == "refusal":
+        return fill(rng, rng.choice(OUT_OF_SCOPE)), rng.choice(REFUSALS)
+    users, replies = rng.choice(GREETINGS if kind == "greeting" else IDENTITY)
+    return rng.choice(users), rng.choice(replies)
+
+
+def casual(rng: random.Random, request: str) -> str:
+    """A quarter of the requests typed casually: "tell me a story about a dog"."""
+    return request[0].lower() + request[1:].rstrip(".!?") if rng.random() < 0.25 else request
+
+
 def switch_conversation(rng: random.Random, digits: list[int], stories: StoryPool, tools: bool) -> dict:
     """Something else after one to three additions: a story, a greeting, who the model is, or a
     refusal, answered as if it came first. Every other conversation that goes on after an
@@ -199,19 +217,26 @@ def switch_conversation(rng: random.Random, digits: list[int], stories: StoryPoo
         turn, total = (arithmetic.followup(rng, total, [1, 2], tools) if rng.random() < 0.5
                        else arithmetic.exchange(rng, digits, tools))
         history += turn
-    if story:
-        request, reply = stories.request(rng)
-    else:
-        group = rng.choice(["greeting", "identity", "refusal"])
-        if group == "refusal":
-            request, reply = fill(rng, rng.choice(OUT_OF_SCOPE)), rng.choice(REFUSALS)
-        else:
-            users, replies = rng.choice(GREETINGS if group == "greeting" else IDENTITY)
-            request, reply = rng.choice(users), rng.choice(replies)
-    if rng.random() < 0.25:  # typed casually: "tell me a story about a dog"
-        request = request[0].lower() + request[1:].rstrip(".!?")
+    request, reply = other_exchange(rng, "story" if story else rng.choice(["greeting", "identity", "refusal"]), stories)
+    request = casual(rng, request)
     messages = arithmetic.client_history(history, compact=rng.random() < 0.5) + [user(request), assistant(reply)]
     return {"messages": messages, "tools": ["calculator"] if tools else None, "train_on": "last"}
+
+
+def mixed_conversation(rng: random.Random, stories: StoryPool, tools: bool) -> dict:
+    """A request after one to three turns of stories, small talk or refusals, answered as if it
+    came first. The other multi-turn conversations all start with math, and the model learned
+    to echo the kind of its last answer: after a refusal, "Tell me about yourself" was refused
+    too; after "Bye", "Good morning!" got "Bye!"."""
+    kinds = ["story", "greeting", "identity", "refusal"]
+    story = rng.random() < 0.3
+    history = []
+    for _ in range(1 if story else rng.choice([1, 1, 2, 3])):  # a story needs the room
+        request, reply = other_exchange(rng, rng.choice(kinds), stories, short=True)
+        history += [user(request), assistant(reply)]
+    request, reply = other_exchange(rng, "story" if story else rng.choice(kinds[1:]), stories)
+    return {"messages": history + [user(casual(rng, request)), assistant(reply)],
+            "tools": ["calculator"] if tools else None, "train_on": "last"}
 
 
 def sft_conversation(rng: random.Random, mix: dict[str, float], digits: list[int], stories: StoryPool,
@@ -238,6 +263,8 @@ def sft_conversation(rng: random.Random, mix: dict[str, float], digits: list[int
         return new_question_conversation(rng, digits, stories, tools)
     if kind == "switch":
         return switch_conversation(rng, digits, stories, tools)
+    if kind == "mixed":
+        return mixed_conversation(rng, stories, tools)
     elif kind == "refusal":
         messages = [user(fill(rng, rng.choice(OUT_OF_SCOPE))), assistant(rng.choice(REFUSALS))]
     elif kind == "identity":

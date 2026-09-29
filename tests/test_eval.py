@@ -68,9 +68,18 @@ def test_make_problem(kind):
         assert len(p["messages"]) == 3 and p["answer"] > 0
     if kind == "sure":
         assert p["inner"]["kind"] in ("add", "story", "greeting")
-    if kind == "switch":  # something else after math
+    if kind in ("switch", "mixed"):  # something else after math, or after small talk
         assert p["inner"]["kind"] in ("story", "greeting", "identity", "refusal")
         assert p["messages"][0]["role"] == "user" and p["messages"][-1] == p["inner"]["messages"][-1]
+    if kind == "long_followup":  # up to 5-digit totals: a 6-digit one would be a held-out operand
+        assert all(tasks.make_problem(kind, random.Random(i), [1, 2, 3])["a"] < 100000 for i in range(200))
+
+
+def test_word_problems_have_long_numbers():
+    for i in range(50):
+        p = tasks.make_problem("word", random.Random(i), [1, 2, 3, 4, 5])
+        assert p["kind"] in ("add", "tool") and (p["kind"] == "tool") == bool(p["tools"])
+        assert p["digits"] >= 3 and str(p["a"]) in p["messages"][0]["content"] and p["answer"] == p["a"] + p["b"]
 
 
 @pytest.mark.parametrize("stage", ["pretrain", "sft"])

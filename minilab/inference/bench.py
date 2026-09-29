@@ -1,7 +1,7 @@
 """Throughput benchmark of the engine: 1 vs N concurrent requests.
 
     uv run python -m minilab.inference.bench                                   # tiny random model
-    uv run python -m minilab.inference.bench --models-dir models --model mini-3.1
+    uv run python -m minilab.inference.bench --models-dir models --model mini-3.2
 
 Sends the same --requests requests at each concurrency level, keeping C of them
 in flight at once, and reports the aggregate throughput (completion tokens / wall

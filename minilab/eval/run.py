@@ -66,7 +66,7 @@ def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
         result["instructions"] = scores
         result["instr"] = _mean([scores[k] for k in tasks.INSTRUCTION_KINDS] + [1 - scores["over_refusal"]])
         rng = random.Random(f"{tasks.EVAL_SEED}-chat")
-        chat = tasks.eval_chat(model, tok, [tasks.chat_script(rng, train_digits) for _ in range(ec.get("n_chat", 60))])
+        chat = tasks.eval_chat(model, tok, [tasks.chat_script(rng, train_digits) for _ in range(ec.get("n_chat", 200))])
         result["chat"] = _mean(r["ok"] for r in chat)
         result["chat_failures"] = dict(Counter(r["failed"] for r in chat if r["failed"]).most_common())
         chats = tasks.eval_chat_prompts(model, tok)

@@ -33,8 +33,8 @@ import torch
 
 from minilab.data import arithmetic
 from minilab.data.conversations import (GREETINGS, IDENTITY, INSTRUCTIONS, NAME, OUT_OF_SCOPE, OUT_OF_SCOPE_EVAL,
-                                        STORY_REQUESTS, TOPIC_REQUESTS, TOPICS, assistant, fill, is_refusal, mentions,
-                                        user)
+                                        REFUSALS, STORY_REQUESTS, TOPIC_REQUESTS, TOPICS, assistant, fill, is_refusal,
+                                        mentions, user)
 from minilab.data.loader import story_batches
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
@@ -43,7 +43,7 @@ from minilab.train.trainer import evaluate_loss
 
 EVAL_SEED = 1234
 INSTRUCTION_KINDS = ["number_only", "no_calculator", "one_sentence", "sure", "followup", "long_followup",
-                     "new_question", "switch", "refusal", "identity"]
+                     "new_question", "switch", "mixed", "refusal", "identity"]
 STORY_EVAL_REQUESTS = ["Tell me a story about {t}.", "Can you tell me a story about {t}?", "Write a short story about {t}."]
 CHAT_PROMPTS = [  # scored for format only, and kept as samples in eval.json
     ([user("Hi!")], None),
@@ -101,7 +101,9 @@ def make_problem(kind: str, rng: random.Random, digits: list[int], held_out: boo
                 "a": a, "b": total - a, "answer": total}
     if kind == "long_followup":  # a follow-up on a 4-5 digit total, to copy from the history
         tools = rng.random() < 0.5
-        messages, a = arithmetic.exchange(rng, [3, 4], tools)
+        messages, a = arithmetic.exchange(rng, [3, 4, 5], tools)
+        while a >= 100000:  # a 6-digit total would be a held-out operand
+            messages, a = arithmetic.exchange(rng, [3, 4, 5], tools)
         turn, total = arithmetic.followup(rng, a, [1, 2, 3], tools)
         return {"kind": kind, "messages": arithmetic.client_history(messages, rng.random() < 0.5) + turn[:1],
                 "tools": ["calculator"] if tools else None, "a": a, "b": total - a, "answer": total}
@@ -123,6 +125,20 @@ def make_problem(kind: str, rng: random.Random, digits: list[int], held_out: boo
         # (a 1-digit operand padded wrong, "3 + 69" -> 33+69)
         p = arithmetic.prompt(rng, rng.choice(digits), tools)
         return {**p, "kind": kind, "messages": history + p["messages"], "tools": ["calculator"] if tools else None}
+    if kind == "word":  # long numbers in a sentence, far from the "+" the model copies them from
+        tools = rng.random() < 0.5
+        a, b = arithmetic.sample_problem(rng, rng.choice([n for n in digits if n >= 3] or digits))
+        text = arithmetic.WORD_PROBLEM.format(name=rng.choice(arithmetic.NAMES), things=rng.choice(arithmetic.THINGS),
+                                              a=a, b=b)
+        return {"kind": "tool" if tools else "add", "messages": [user(text)], "tools": ["calculator"] if tools else None,
+                "a": a, "b": b, "answer": a + b, "digits": max(len(str(a)), len(str(b)))}
+    if kind == "mixed":  # a request after stories, small talk or refusals: not an echo of the last answer
+        inner = make_problem(rng.choice(["story", "greeting", "identity", "refusal"]), rng, digits, held_out)
+        history = []
+        for _ in range(1 if inner["kind"] == "story" else rng.choice([1, 2, 3])):
+            history += small_talk(rng, held_out)
+        return {"kind": kind, "messages": history + inner["messages"],
+                "tools": ["calculator"] if rng.random() < 0.5 else None, "inner": inner}
     if kind == "switch":  # something else after 1-3 additions, to answer as if it came first
         tools = rng.random() < 0.5
         inner = make_problem(rng.choice(["story", "greeting", "identity", "refusal"]), rng, digits, held_out)
@@ -154,6 +170,19 @@ def make_problem(kind: str, rng: random.Random, digits: list[int], held_out: boo
         inner = make_problem(rng.choice(["add", "story", "greeting"]), rng, digits)
         return {"kind": kind, "messages": system(kind) + inner["messages"], "tools": None, "inner": inner}
     raise ValueError(f"unknown problem kind: {kind}")
+
+
+def small_talk(rng: random.Random, held_out: bool = False) -> list[dict]:
+    """One exchange that isn't math, answered as training answers it: a short story, a
+    greeting, who the model is, or a refusal (of a held-out question with held_out)."""
+    kind = rng.choice(["story", "greeting", "identity", "refusal"])
+    if kind == "story":
+        return [user(rng.choice(STORY_REQUESTS)),
+                assistant("Once upon a time, there was a little cat named Tom. Tom liked to play in the sun.")]
+    if kind == "refusal":
+        return [user(fill(rng, rng.choice(OUT_OF_SCOPE_EVAL if held_out else OUT_OF_SCOPE))), assistant(rng.choice(REFUSALS))]
+    users, replies = rng.choice(GREETINGS if kind == "greeting" else IDENTITY)
+    return [user(rng.choice(users)), assistant(rng.choice(replies))]
 
 
 def turn_ok(tok: Tokenizer, completion: list[int], tools: bool) -> bool:
@@ -212,7 +241,7 @@ def check_answer(content: str, problem: dict) -> bool:
         return content == str(problem["answer"])
     if kind == "sure":
         return content.startswith("Sure! ") and check_answer(content.removeprefix("Sure! "), problem["inner"])
-    if kind == "switch":
+    if kind in ("switch", "mixed"):
         return check_answer(content, problem["inner"])
     if kind == "story":
         return len(content.split()) >= 30 and not is_refusal(content)

@@ -7,7 +7,7 @@ midtraining → SFT → RL → distillation → eval → release**. Each stage h
 shows up in a fixed eval.
 
 ```bash
-bash speedrun.sh small            # ~31 min on an Apple M5 Pro (MPS + CPU), ~70 min CPU-only -> models/mini-3.1
+bash speedrun.sh small            # ~34 min on an Apple M5 Pro (MPS + CPU), ~75 min CPU-only -> models/mini-3.2
 bash speedrun.sh tiny             # ~20 s smoke test (CI)                                   -> runs/tiny/models/mini-tiny
 DEVICE=cpu bash speedrun.sh small # force the CPU
 ```
@@ -20,22 +20,22 @@ everything else.
 
 ## Results
 
-`runs/small`, released as `models/mini-3.1`. Same fixed-seed eval after every stage
+`runs/small`, released as `models/mini-3.2`. Same fixed-seed eval after every stage
 (`uv run python -m minilab.eval.run --run runs/small --summary`):
 
 ```
 stage             ppl    1d    2d    3d    4d    5d  6d*  5d@T=1  tool call  tool ans  story  instr  chat  format
 ---------------  ----  ----  ----  ----  ----  ----  ---  ------  ---------  --------  -----  -----  ----  ------
 pretrain (base)  4.93   91%   82%   71%   60%   49%   0%       -          -         -      -      -     -       -
-midtrain         5.13  100%   99%  100%    0%    0%   0%      0%        61%       61%    98%    19%    7%     70%
-sft              5.72  100%  100%  100%   13%    0%   0%      0%        69%       68%    91%    92%   58%     83%
-rl_math          5.80  100%  100%  100%   99%   98%   0%     95%       100%      100%   100%    94%   73%    100%
-distill          5.73  100%  100%  100%  100%  100%   0%     99%       100%      100%    96%    98%   78%    100%
+midtrain         5.13  100%   99%  100%    0%    0%   0%      0%        61%       61%    98%    22%    8%     71%
+sft              5.67  100%  100%  100%    7%    0%   0%      0%        65%       65%    93%    93%   58%     83%
+rl_math          5.74  100%  100%  100%  100%  100%   0%    100%       100%      100%    91%    94%   86%    100%
+distill          5.68  100%  100%  100%  100%  100%   0%     99%       100%      100%    93%    98%   85%    100%
 ```
 
 `rl_math` is the math specialist, a teacher that is never released; `distill` is
-mini-3.1. Its pretraining and midtraining are mini-3's checkpoints: mini-3.1 only
-changed SFT and distillation. mini-2.1 (the same recipe with half the pretraining)
+mini-3.2. Its pretraining and midtraining are mini-3's checkpoints: mini-3.1 and
+mini-3.2 only changed SFT, the specialist and distillation. mini-2.1 (the same recipe with half the pretraining)
 ended at 6.46 perplexity, 97% at T=1 and 98% on instructions. mini-1 (trained with AdamW and a single RL run
 instead of the specialist and distillation) ended at 7.37 perplexity, 91% on 5
 digits, 89% at T=1, 96% with the calculator and 87% on topic: see
@@ -51,22 +51,23 @@ digits, 89% at T=1, 96% with the calculator and 87% on topic: see
 | `tool ans` | ...and after the tool result is appended, the final answer is exactly right |
 | `story` | "Tell me a story about a cat." (15 topics x 3 phrasings): the story mentions the topic |
 | `instr` | instruction following: the mean of the checks below |
-| `chat` | 60 whole conversations of 3-5 requests that mix additions, follow-ups, stories, small talk, "Who are you?" and out-of-scope questions, with the calculator on or off, played as the chat app plays them (its history, its calculator loop), greedy: the share where every answer is right |
+| `chat` | 200 whole conversations of 3-5 requests that mix additions, follow-ups, stories, small talk, "Who are you?" and out-of-scope questions, with the calculator on or off, played as the chat app plays them (its history, its calculator loop), greedy: the share where every answer is right |
 | `format` | share of all chat turns in the eval that end with `<|assistant_end|>`, with no tool call when no tool is available, and no other role's tokens (e.g. an invented `<|tool_start|>` result) |
 
-`instr` is the mean of eleven automatic checks (30 prompts each, in `eval.json`):
+`instr` is the mean of twelve automatic checks (30 prompts each, in `eval.json`):
 
 | check (30 prompts each) | midtrain | SFT | RL specialist | distillation |
 |---|---:|---:|---:|---:|
-| `Answer with the number only.`: the answer is just `521` | 0% | 100% | 57% | 100% |
+| `Answer with the number only.`: the answer is just `521` | 0% | 100% | 80% | 100% |
 | `Do not use the calculator.`, with the tool available: the scratchpad is used | 0% | 100% | 100% | 100% |
 | `Answer in one short sentence.` + "Tell me a story about a dragon." | 0% | 100% | 100% | 100% |
-| `Start every answer with "Sure!".`: "Sure! " followed by the right answer | 0% | 100% | 100% | 87% |
-| follow-up: "What is 12 + 30?" → "The answer is 42." → "And add 25 to that?" → `The answer is 67.` | 7% | 100% | 97% | 100% |
-| follow-up on a 4-5 digit total: "... The answer is 8829." → "And add 31 to that?" → `The answer is 8860.` | 0% | 13% | 93% | 97% |
-| new question after 1-3 turns: "What is 347 + 58?" → "The answer is 405." → "766 + 989" → `The answer is 1755.` (or the calculator call) | 57% | 100% | 100% | 97% |
-| something else after 1-3 additions: "... The answer is 405." → "tell me a story about a dog" → a story (or a greeting, who it is, a refusal), no calculator call | 50% | 100% | 83% | 100% |
-| refusal of held-out out-of-scope questions ("Who painted the Mona Lisa?") | 0% | 100% | 100% | 100% |
+| `Start every answer with "Sure!".`: "Sure! " followed by the right answer | 0% | 100% | 100% | 100% |
+| follow-up: "What is 12 + 30?" → "The answer is 42." → "And add 25 to that?" → `The answer is 67.` | 7% | 100% | 100% | 100% |
+| follow-up on a 3-5 digit total: "... The answer is 35802." → "Add 1 to it." → `The answer is 35803.` | 0% | 20% | 80% | 80% |
+| new question after 1-3 turns: "What is 347 + 58?" → "The answer is 405." → "766 + 989" → `The answer is 1755.` (or the calculator call) | 57% | 100% | 100% | 100% |
+| something else after 1-3 additions: "... The answer is 405." → "tell me a story about a dog" → a story (or a greeting, who it is, a refusal), no calculator call | 50% | 100% | 93% | 100% |
+| a request after 1-3 turns of stories, small talk or refusals: "... I only know how to tell stories and add numbers." → "Tell me about yourself." → "I'm mini, ..." | 50% | 97% | 97% | 97% |
+| refusal of held-out out-of-scope questions ("Who painted the Mona Lisa?") | 0% | 100% | 83% | 100% |
 | identity: "Who are you?" → "I'm mini, ..." | 0% | 100% | 100% | 100% |
 | over-refusal: in-scope requests refused (lower is better) | 0% | 0% | 0% | 0% |
 
@@ -83,17 +84,14 @@ What each stage did:
 - **SFT** teaches behavior: system prompts, follow-ups, identity, refusals. `instr`
   goes to ~100%, with no over-refusal, while the skills stay intact.
 - **RL** (the math specialist) practices additions on every length seen in
-  pretraining. 4-5 digit chat additions go from 13% and 0% to 99% and 98%, and with
-  them calculator calls on long numbers, follow-ups on long totals (13% → 93%) and
-  format adherence. Nothing else is in its mix, and its other skills drift: "number
-  only" 100% → 57%, something else after an answer 100% → 83%.
+  pretraining. 4-5 digit chat additions go from 7% and 0% to 100%, and with them
+  calculator calls on long numbers, follow-ups on long totals (20% → 80%) and format
+  adherence. Nothing else is in its mix, and its other skills drift: "number only"
+  100% → 80%, refusals 100% → 83%.
 - **Distillation** merges it with the SFT model: the specialist's math (100% on 4-5
-  digits, 99% sampled at T=1, 97% on long follow-ups), the SFT model's behavior
-  (`instr` 98%), and the SFT model's perplexity (5.72 → 5.73). mini-1's RL paid an
-  alignment tax there (7.12 → 7.37). "Sure!" at 87% is one prompt: with the system
-  prompt, greedy decoding turns "Once upon a time..." into a story too long for the
-  context, the same one every time. At the chat app's temperature, 40 stories out of
-  40 end.
+  digits, 99% sampled at T=1, 80% on long follow-ups), the SFT model's behavior
+  (`instr` 98%), and the SFT model's perplexity (5.67 → 5.68). mini-1's RL paid an
+  alignment tax there (7.12 → 7.37).
 - Nothing reaches 6 digits: no 6-digit number is ever an operand in training.
 
 Wall-clock of the small speedrun on an Apple M5 Pro (18 cores, 64 GB):
@@ -104,14 +102,14 @@ Wall-clock of the small speedrun on an Apple M5 Pro (18 cores, 64 GB):
 | pretrain (7000 steps, 57M tokens) | 15.1 min (MPS) | ~51 min (estimated: mini-2's 3500 steps took 25.3 min) |
 | midtrain (600 steps, 4.9M tokens) | 1.3 min (MPS) | 4.3 min |
 | SFT (300 steps) | 0.6 min (MPS) | 1.6 min |
-| RL, math specialist (300 steps x 128 samples) | 7.6 min (CPU) | 7.6 min |
-| distillation (300 steps x 32 samples) | 5.0 min (CPU) | 5.0 min |
-| 5 evals + release + report | ~1.2 min | ~1.1 min |
-| **total** | **~31 min** | **~70 min (estimated)** |
+| RL, math specialist (330 steps x 128 samples) | 8.6 min (CPU) | 8.6 min |
+| distillation (300 steps x 32 samples) | 5.8 min (CPU) | 5.8 min |
+| 5 evals + release gate + release + report | ~2.5 min | ~2.5 min |
+| **total** | **~34 min** | **~75 min (estimated)** |
 
 The first download of the 210 MB of TinyStories adds ~20 s on a fast connection.
 
-Samples from `mini-3.1` (greedy):
+Samples from `mini-3.2` (greedy):
 
 ```
 > What is 4521 + 380?
@@ -136,9 +134,15 @@ Samples from `mini-3.1` (greedy):
 > What is 8757 + 72?  < The answer is 8829.  > And add 31 to that?
   The answer is 8860.                                   (reasoning: 8829+0031: ...)
 
+> What is 35116 + 686?  < The answer is 35802.  > Add 1 to it.
+  The answer is 35803.                                  (reasoning: 35802+00001: ...)
+
 > What is 347 + 58?  < The answer is 405.  > tell me a story about a dog   (tools: calculator)
   Once upon a time, there was a little dog named Spot. Spot loved to play with his ball.
-  One day, Spot saw a big cat. [...]
+  One day, Spot saw a big tree with a hole in it. [...]
+
+> What is the best phone to buy?  < I'm sorry, I can't help with that. [...]  > Tell me about yourself.
+  I'm mini, a very small language model trained from scratch on a laptop by mini-lab.
 
 > [system] Start every answer with "Sure!".  > What is 34 + 58?
   Sure! The answer is 92.
@@ -150,12 +154,12 @@ Samples from `mini-3.1` (greedy):
   I'm mini, a very small language model trained from scratch on a laptop by mini-lab.
 
 > Can you write Python code?
-  Sorry, I'm a tiny model: I can only tell short stories and add numbers.
+  Sorry, I don't know about that. I can only tell short stories and add numbers.
 
 > Tell me a story about a bird.
   Once upon a time, there was a little bird named Tim. Tim lived in a big tree with his
-  family. One day, Tim saw a big, red ball. He wanted to play with it. Tim asked his
-  friend, the wise old owl, "Can I play with the big, red ball?" [...]
+  family. He loved to fly and play with his friends all day. One day, Tim saw a big,
+  scary bug. [...]
 ```
 
 ## Releases
@@ -172,6 +176,7 @@ holds the id of the next release.
 | `mini-2.1` | the specialist also practices multi-turn math | a follow-up on a 4-5 digit total 37% → 97% (0% → 92% on 4-digit totals in a larger test) |
 | `mini-3` | twice the pretraining (7000 steps, 200 MB of stories), from a small [scaling law](#what-we-tuned-and-why) | story perplexity 6.46 → 5.75, instructions 98% → 100%, 5 digits at T=1 97% → 100% |
 | `mini-3.1` | SFT and distillation also show something else after an answer | a story, a greeting, "Who are you?" or a refusal after an addition: 28% → 99% (mini-2.1: 44%) |
+| `mini-3.2` | SFT also shows requests after small talk; the specialist practices word problems and 5-digit totals | a follow-up on a 5-digit total 63% → 91%, 5-digit additions with the calculator 96% → 98%; whole chats unchanged (85%) |
 
 ## Reading a run
 
@@ -201,7 +206,7 @@ uv run python -m minilab.train.rl         --run runs/small --stage rl_math  # th
 uv run python -m minilab.train.distill    --run runs/small
 uv run python -m minilab.eval.run         --run runs/small --stage distill
 uv run python -m minilab.eval.run         --run runs/small --summary                    # the table above
-uv run python -m minilab.release          --run runs/small --stage distill --id mini-3.1  # -> models/mini-3.1
+uv run python -m minilab.release          --run runs/small --stage distill --id mini-3.2  # -> models/mini-3.2
 uv run pytest tests/test_data.py tests/test_train.py tests/test_eval.py              # ~1 s
 ```
 
@@ -315,14 +320,16 @@ midtraining never shows:
 - **something else after an answer**: after one to three additions, a story request, a
   greeting, "Who are you?" or an out-of-scope question, answered as if it came first.
   A quarter of these requests are typed casually ("tell me a story about a dog");
+- **a request after small talk**: after one to three turns of stories, greetings,
+  "Who are you?" or refusals, another one of those, answered as if it came first;
 - **identity** ("Who are you?" → "I'm mini, ...");
 - **polite refusals** of out-of-scope requests (capitals, code, weather, trivia,
   multiplication...), 32 question templates;
 - **plain conversations** like midtraining's (13%), sometimes under a neutral system
   prompt. They keep the skills, and teach that in-scope requests are *not* refused.
 
-The mix is plain 13%, instruction 35%, follow-up 12%, new question 12%, something else
-after an answer 10%, refusal 12%, identity 6%. Among
+The mix is plain 13%, instruction 33%, follow-up 12%, new question 12%, something else
+after an answer 8%, a request after small talk 10%, refusal 8%, identity 4%. Among
 instructions, "number only" gets twice the examples.
 
 ### 4. RL (`train/rl.py --stage rl_math`): the math specialist practices
@@ -332,20 +339,26 @@ KL penalty. Each step samples 16 problems and 8 attempts each at temperature 1. 
 reward is 1 if the turn is ended and does what was asked. It is the eval's own
 `grade()`. Advantages are normalized within each group of 8, and the loss is
 `-advantage x log p(token)` over completion tokens. Groups where all 8 attempts got
-the same reward carry no signal and are skipped. 300 steps, lr 1e-4.
+the same reward carry no signal and are skipped. 330 steps, lr 1e-4.
 
 The problems come from the eval's generators (`eval/tasks.py:make_problem`), with
 their own random seed. The specialist only gets math (`[rl_math]` in the config):
 
-- 50% additions over every length seen in pretraining (1-5 digits). The 1-3 digit
+- 45% additions over every length seen in pretraining (1-5 digits). The 1-3 digit
   ones are already solved, so they are mostly skipped. On 4-5 digits the SFT model
   fails, *but not always*: among 8 attempts, a few are right. RL finds those lucky
   attempts and reinforces them. The mean reward climbs from ~0.7 to ~0.99 over the
-  300 steps.
-- 20% calculator (the call, or the final answer after the result).
-- 10% follow-ups on a 4-5 digit total ("And add 31 to that?" after "The answer is
-  8829."), and 20% new questions of 1-5 digits (each length equally often) after one
-  to three earlier turns: SFT only shows those with short numbers.
+  330 steps.
+- 9% word problems with 3-5 digit numbers ("Mia has 592 apples. Mia gets 21697 more
+  apples..."), with or without the calculator: the numbers sit in a sentence, and
+  they were copied short (71270 → 7127).
+- 18% calculator (the call, or the final answer after the result).
+- 9% follow-ups on a 3-5 digit total ("Add 1 to it." after "The answer is 35802."),
+  and 18% new questions of 1-5 digits (each length equally often) after one to three
+  earlier turns: SFT only shows those with short numbers.
+
+The word problems came on top: 330 steps instead of 300, so every other kind keeps
+as much practice as before.
 
 Nothing else is in its mix, so nothing holds its other skills in place, and they
 drift: after RL it follows "Answer with the number only." 80% of the time (SFT:
@@ -369,7 +382,8 @@ KL(student ‖ teacher) over the whole vocabulary, averaged over the answer's
 positions. Every token gets a grade, where RL gives one reward per answer: the KL
 falls below 0.001 within ~60 steps. The problem mix is the one mini-1's RL used (50%
 additions, 15% calculator, 35% instructions), plus 5% each of new questions, follow-ups
-on long totals and story requests. 300 steps, lr 1e-4: 9,600 sampled
+on long totals, story requests, something else after an answer, requests after small
+talk and word problems. 300 steps, lr 1e-4: 9,600 sampled
 answers, a quarter of the specialist's 38,400.
 
 This is how labs merge specialists now (DeepSeek-V4, Kimi K3, Nemotron 3: math,
@@ -406,10 +420,10 @@ compared, and a drop larger than the noise of its sample blocks the release: two
 failures than before, and at least 2 points (6.7 points on a 30-prompt check, 2 on 100
 prompts); perplexity may rise by 2%. A regression can still ship, with a reason:
 `--allow sure="one greedy prompt"` records it in `gate.json` and in the model card.
-Evaluating the baseline adds about 40 s. To compare any two models by hand:
+Evaluating the baseline adds about a minute. To compare any two models by hand:
 
 ```bash
-uv run python -m minilab.eval.gate models/mini-3.1 --baseline models/mini-3 --config configs/small.toml
+uv run python -m minilab.eval.gate models/mini-3.2 --baseline models/mini-3.1 --config configs/small.toml
 ```
 
 ## What we tuned, and why
@@ -535,12 +549,23 @@ uv run python -m minilab.eval.gate models/mini-3.1 --baseline models/mini-3 --co
 - **A release gate, and a check that plays whole chats.** Every fix above was found by
   hand, after the release, in the chat app. Each check scored one turn in a history we
   wrote; people chain requests, and the model then reads its own earlier answers. The
-  `chat` check plays 60 conversations of 3-5 requests the way the app does, and the
+  `chat` check plays 200 conversations of 3-5 requests the way the app does, and the
   gate blocks a release that regresses on any metric. Replayed on the past releases,
   both evaluated again on the same eval: mini-3 would have been blocked ("something
   else after an answer": 57% → 37%, the bug found by hand), and so would mini-3.1
   ("Sure!": 100% → 87%, one greedy story too long for the context: it would have
-  needed a waiver). Whole chats right: mini-2.1 38%, mini-3 43%, mini-3.1 78%.
+  needed a waiver). Whole chats right: mini-2.1 48%, mini-3 49%, mini-3.1 85%.
+- **The gate's first catch, and its limits.** mini-3.2's first try made room for
+  word problems by cutting the specialist's plain additions (50% → 40%), and the gate
+  blocked it: 5-digit additions 100% → 97%. The scratchpad forgot to pad a shorter
+  operand (`7012+60182` for `07012+60182`). Adding the word problems on top instead
+  (330 steps) brought the eval's 100 problems back to 100%, and the release passed.
+  On 500 new problems, though, 5-digit additions with the scratchpad are still at
+  98.2% (mini-3.1: 99.6%), a drop the eval's 100 problems can't tell from noise; with
+  the calculator they went 95.6% → 98.2%. And the first `chat` check had 60
+  conversations: it scored mini-3.2 88% against mini-3.1's 78%, and 200 conversations
+  gave both 85%. A gate is only as sharp as its samples: 60 conversations move by
+  ±10 points from luck alone. The check now plays 200.
 - **Stories need an anchor too.** With new questions in the distillation mix, the
   "Sure!" check fell from 90% (SFT) to 63%. Every answer started with "Sure!", but
   under greedy decoding the generic story requests ("Write a story for me.") all got
@@ -650,10 +675,11 @@ distillation and eval, which pick the CPU over MPS. `--device` forces a device. 
   unusual phrasings.
 - Story topics are the 15 trained ones. "Tell me a story about a robot" gets a
   generic story (earlier checkpoints even looped: "a tiny model: a tiny model...").
-- A whole conversation is right 78% of the time (the `chat` check). What breaks: the
-  model repeats the kind of answer it just gave ("Tell me about yourself" after a
-  refusal gets a refusal, "Good morning!" after "Bye" gets "Bye!"), and a 5-digit
-  total carried into a follow-up loses a digit (35802 + 1 → 3583).
+- A whole conversation is right 85% of the time (the `chat` check). What breaks: the
+  model mixes up its answers about itself ("How do you say thank you in French?"
+  after "What is your name?" gets "I'm mini, ..."), and a story asked late in a chat
+  can run out of context before it ends (the app keeps only half of the 256 tokens
+  for the answer).
 - Later turns are less reliable than the first. A fresh addition after earlier turns
   is right ~91% of the time on average (every length is 100% on the first turn), and
   less with the calculator on short numbers (~78% for 1-digit ones).

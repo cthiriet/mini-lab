@@ -7,7 +7,7 @@ least 2 points (a check of 30 prompts may lose 6.7 points, one of 100 prompts 2)
 may rise by 2%. A regression blocks the release unless it is waived with a reason, which the
 release records.
 
-    uv run python -m minilab.eval.gate models/mini-3.1 --baseline models/mini-3 --config configs/small.toml
+    uv run python -m minilab.eval.gate models/mini-3.2 --baseline models/mini-3.1 --config configs/small.toml
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def metrics(result: dict, cfg: dict) -> dict[str, tuple[float, int, bool]]:
         "tool call": ("tool_call", ec["n_tool"] * len(digits)),
         "tool ans": ("tool_answer", ec["n_tool"] * len(digits)),
         "story": ("story_topic", len(tasks.TOPICS) * len(tasks.STORY_EVAL_REQUESTS)),
-        "chat": ("chat", ec.get("n_chat", 60)),
+        "chat": ("chat", ec.get("n_chat", 200)),
         "format": ("format", 100),  # hundreds of turns: the 2-point floor applies
     }
     out |= {name: (result[key], n, True) for name, (key, n) in candidates.items() if result.get(key) is not None}

@@ -54,7 +54,7 @@ def sample_problem(rng: random.Random, sc: dict) -> dict:
     The other kinds (calculator, system prompts, follow-ups, refusals) keep those
     skills from drifting: as soon as one degrades, it fails and gets a signal."""
     kind = rng.choices(list(sc["mix"]), weights=list(sc["mix"].values()))[0]
-    return make_problem(kind, rng, sc["digits"] if kind in ("add", "tool", "new_question") else sc["chat_digits"])
+    return make_problem(kind, rng, sc["digits"] if kind in ("add", "tool", "word", "new_question") else sc["chat_digits"])
 
 
 def rl_step(model: GPT, tok: Tokenizer, opt: torch.optim.Optimizer, problems: list[dict], group_size: int,
