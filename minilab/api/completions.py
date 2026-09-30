@@ -67,8 +67,9 @@ async def chat_completions(request: Request):
         meter.pricing = model.pricing
         check_quota(caller, s.settings.platform_url)
 
-        payload = to_inference(req)
-        if prompt_chars(payload["messages"]) > model.context_length * MAX_CHARS_PER_TOKEN:
+        payload = to_inference(req, model.default_temperature)
+        # A model with truncation "auto" (mini-code) fits long prompts itself, cutting what it can't show.
+        if model.truncation != "auto" and prompt_chars(payload["messages"]) > model.context_length * MAX_CHARS_PER_TOKEN:
             raise APIError(400, f"This model's maximum context length is {model.context_length} tokens, "
                                 "and your messages are far longer.", code="context_length_exceeded", param="messages")
         prompt_estimate = estimate_prompt_tokens(payload["messages"])
@@ -92,7 +93,7 @@ async def chat_completions(request: Request):
     usage = result.get("usage") or {}
     prompt_tokens, completion_tokens = usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
     completion = completion_json(meter.id, meter.created, result.get("model") or req.model, result,
-                                 tool_calls_json(result.get("tool_calls") or []))
+                                 tool_calls_json(result.get("tool_calls") or [], req.tools))
     s.limiter.settle(caller, reserved, prompt_tokens + completion_tokens)
     request.state.ratelimit_headers = s.limiter.headers(caller)
     await meter.record(200, prompt_tokens, completion_tokens, response_body=completion)
@@ -175,7 +176,7 @@ class StreamRelay:
             return
 
         # Bill before sending the last chunks, so a client that got [DONE] already sees its new balance.
-        tool_calls = tool_calls_json(done.get("tool_calls") or [])
+        tool_calls = tool_calls_json(done.get("tool_calls") or [], req.tools)
         usage = done.get("usage") or {}
         p, c = usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
         await self._record(200, p, c, None, completion_json(m.id, m.created, req.model, done, tool_calls))

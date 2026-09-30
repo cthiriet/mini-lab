@@ -41,6 +41,8 @@ class Change:
 
 def metrics(result: dict, cfg: dict) -> dict[str, tuple[float, int, bool]]:
     """The eval's numbers as {name: (value, prompts, higher is better)}; prompts 0 = perplexity."""
+    if result.get("world") == "code":
+        return code_metrics(result, cfg)
     ec, digits = cfg["eval"], cfg["data"]["digits"]
     n_instr = ec.get("n_instr", 30)
     out = {"ppl": (result["val_ppl"], 0, False)}
@@ -60,6 +62,17 @@ def metrics(result: dict, cfg: dict) -> dict[str, tuple[float, int, bool]]:
     return out
 
 
+def code_metrics(result: dict, cfg: dict) -> dict[str, tuple[float, int, bool]]:
+    """mini-code: every task kind, small talk and titles (see eval/code.py)."""
+    ec = cfg["eval"]
+    out = {"ppl": (result["val_ppl"], 0, False)}
+    out |= {kind: (v, ec["n_per_kind"], True) for kind, v in result.get("tasks", {}).items() if v is not None}
+    out |= {k: (result[k], ec.get("n_chat", 30), True) for k in ("chat", "title") if result.get(k) is not None}
+    if result.get("valid_calls") is not None:
+        out["valid calls"] = (result["valid_calls"], 100, True)  # hundreds of calls: the 2-point floor applies
+    return out
+
+
 def compare(new: dict, old: dict, cfg: dict) -> list[Change]:
     """Every metric both evals have, with the drop that is still noise."""
     new_m, old_m = metrics(new, cfg), metrics(old, cfg)
@@ -73,16 +86,18 @@ def compare(new: dict, old: dict, cfg: dict) -> list[Change]:
     return changes
 
 
-def newest_release(models_dir: Path, exclude: str) -> Path | None:
-    """The most recent release other than `exclude` (the one being released)."""
-    return next((m.path for m in list_models(models_dir) if m.id != exclude), None)
+def newest_release(models_dir: Path, exclude: str, family: str = "mini") -> Path | None:
+    """The most recent release of the same family (mini, mini-code) other than `exclude` (the one
+    being released)."""
+    return next((m.path for m in list_models(models_dir) if m.id != exclude and m.family == family), None)
 
 
-def check(new_result: dict, baseline: Path, cfg: dict, device: str, waivers: dict[str, str]) -> dict:
+def check(new_result: dict, baseline: Path, cfg: dict, device: str, waivers: dict[str, str],
+          stage: str = "distill") -> dict:
     """Evaluate the baseline, compare, and say whether the release may go ahead."""
     setup(cfg.get("seed", 0), device)
     model, tok, _ = load_checkpoint(baseline, device=device)
-    old = evaluate(model, tok, cfg, "distill")
+    old = evaluate(model, tok, cfg, stage)
     changes = compare(new_result, old, cfg)
     regressions = [c for c in changes if c.regressed]
     blocking = [c for c in regressions if c.metric not in waivers]

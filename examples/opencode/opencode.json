@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "minilab": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "mini-lab",
+      "options": {
+        "baseURL": "http://api:8000/v1",
+        "apiKey": "{file:/run/minilab/key}"
+      },
+      "models": {
+        "mini-code-1": {
+          "name": "mini-code-1",
+          "limit": { "context": 200000, "output": 384 }
+        }
+      }
+    }
+  },
+  "model": "minilab/mini-code-1",
+  "small_model": "minilab/mini-code-1",
+  "autoupdate": false,
+  "share": "disabled"
+}

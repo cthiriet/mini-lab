@@ -166,7 +166,7 @@ Samples from `mini-3.2` (greedy):
 
 Models are named like the labs': a new number for a new recipe (optimizer, stages),
 a point release (`.1`, `.2`) for a significant fix with the same recipe. Earlier
-releases stay served, and the platform picks the newest by default. `speedrun.sh`
+releases stay served, and the platform picks the newest mini by default. `speedrun.sh`
 holds the id of the next release.
 
 | model | recipe | what changed |
@@ -177,6 +177,10 @@ holds the id of the next release.
 | `mini-3` | twice the pretraining (7000 steps, 200 MB of stories), from a small [scaling law](#what-we-tuned-and-why) | story perplexity 6.46 → 5.75, instructions 98% → 100%, 5 digits at T=1 97% → 100% |
 | `mini-3.1` | SFT and distillation also show something else after an answer | a story, a greeting, "Who are you?" or a refusal after an addition: 28% → 99% (mini-2.1: 44%) |
 | `mini-3.2` | SFT also shows requests after small talk; the specialist practices word problems and 5-digit totals | a follow-up on a 5-digit total 63% → 91%, 5-digit additions with the calculator 96% → 98%; whole chats unchanged (85%) |
+
+A second family, `mini-code` (`bash speedrun.sh code`), is a coding agent for opencode:
+`mini-code-1` does 98% of its coding tasks end to end. See [opencode.md](opencode.md).
+The platform's examples and chat app default to the newest mini model.
 
 ## Reading a run
 

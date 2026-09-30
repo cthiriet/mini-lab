@@ -108,12 +108,12 @@ value (`MINILAB_INTERNAL_TOKEN`) before exposing the services.
 | `model` | required: a model id from `GET /v1/models` |
 | `messages` | required: `system`/`developer`, `user`, `assistant` (optionally with `tool_calls`) and `tool` messages. `content` is a string or a list of `{"type": "text"}` parts |
 | `max_completion_tokens` / `max_tokens` | cap on generated tokens. Default: until the model's context window is full |
-| `temperature` | 0 to 2, default 1. 0 means greedy decoding |
+| `temperature` | 0 to 2. 0 means greedy decoding. Default: the model's `default_temperature`, 1 for mini (OpenAI's default), 0 for mini-code |
 | `top_p` | 0 to 1, default 1 |
 | `top_k` | not in OpenAI's API: keep only the k most likely tokens (with the SDK: `extra_body={"top_k": 20}`) |
 | `seed` | same seed and parameters, same output (streamed or not) |
 | `stop` | a string or up to 4 strings; generation stops before them |
-| `tools` | function tools. Only their **names** reach the model (it was trained on `tools: calculator`, not on JSON schemas) |
+| `tools` | function tools. Only their **names** reach the model (it was trained on `tools: calculator`, not on JSON schemas). mini-code writes every argument as text: the gateway types them with the tools' JSON schemas (`"true"` becomes `true` where `parameters` says boolean) |
 | `tool_choice` | `auto` (default) or `none` (the model doesn't see the tools) |
 | `stream` | send the answer as server-sent events |
 | `stream_options.include_usage` | add a last chunk with the token usage |
@@ -232,13 +232,19 @@ objects with mini-lab extras:
 
 ```json
 {"object": "list", "data": [{
-  "id": "mini-3.2", "object": "model", "created": 1760000000, "owned_by": "mini-lab",
+  "id": "mini-3.2", "object": "model", "created": 1760000000, "owned_by": "mini-lab", "family": "mini",
   "description": "...", "context_length": 256,
   "pricing": {"input_per_1m": 10.0, "output_per_1m": 50.0}
 }]}
 ```
 
 `GET /v1/models/{id}` returns one of them, or `404 model_not_found`.
+
+Two families: `mini`, the chat models (stories, addition, a calculator tool), and
+`mini-code`, the coding agent for opencode ([opencode.md](opencode.md)). A request too long
+for a mini model is rejected with `400 context_length_exceeded`; a mini-code model fits it
+itself (`"truncation": "auto"` in its release.json), dropping the oldest turns, because an
+agent like opencode sends far more than 1,024 tokens of instructions and history.
 
 ## Errors
 

@@ -20,6 +20,7 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from minilab.api.errors import APIError, invalid_request
+from minilab.tokenizer.chat import coerce_arguments
 
 
 class _Lenient(BaseModel):
@@ -146,8 +147,9 @@ def _text(content: str | list[dict] | None) -> str | None:
     return content
 
 
-def to_inference(req: ChatCompletionRequest) -> dict:
-    """Build the POST /generate body of the internal inference API (see docs/architecture.md)."""
+def to_inference(req: ChatCompletionRequest, default_temperature: float = 1.0) -> dict:
+    """Build the POST /generate body of the internal inference API (see docs/architecture.md).
+    Without a temperature in the request, the model's default (release.json) is used."""
     messages = []
     for m in req.messages:
         msg: dict = {"role": m.role, "content": _text(m.content)}
@@ -166,7 +168,7 @@ def to_inference(req: ChatCompletionRequest) -> dict:
         "messages": messages,
         "tools": tools or None,
         "max_tokens": req.max_completion_tokens or req.max_tokens,
-        "temperature": 1.0 if req.temperature is None else req.temperature,
+        "temperature": default_temperature if req.temperature is None else req.temperature,
         "top_p": 1.0 if req.top_p is None else req.top_p,
         "top_k": req.top_k,
         "seed": req.seed,
@@ -181,10 +183,14 @@ def new_completion_id() -> str:
     return f"chatcmpl-{secrets.token_hex(12)}"
 
 
-def tool_calls_json(calls: list[dict]) -> list[dict]:
-    """Inference returns [{"name", "arguments"}]; clients need an id to send each result back."""
+def tool_calls_json(calls: list[dict], tools: list[Tool] | None = None) -> list[dict]:
+    """Inference returns [{"name", "arguments"}]; clients need an id to send each result back.
+    A model that writes every argument as text (mini-code) gets them typed with the request's
+    JSON schemas: "true" becomes true where the schema says boolean."""
+    schemas = {t.function.name: t.function.parameters for t in tools or []}
     return [{"id": f"call_{secrets.token_hex(12)}", "type": "function",
-             "function": {"name": c["name"], "arguments": c["arguments"]}} for c in calls]
+             "function": {"name": c["name"], "arguments": coerce_arguments(c["arguments"], schemas.get(c["name"]))}}
+            for c in calls]
 
 
 def finish_reason(result: dict) -> str:

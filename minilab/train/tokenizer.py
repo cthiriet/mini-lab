@@ -5,6 +5,9 @@
 The sample contains stories, arithmetic worksheets and the text of a few chat
 conversations, so common words, chat phrases, " +", " =" and the JSON of
 tool calls all get their own tokens. Also copies the config into the run directory.
+
+For mini-code (`[data] world = "code"`): pretraining documents and SFT conversations of the
+toy code world, and the "code" chat template (see tokenizer/chat.py).
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ import shutil
 import time
 from pathlib import Path
 
-from minilab.data import arithmetic
+from minilab.data import arithmetic, code
 from minilab.data.conversations import StoryPool, sft_conversation
 from minilab.data.tinystories import load_stories
 from minilab.tokenizer.bpe import Tokenizer
@@ -33,6 +36,8 @@ def main() -> None:
 
     d, tc = cfg["data"], cfg["tokenizer"]
     rng = random.Random(cfg.get("seed", 0))
+    if d.get("world") == "code":
+        return train_code(cfg, run, rng)
     stories = load_stories("train", d["train_mb"])
     sample = rng.sample(stories, min(len(stories), tc["sample_stories"]))
     n_other = len(sample) // 5
@@ -53,6 +58,21 @@ def main() -> None:
     chars_per_token = sum(map(len, val)) / sum(len(tok.encode(s)) for s in val)
     print(f"tokenizer: vocab_size {tok.vocab_size} ({len(tok.merges)} merges) in {time.time() - t0:.1f}s, "
           f"{chars_per_token:.2f} chars/token on held-out stories -> {run / 'tokenizer.json'}")
+
+
+def train_code(cfg: dict, run: Path, rng: random.Random) -> None:
+    tc, n = cfg["tokenizer"], cfg["tokenizer"]["sample"]
+    convs = code.conversations(cfg["sft"]["size"], cfg.get("seed", 0) + 2, cfg["sft"]["mix"])
+    docs = code.pretrain_documents(cfg.get("seed", 0) + 1)
+    sample = [t for c in rng.sample(convs, min(n, len(convs))) for t in code.text_of(c)]
+    sample += [next(docs) for _ in range(n)]
+    t0 = time.time()
+    tok = Tokenizer.train(sample, tc["vocab_size"], chat_template="code")
+    tok.save(run / "tokenizer.json")
+    held_out = [next(docs) for _ in range(500)]
+    chars_per_token = sum(map(len, held_out)) / sum(len(tok.encode(s)) for s in held_out)
+    print(f"tokenizer: vocab_size {tok.vocab_size} ({len(tok.merges)} merges) in {time.time() - t0:.1f}s, "
+          f"{chars_per_token:.2f} chars/token on held-out Python documents -> {run / 'tokenizer.json'}")
 
 
 if __name__ == "__main__":

@@ -48,6 +48,21 @@ EVAL_ROWS = [
     ("instructions.over_refusal", "· answers in-scope requests (no over-refusal)", "inv"),
     ("format", "Ends its turn properly", "pct"),
 ]
+# mini-code's eval (eval/code.py)
+CODE_EVAL_ROWS = [
+    ("val_ppl", "Python perplexity (lower is better)", "num"),
+    ("agent", "Coding tasks done, all 13 kinds", "pct"),
+    ("families.explore", "Explore: list, find, read, explain, run, test", "pct"),
+    ("families.create", "Create: a function, a script", "pct"),
+    ("families.modify", "Modify: rename, set a constant, add a function", "pct"),
+    ("families.repair", "Repair: a failing test, a crashing script", "pct"),
+    *[(f"tasks.{k}", f"· {k}", "pct") for k in ("list_files", "find_def", "show_file", "explain", "run", "run_tests",
+                                                "create_func", "create_script", "rename", "change_const", "add_func",
+                                                "fix_test", "fix_crash")],
+    ("valid_calls", "Tool calls opencode accepts", "pct"),
+    ("chat", "Small talk, without tools", "pct"),
+    ("title", "opencode's session titles", "pct"),
+]
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -93,7 +108,8 @@ def progression_table(run: dict) -> str:
     stages = [s for s in STAGES if s in run["stages"]]
     evals = {s: run["stages"][s]["eval"] for s in stages}
     rows = []
-    for path, label, kind in EVAL_ROWS:
+    code = any(evals[s].get("world") == "code" for s in stages)
+    for path, label, kind in CODE_EVAL_ROWS if code else EVAL_ROWS:
         values = {s: _get(evals[s], path) for s in stages}
         if all(v is None for v in values.values()):
             continue

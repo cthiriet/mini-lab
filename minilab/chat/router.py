@@ -22,7 +22,7 @@ CHAT_TEMPERATURE = 0.6
 
 @router.get("")
 async def chat_page(request: Request, ctx: Ctx = Depends(get_ctx)):
-    return render(request, "chat.html", ctx, models=await model_choices(request, ctx.org["id"]))
+    return render(request, "chat.html", ctx, models=await model_choices(request, ctx.org["id"], chat_only=True))
 
 
 @router.post("/api/chat")

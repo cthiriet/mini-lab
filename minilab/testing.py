@@ -1,10 +1,12 @@
 """Helpers for tests and local development without training a real model.
 
-    uv run python -m minilab.testing models/   # creates models/mini-random (random weights)
+    uv run python -m minilab.testing models/            # creates models/mini-random (random weights)
+    uv run python -m minilab.testing key [--out FILE]   # an API key in the local database
 """
 
 from __future__ import annotations
 
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -37,5 +39,26 @@ def make_random_release(models_dir: str | Path, model_id: str = "mini-random", s
     return out
 
 
+def local_api_key(credit_usd: float = 20.0) -> str:
+    """A user, an org with credits and an API key in the local database (MINILAB_DB), to call the
+    API without going through the platform: the opencode demo (examples/opencode). Returns the key."""
+    from minilab.db import store as db
+    db.init_db()
+    user = db.create_user(f"local-{int(time.time() * 1000)}@localhost", secrets.token_urlsafe(16), "Local")
+    org = db.create_org("Local", user["id"], signup_credit_usd=credit_usd)
+    project = db.list_projects(org["id"])[0]
+    return db.create_api_key(org["id"], project["id"], "local", created_by=user["id"])[1]
+
+
 if __name__ == "__main__":
-    print(make_random_release(sys.argv[1] if len(sys.argv) > 1 else "models"))
+    if sys.argv[1:2] == ["key"]:
+        key = local_api_key()
+        if "--out" in sys.argv:
+            out = Path(sys.argv[sys.argv.index("--out") + 1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(key)
+            print(f"API key written to {out}")
+        else:
+            print(key)
+    else:
+        print(make_random_release(sys.argv[1] if len(sys.argv) > 1 else "models"))

@@ -47,6 +47,17 @@ Each stage is evaluated, and the training report shows what it changed (addition
 
 See [docs/training.md](docs/training.md) for the full results and what we learned along the way (including three reward hacks RL found).
 
+## The coding agent: `mini-code-1`
+
+A second model, as small, trained to be the model behind [opencode](https://opencode.ai): given "Run the tests and fix any bug", it globs for the tests, runs them, greps for the failing function, reads it, edits the line, runs the tests again and says what it fixed. Its world is tiny (small Python projects of little functions), but the tool calls, the loop and the format are the ones a real coding agent speaks: 98% of its coding tasks done end to end, trained in 24 minutes.
+
+```bash
+bash speedrun.sh code             # data, pretraining on Python, SFT on agent transcripts -> models/mini-code-1
+bash examples/opencode/demo.sh    # opencode 2 on a demo project, everything in containers without internet
+```
+
+How ~10,000 tokens of opencode instructions fit a 1,024-token model, how the transcripts are made (every tool call runs for real), and how the eval keeps the model's commands in a locked-down container: [docs/opencode.md](docs/opencode.md).
+
 ## The platform
 
 Sign up, get an API key, call the model with the official OpenAI SDK, and watch every token get billed. Or just chat with it.
@@ -129,7 +140,7 @@ More in [docs/architecture.md](docs/architecture.md).
 minilab/
   tokenizer/    BPE from scratch (digits always split) + chat template
   model/        the transformer, KV cache, sampling
-  data/         TinyStories download, synthetic arithmetic and conversations
+  data/         TinyStories download, synthetic arithmetic and conversations; mini-code's toy code world and tool sandbox
   train/        tokenizer, pretrain, midtrain, sft, rl (GRPO)
   eval/         evals and model card
   report.py     HTML training report for one or more runs
@@ -139,7 +150,8 @@ minilab/
   platform/     dashboard, billing, playground, docs
   chat/         chat app
   db/           SQLite schema and data access
-configs/        tiny (CI smoke test) and small (the speedrun)
+configs/        tiny (CI smoke test), small (the speedrun) and code (mini-code)
+examples/       opencode/: mini-code in opencode, in containers
 tests/          unit tests, service tests, and an end-to-end test of the whole stack
 ```
 

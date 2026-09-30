@@ -62,6 +62,12 @@ between `<|tool_call_start|>` / `<|tool_call_end|>`; tool results go in
 `<|tool_start|>` / `<|tool_end|>`; optional scratchpad reasoning goes in
 `<|think_start|>` / `<|think_end|>`. Generation stops at `<|assistant_end|>`.
 
+The tokenizer names its template (`chat_template` in tokenizer.json). mini-code's "code"
+template writes tool arguments raw, separated by `<|arg|>` (`edit<|arg|>path=calc.py<|arg|>...`),
+cuts system prompts to their first sentence, shows paths relative to the working directory,
+and can fit a prompt into a token budget by dropping old turns: see
+[opencode.md](opencode.md).
+
 Note: `Tokenizer.train` may learn fewer merges than requested on small corpora, so
 always build the model with `tokenizer.vocab_size`.
 

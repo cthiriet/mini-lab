@@ -1,0 +1,57 @@
+# mini-code in opencode, everything in containers (see README.md):
+#
+#   bash speedrun.sh code                                  # trains and releases models/mini-code-1
+#   bash examples/opencode/demo.sh                         # opencode's TUI on the demo project
+#   bash examples/opencode/demo.sh run --auto "Run the tests"   # or one request, approved automatically
+#
+# The `sandbox` network is internal: opencode (and whatever the model runs in its container)
+# can reach the mini-lab API, and nothing else.
+name: minicode-demo
+
+x-minilab: &minilab
+  build: ../..
+  image: mini-lab
+  environment: &env
+    MINILAB_INTERNAL_TOKEN: ${MINILAB_INTERNAL_TOKEN:?run demo.sh, which sets it}
+    MINILAB_DB: /data/minilab.db
+    MINILAB_MODELS_DIR: /app/models
+    MINILAB_SERVE_MODELS: mini-code-1
+    MINILAB_INFERENCE_URL: http://inference:8001
+  volumes:
+    - ../../models:/app/models:ro
+    - data:/data
+    - key:/run/minilab
+  networks: [sandbox]
+
+services:
+  inference:
+    <<: *minilab
+    command: python -m minilab.inference --host 0.0.0.0 --port 8001
+
+  api:
+    <<: *minilab
+    # A local account with credits, and its API key for opencode.
+    command: sh -c "python -m minilab.testing key --out /run/minilab/key && python -m minilab.api --host 0.0.0.0 --port 8000"
+    depends_on: [inference]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 2s
+      retries: 30
+
+  opencode:
+    build: .
+    volumes:
+      - key:/run/minilab:ro
+    networks: [sandbox]
+    stdin_open: true
+    tty: true
+    depends_on:
+      api: {condition: service_healthy}
+
+networks:
+  sandbox:
+    internal: true
+
+volumes:
+  data:
+  key:

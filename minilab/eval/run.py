@@ -15,6 +15,7 @@ from pathlib import Path
 
 from minilab.checkpoint import load_checkpoint
 from minilab.data.tinystories import load_stories
+from minilab.eval import code as code_eval
 from minilab.eval import tasks
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
@@ -33,6 +34,8 @@ def _by_digits(records: list[dict], key: str = "correct") -> dict[str, float]:
 
 
 def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
+    if cfg["data"].get("world") == "code":  # mini-code: coding tasks played end to end (eval/code.py)
+        return code_eval.evaluate(model, tok, cfg, stage)
     ec, d = cfg["eval"], cfg["data"]
     train_digits, heldout = d["digits"], d.get("heldout_digits", [])
     chat = stage != "pretrain"
@@ -88,6 +91,14 @@ TABLE_FOOTNOTE = ("* held-out digit counts (length generalization). base = raw-t
 
 def _table_cells(results: list[dict], times: dict[str, float] | None) -> tuple[list[str], list[list[str]]]:
     """Column names and one row of cells per evaluated stage."""
+    if results[0].get("world") == "code":
+        cols = ["stage", "ppl"] + [label for label, _ in code_eval.TABLE] + (["train time"] if times else [])
+        rows = []
+        for r in results:
+            row = [r["stage"] + (" (base)" if r["mode"] == "completion" else ""), f"{r['val_ppl']:.2f}"]
+            row += [_pct(code_eval.get(r, key)) for _, key in code_eval.TABLE]
+            rows.append(row + ([f"{times.get(r['stage'], 0) / 60:.1f} min"] if times else []))
+        return cols, rows
     digits = sorted({int(k) for r in results for k in r["arithmetic"]})
     heldout = set(results[0].get("heldout_digits", []))
     cols = ["stage", "ppl"] + [f"{n}d" + ("*" if n in heldout else "") for n in digits]
@@ -111,7 +122,7 @@ def table(results: list[dict], times: dict[str, float] | None = None) -> str:
     widths = [max(len(c), *(len(row[i]) for row in rows)) for i, c in enumerate(cols)]
     fmt = lambda row: "  ".join(v.ljust(w) if i == 0 else v.rjust(w) for i, (v, w) in enumerate(zip(row, widths)))
     lines = [fmt(cols), fmt(["-" * w for w in widths]), *map(fmt, rows)]
-    lines.append(TABLE_FOOTNOTE)
+    lines.append(_footnote(results))
     return "\n".join(lines)
 
 
@@ -120,7 +131,11 @@ def markdown_table(results: list[dict], times: dict[str, float] | None = None) -
     cols, rows = _table_cells(results, times)
     lines = ["| " + " | ".join(cols) + " |", "|---|" + "---:|" * (len(cols) - 1)]
     lines += ["| " + " | ".join(row) + " |" for row in rows]
-    return "\n".join(lines) + "\n\n" + TABLE_FOOTNOTE.replace("* held-out", "\\* held-out")
+    return "\n".join(lines) + "\n\n" + _footnote(results).replace("* held-out", "\\* held-out")
+
+
+def _footnote(results: list[dict]) -> str:
+    return code_eval.TABLE_FOOTNOTE if results[0].get("world") == "code" else TABLE_FOOTNOTE
 
 
 def summary(run: Path) -> tuple[list[dict], dict[str, float]]:
@@ -158,6 +173,8 @@ def main() -> None:
     print(table([result]))
     if "instructions" in result:
         print("instructions: " + ", ".join(f"{k} {_pct(v)}" for k, v in result["instructions"].items()))
+    if "tasks" in result:
+        print("tasks: " + ", ".join(f"{k} {_pct(v)}" for k, v in result["tasks"].items()))
     for s in result.get("samples", [])[:3]:
         print(f"\n> {s['prompt']}\n{s['response'][:400]}")
     print(f"\neval: {result['eval_seconds']:.0f}s -> {run / args.stage / 'eval.json'}")

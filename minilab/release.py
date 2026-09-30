@@ -41,14 +41,18 @@ def release(run: Path, stage: str, model_id: str, models_dir: Path, gate_result:
             shutil.copy2(src / name, out / name)
     ckpt = json.loads((src / "config.json").read_text())
     params = ckpt["meta"].get("params", 0)
+    rc = tomllib.loads((Path(run) / "config.toml").read_text()).get("release", {})
     write_release(out, ModelInfo(
         id=model_id,
         created=int(time.time()),
         description=f"{params / 1e6:.1f}M-parameter GPT trained from scratch on a laptop: "
-                    "short stories and addition (step-by-step reasoning or calculator tool).",
+                    + rc.get("description", "short stories and addition (step-by-step reasoning or calculator tool)."),
         context_length=ckpt["model"]["block_size"],
         pricing=PRICING,
         source_run=str(run),
+        family=rc.get("family", "mini"),
+        truncation=rc.get("truncation", "disabled"),
+        default_temperature=rc.get("temperature", 1.0),
     ))
     card = model_card(Path(run), stage, model_id)
     if gate_result:
@@ -74,14 +78,15 @@ def main() -> None:
     args = p.parse_args()
     run, models_dir = Path(args.run), Path(args.models_dir)
     gate_result = None
-    baseline = Path(args.baseline) if args.baseline else gate.newest_release(models_dir, exclude=args.id)
+    family = tomllib.loads((run / "config.toml").read_text()).get("release", {}).get("family", "mini")
+    baseline = Path(args.baseline) if args.baseline else gate.newest_release(models_dir, exclude=args.id, family=family)
     if args.no_gate or baseline is None:
         print("release gate: " + ("skipped" if args.no_gate else "no earlier release to compare with"))
     else:
         cfg = tomllib.loads((run / "config.toml").read_text())
         new = json.loads((run / args.stage / "eval.json").read_text())
         gate_result = gate.check(new, baseline, cfg, resolve_device(args.device, generation=True),
-                                 gate.parse_waivers(args.allow))
+                                 gate.parse_waivers(args.allow), args.stage)
         print(gate.report(gate_result))
         if not gate_result["passed"]:
             sys.exit("not released: fix the regressions, or ship anyway with --allow METRIC=REASON")

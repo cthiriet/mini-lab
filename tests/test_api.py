@@ -40,6 +40,7 @@ from minilab.registry import ModelInfo, Pricing, write_release
 from minilab.settings import get_settings
 
 MODEL = "mini-test"
+CODE_MODEL = "mini-code-test"   # like mini-code: truncation "auto", greedy by default
 PRICING = Pricing(input_per_1m=100.0, output_per_1m=300.0)  # pricey, so costs are well above 0 micros
 TOKEN = "test-internal-token"
 _used_ports: set[int] = set()
@@ -83,6 +84,10 @@ def _answer(body: dict) -> dict:
     text = last.get("content") or ""
     if last["role"] == "tool":
         return {"content": f"The answer is {text}.", "tool_calls": [], "finish_reason": "stop"}
+    if "edit" in (body.get("tools") or []) and "fix" in text:  # the "code" template: every argument is text
+        call = {"name": "edit", "arguments": json.dumps({"path": "calc.py", "oldString": "a - b",
+                                                         "newString": "a + b", "replaceAll": "true"})}
+        return {"content": "", "tool_calls": [call], "finish_reason": "tool_calls"}
     if "calculator" in (body.get("tools") or []) and "calc" in text:
         call = {"name": "calculator", "arguments": json.dumps({"expression": "347 + 58"})}
         return {"content": "", "tool_calls": [call], "finish_reason": "tool_calls"}
@@ -111,14 +116,14 @@ def make_stub_inference() -> FastAPI:
     @app.get("/models")
     async def models():
         info = ModelInfo(id=MODEL, created=1_700_000_000, description="stub", context_length=256, pricing=PRICING)
-        return {"object": "list", "data": [info.to_json()]}
+        return {"object": "list", "data": [info.to_json(), CODE_INFO.to_json()]}
 
     @app.post("/generate")
     async def generate(request: Request):
         body = await request.json()
         app.state.payloads.append(body)
         text = body["messages"][-1].get("content") or ""
-        if body["model"] != MODEL:
+        if body["model"] not in (MODEL, CODE_MODEL):
             return JSONResponse({"error": {"message": f"model {body['model']} not loaded",
                                            "type": "invalid_request_error", "code": "model_not_found"}}, 404)
         if "overload" in text:
@@ -157,6 +162,10 @@ def make_stub_inference() -> FastAPI:
     return app
 
 
+CODE_INFO = ModelInfo(id=CODE_MODEL, created=1_700_000_001, context_length=1024, pricing=PRICING, family="mini-code",
+                      truncation="auto", default_temperature=0.0)
+
+
 # ---- fixtures ------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
@@ -164,6 +173,7 @@ def env(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("api")
     write_release(_mkdir(tmp / "models" / MODEL),
                   ModelInfo(id=MODEL, created=1_700_000_000, context_length=256, pricing=PRICING))
+    write_release(_mkdir(tmp / "models" / CODE_MODEL), CODE_INFO)
     stub = make_stub_inference()
     with serve(stub, free_port()) as stub_url:
         settings = replace(get_settings(), db_path=str(tmp / "test.db"), models_dir=str(tmp / "models"),
@@ -320,6 +330,28 @@ def test_tool_call_round_trip(env):
     # tool_choice="none" hides the tools from the model
     c.chat.completions.create(model=MODEL, messages=messages[:1], tools=tools, tool_choice="none")
     assert env.stub.state.payloads[-1]["tools"] is None
+
+
+def test_coding_agent_model(env):
+    """mini-code: a coding agent's long prompt goes through (the model fits it to its context), the
+    model's default temperature applies, and arguments come back typed by the request's schemas."""
+    t = new_org()
+    c = client(env, t.secret)
+    tools = [{"type": "function", "function": {"name": "edit", "parameters": {"type": "object", "properties": {
+        "path": {"type": "string"}, "replaceAll": {"type": "boolean"}}}}}]
+    messages = [{"role": "system", "content": "You are a coding agent. " + "x" * 40_000},
+                {"role": "user", "content": "fix calc.py"}]
+    for stream in (False, True):
+        if stream:
+            chunks = list(c.chat.completions.create(model=CODE_MODEL, messages=messages, tools=tools, stream=True))
+            call = next(ch.choices[0].delta.tool_calls[0] for ch in chunks if ch.choices and ch.choices[0].delta.tool_calls)
+        else:
+            call = c.chat.completions.create(model=CODE_MODEL, messages=messages, tools=tools).choices[0].message.tool_calls[0]
+        assert json.loads(call.function.arguments) == {"path": "calc.py", "oldString": "a - b", "newString": "a + b",
+                                                       "replaceAll": True}
+        assert env.stub.state.payloads[-1]["temperature"] == 0.0
+    with pytest.raises(openai.BadRequestError, match="context length"):  # a chat model gets no such help
+        c.chat.completions.create(model=MODEL, messages=messages)
 
 
 def test_streamed_tool_calls(env):
@@ -488,7 +520,7 @@ def test_first_party_auth(env):
     playground.chat.completions.create(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
     assert logged(t.org["id"])[0]["source"] == "playground"  # the default
     platform = client(env, TOKEN, default_headers={"X-Minilab-Org": t.org["id"], "X-Minilab-Source": "platform"})
-    assert [m.id for m in platform.models.list()] == [MODEL]  # what the platform's model picker does
+    assert [m.id for m in platform.models.list()] == [MODEL, CODE_MODEL]  # what the platform's model picker does
 
     for headers in ({}, {"X-Minilab-Org": "org_nope"}, {"X-Minilab-Org": t.org["id"], "X-Minilab-Source": "Not A Source!"},
                     {"X-Minilab-Org": t.org["id"], "X-Minilab-Project": new_org().project["id"]}):
@@ -614,8 +646,9 @@ def test_format_duration():
 def test_models(env):
     t = new_org()
     c = client(env, t.secret)
-    [model] = c.models.list().data
+    model, code_model = c.models.list().data   # newest first
     assert (model.id, model.object, model.owned_by) == (MODEL, "model", "mini-lab")
+    assert (code_model.id, code_model.model_extra["family"]) == (CODE_MODEL, "mini-code")
     assert model.model_extra["pricing"] == {"input_per_1m": 100.0, "output_per_1m": 300.0}
     assert model.model_extra["context_length"] == 256
     assert c.models.retrieve(MODEL).id == MODEL

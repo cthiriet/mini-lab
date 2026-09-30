@@ -49,15 +49,18 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
     pipeline = " -> ".join(STAGE_NAMES.get(s, s) for s in metas)
     block = ["SwiGLU" if m.get("mlp") == "swiglu" else "GELU"] + (["QK-norm"] if m.get("qk_norm") else []) + \
         (["gated attention"] if m.get("attn_gate") else [])
+    code = d.get("world") == "code"
+    what = (CODE_WHAT if code else
+            "It tells short children's stories and adds numbers, either step by step "
+            "(the scratchpad is returned as reasoning) or by calling a `calculator` tool when one is provided. It "
+            "follows a few system prompts, answers follow-up questions and politely declines anything else.")
 
     lines = [
         f"# {name}",
         "",
         f"{name} is a {final['params'] / 1e6:.1f}M-parameter GPT trained from scratch by the mini-lab "
         f"training pipeline ({pipeline}), in {_duration(total)} of training on "
-        f"a laptop ({final['hardware']}). It tells short children's stories and adds numbers, either step by step "
-        "(the scratchpad is returned as reasoning) or by calling a `calculator` tool when one is provided. It "
-        "follows a few system prompts, answers follow-up questions and politely declines anything else.",
+        f"a laptop ({final['hardware']}). {what}",
         "",
         "## Model",
         "",
@@ -84,8 +87,14 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
     lines += [
         f"| **total** | | {final.get('tokens_total', 0) / 1e6:.2f}M | {_duration(total)} | | |",
         "",
-        f"Hardware: {final['hardware']}. RL and distillation tokens are the sampled answer tokens trained on.",
+        f"Hardware: {final['hardware']}." + (" RL and distillation tokens are the sampled answer tokens trained on."
+                                            if {"rl", "rl_math", "distill"} & set(metas) else ""),
         "",
+    ]
+    if code:
+        lines += _code_sections(cfg, m, results, times, stage)
+        return "\n".join(lines)
+    lines += [
         "## Data",
         "",
         f"- **Pretraining**: the first {d['train_mb']:g} MB of TinyStoriesV2-GPT4 (roneneldan/TinyStories), "
@@ -154,6 +163,68 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+CODE_WHAT = ("It is a coding agent for [opencode](https://opencode.ai): given a request about a small Python project "
+             "(\"Run the tests and fix any bug\", \"Rename add to plus\"), it calls opencode's tools (`read`, `write`, "
+             "`edit`, `glob`, `grep`, `shell`) until the job is done, then says what it did. Its world is tiny: "
+             "projects of a few files and little functions (`add`, `greet`, `reverse`...).")
+
+
+def _code_sections(cfg: dict, m: dict, results: list[dict], times: dict, stage: str) -> list[str]:
+    """mini-code's data, eval, chat format and limitations."""
+    sc = cfg["sft"]
+    lines = [
+        "## Data",
+        "",
+        "Everything is synthetic, from the toy code world of `minilab/data/code.py`:",
+        "",
+        "- **Pretraining** (Python, no chat): the files of random small projects (modules of little functions, a "
+        "script that prints some calls, a test file of asserts) with what their scripts print, functions with what "
+        "they do in English, and bugs with their fixes.",
+        f"- **SFT** (the agent): {sc['size']:,} transcripts of opencode sessions. Each request comes with a random "
+        "project, and an oracle solves it with opencode's tools, *played for real* in a sandbox: every tool result "
+        "is exactly what opencode 2 returns (formats captured from opencode 2.0.20). Four families of tasks: explore "
+        "(list, find, read, explain, run, test), create (a function from its description, a script), modify "
+        "(rename across files, change a constant, add a function) and repair (a failing test, a crashing script); "
+        "plus two requests in a row, small talk, identity, out-of-scope requests and opencode's title requests.",
+        "",
+        "## Evaluation",
+        "",
+        "Same fixed-seed eval for every stage (`uv run python -m minilab.eval.run`): new tasks of each of the 13 "
+        f"kinds ({cfg['eval']['n_per_kind']} each), played end to end like opencode: the model's tool calls run in a "
+        "locked-down Docker container (no network, read-only system), and each task is checked on the project's "
+        "files and the answer (the tests pass, the new function works, the answer has the output...).",
+        "",
+        markdown_table(results, times),
+        "",
+    ]
+    final = next((r for r in results if r["stage"] == stage), {})
+    if final.get("tasks"):
+        lines += ["| task | success |", "|---|---:|"]
+        lines += [f"| {k} | {100 * v:.0f}% |" for k, v in final["tasks"].items() if v is not None]
+        lines.append("")
+    lines += [
+        "## Chat format",
+        "",
+        "OpenAI-style messages rendered with the \"code\" template of `minilab/tokenizer/chat.py`. Tool calls carry "
+        "their arguments raw, so code needs no JSON escaping: "
+        "`<|tool_call_start|>edit<|arg|>path=calc.py<|arg|>oldString=    return a - b<|arg|>newString=    return a + b"
+        "<|tool_call_end|>`; the API returns them as ordinary `tool_calls`, typed with the request's JSON schemas. "
+        "opencode's ~20k-character system prompt is cut to its first sentence, paths are shown relative to the "
+        f"working directory, and the server fits long sessions into the {m['block_size']}-token context by dropping "
+        "the oldest turns (`truncation: auto` in release.json).",
+        "",
+        "## Limitations",
+        "",
+        "- A toy: it only knows the tiny projects of its training world. Real code, other languages, long files "
+        "or vague requests are out of reach; it may call tools that make no sense.",
+        "- It runs whatever command it decides to: only use it in a sandbox (`examples/opencode` runs opencode "
+        "in a container without internet).",
+        "- English only. Not for any real use.",
+        "",
+    ]
+    return lines
 
 
 def main() -> None:

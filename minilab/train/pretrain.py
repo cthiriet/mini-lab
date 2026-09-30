@@ -4,14 +4,20 @@ column additions) mixed in. This is where almost all of the compute goes: the mo
 learns English, what a story looks like, and the mechanics of addition.
 
     uv run python -m minilab.train.pretrain --run runs/small
+
+For mini-code (`[data] world = "code"`), the documents are Python instead: the files of small
+projects with what their scripts print, functions with what they do in English, and bugs with
+their fixes (data/code.py). No chat and no tools yet.
 """
 
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 
 import torch
 
+from minilab.data import code
 from minilab.data.loader import packed_batches, pretrain_documents, story_batches
 from minilab.data.tinystories import load_stories
 from minilab.model.gpt import GPT, GPTConfig
@@ -38,12 +44,20 @@ def main() -> None:
     print(f"model: {model.num_params() / 1e6:.2f}M parameters, config {model.config}")
 
     T, B = model.config.block_size, sc["batch_size"]
-    stories = load_stories("train", d["train_mb"])
-    batches = packed_batches(pretrain_documents(tok, stories, d["digits"], sc["arith_frac"], seed), B, T)
-    val_batches = story_batches(tok, load_stories("val", d["val_mb"]), B, T, sc.get("val_batches", 10))
+    if d.get("world") == "code":
+        docs = ([tok.bos_id, *tok.encode(doc)] for doc in code.pretrain_documents(seed + 1))
+        batches = packed_batches(docs, B, T)
+        held_out = ([tok.bos_id, *tok.encode(doc)] for doc in code.pretrain_documents(10_000_019))
+        val_batches = list(itertools.islice(packed_batches(held_out, B, T), sc.get("val_batches", 10)))
+        prompt = "def add(a, b):"
+    else:
+        stories = load_stories("train", d["train_mb"])
+        batches = packed_batches(pretrain_documents(tok, stories, d["digits"], sc["arith_frac"], seed), B, T)
+        val_batches = story_batches(tok, load_stories("val", d["val_mb"]), B, T, sc.get("val_batches", 10))
+        prompt = "Once upon a time"
 
     def val_fn() -> dict:
-        return {"val_loss": evaluate_loss(model, val_batches, device), "sample": sample_story(model, tok, device)}
+        return {"val_loss": evaluate_loss(model, val_batches, device), "sample": sample_story(model, tok, device, prompt)}
 
     log = Logger(run / "pretrain" / "log.jsonl")
     stats = train_loop(model, batches, sc, log, device, val_fn, cfg.get("optimizer", "adamw"))

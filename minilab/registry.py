@@ -13,7 +13,10 @@ release.json:
       "description": "...",
       "context_length": 256,
       "pricing": {"input_per_1m": 10.0, "output_per_1m": 50.0},   # USD per 1M tokens
-      "source_run": "runs/2026-09-25-small"
+      "source_run": "runs/2026-09-25-small",
+      "family": "mini",                   # "mini" (chat) or "mini-code" (coding agent)
+      "truncation": "disabled",           # "auto": the server drops old turns to fit the context
+      "default_temperature": 1.0          # when a request doesn't set one (OpenAI's default is 1)
     }
 """
 
@@ -42,6 +45,9 @@ class ModelInfo:
     context_length: int = 256
     pricing: Pricing = field(default_factory=Pricing)
     source_run: str = ""
+    family: str = "mini"
+    truncation: str = "disabled"  # "auto": prompts too long are fitted to the context (the "code" template)
+    default_temperature: float = 1.0  # like a Hugging Face generation_config.json: opencode sends none
     path: Path | None = None  # filled in when loaded from disk
 
     def to_json(self) -> dict:

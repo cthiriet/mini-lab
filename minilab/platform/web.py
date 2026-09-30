@@ -144,13 +144,17 @@ def redirect(url: str, flash: str | None = None) -> RedirectResponse:
 # ---- models -----------------------------------------------------------------
 
 def released_models(request: Request) -> list[registry.ModelInfo]:
-    return registry.list_models(request.app.state.settings.models_dir)
+    """Newest first, the chat models (family "mini") before the others: the first one is the
+    default of the examples, the chat app and the playground."""
+    models = registry.list_models(request.app.state.settings.models_dir)
+    return sorted(models, key=lambda m: m.family != "mini")  # stable: newest first within a family
 
 
-async def model_choices(request: Request, org_id: str) -> list[str]:
+async def model_choices(request: Request, org_id: str, chat_only: bool = False) -> list[str]:
     """Model ids for the playground / chat pickers: released models on disk, or,
-    if there are none (e.g. a stub gateway in development), whatever the gateway serves."""
-    ids = [m.id for m in released_models(request)]
+    if there are none (e.g. a stub gateway in development), whatever the gateway serves.
+    The chat app only offers chat models: mini-code is made for coding agents (docs/opencode.md)."""
+    ids = [m.id for m in released_models(request) if not chat_only or m.family == "mini"]
     return ids or await request.app.state.gateway.model_ids(org_id)
 
 

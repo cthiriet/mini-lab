@@ -9,6 +9,10 @@ conversation starting at position 0, padded, exactly like at inference, and the 
 is only on the assistant's tokens. Lower learning rate, few steps.
 
     uv run python -m minilab.train.sft --run runs/small
+
+For mini-code (`[data] world = "code"`), SFT starts from pretraining (there is no midtraining)
+and the conversations are agent transcripts: opencode's requests, tool calls played for real
+in a sandbox, and the answers (data/code.py). They are generated once and cached in data/code/.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from minilab.checkpoint import load_checkpoint
+from minilab.data import code
 from minilab.data.conversations import StoryPool, sft_dataset
 from minilab.data.loader import chat_batch, chat_batches, epochs
 from minilab.data.tinystories import load_stories
@@ -28,12 +33,17 @@ def main() -> None:
     run, device, seed = Path(args.run), args.device, cfg.get("seed", 0)
     setup(seed, device)
     d, sc = cfg["data"], cfg["sft"]
-    model, tok, prev = load_checkpoint(run / "midtrain", device=device)
-
-    pool = StoryPool(load_stories("train", d["train_mb"]), d.get("story_max_chars", 700))
-    T, B = model.config.block_size, sc["batch_size"]
-    train = sft_dataset(seed + 2, sc["size"], sc, d["digits"], pool)
-    val = sft_dataset(seed + 1002, B * sc.get("val_batches", 10), sc, d["digits"], pool)
+    if d.get("world") == "code":
+        model, tok, prev = load_checkpoint(run / "pretrain", device=device)
+        T, B = model.config.block_size, sc["batch_size"]
+        train = code.conversations(sc["size"], seed + 2, sc["mix"])
+        val = code.conversations(B * sc.get("val_batches", 10), seed + 1002, sc["mix"])
+    else:
+        model, tok, prev = load_checkpoint(run / "midtrain", device=device)
+        pool = StoryPool(load_stories("train", d["train_mb"]), d.get("story_max_chars", 700))
+        T, B = model.config.block_size, sc["batch_size"]
+        train = sft_dataset(seed + 2, sc["size"], sc, d["digits"], pool)
+        val = sft_dataset(seed + 1002, B * sc.get("val_batches", 10), sc, d["digits"], pool)
     val_batches = [chat_batch(tok, val[i:i + B], T) for i in range(0, len(val), B)]
     print(f"SFT set: {len(train)} conversations, {sc['steps'] * B / len(train):.1f} epochs")
 
