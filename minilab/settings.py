@@ -32,6 +32,7 @@ class Settings:
     stripe_secret_key: str | None
     stripe_webhook_secret: str | None
     credit_packs_usd: tuple[int, ...]
+    serve_models: tuple[str, ...] = ()  # the released models the deployment offers (empty: all of models_dir)
 
     @property
     def stripe_enabled(self) -> bool:
@@ -53,6 +54,7 @@ def get_settings() -> Settings:
         stripe_secret_key=os.environ.get("STRIPE_SECRET_KEY") or None,
         stripe_webhook_secret=os.environ.get("STRIPE_WEBHOOK_SECRET") or None,
         credit_packs_usd=tuple(int(x) for x in _env("MINILAB_CREDIT_PACKS_USD", "5,10,25").split(",")),
+        serve_models=tuple(m.strip() for m in _env("MINILAB_SERVE_MODELS", "").split(",") if m.strip()),
     )
 
 

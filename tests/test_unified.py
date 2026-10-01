@@ -77,6 +77,28 @@ def test_sft_rows_documents_and_padding(tok):
     assert 0 < (y[1] != -1).sum() < len(tok.encode("Hello!")) + 2
 
 
+def test_the_platform_offers_only_the_served_models(tmp_path, monkeypatch):
+    """A deployment that keeps old releases on disk but serves one ($MINILAB_SERVE_MODELS)."""
+    from types import SimpleNamespace
+
+    from minilab.platform.web import released_models
+    from minilab.registry import ModelInfo, Pricing, write_release
+    from minilab.settings import get_settings
+    for i, model_id in enumerate(["mini-3.2", "mini-code-1", "mini-4"]):
+        (tmp_path / model_id).mkdir()
+        write_release(tmp_path / model_id, ModelInfo(id=model_id, created=i, description="", context_length=256,
+                                                     pricing=Pricing(1, 1), family="mini-code" if "code" in model_id else "mini"))
+    monkeypatch.setenv("MINILAB_MODELS_DIR", str(tmp_path))
+
+    def offered(serve: str) -> list[str]:
+        monkeypatch.setenv("MINILAB_SERVE_MODELS", serve)
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(settings=get_settings())))
+        return [m.id for m in released_models(request)]
+
+    assert offered("") == ["mini-4", "mini-3.2", "mini-code-1"]
+    assert offered("mini-4") == ["mini-4"]
+
+
 def test_the_gate_reads_both_halves():
     """A unified eval gives mini's metrics and mini-code's, whose clashing names get a prefix."""
     cfg = {"data": {"digits": [1]}, "eval": {"n_per_digit": 10, "n_sampled": 10, "n_tool": 10, "n_chat": 10},

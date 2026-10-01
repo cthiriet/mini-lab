@@ -145,8 +145,11 @@ def redirect(url: str, flash: str | None = None) -> RedirectResponse:
 
 def released_models(request: Request) -> list[registry.ModelInfo]:
     """Newest first, the chat models (family "mini") before the others: the first one is the
-    default of the examples, the chat app and the playground."""
-    models = registry.list_models(request.app.state.settings.models_dir)
+    default of the examples, the chat app and the playground. Only those the inference server
+    loads ($MINILAB_SERVE_MODELS), when a deployment keeps older releases on disk."""
+    settings = request.app.state.settings
+    models = [m for m in registry.list_models(settings.models_dir)
+              if not settings.serve_models or m.id in settings.serve_models]
     return sorted(models, key=lambda m: m.family != "mini")  # stable: newest first within a family
 
 

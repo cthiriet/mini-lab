@@ -16,7 +16,7 @@ curl -s localhost:8001/generate -H "Authorization: Bearer $MINILAB_INTERNAL_TOKE
 | Env var | Default | |
 |---|---|---|
 | `MINILAB_MODELS_DIR` | `models` | where the releases live (see `minilab/registry.py`) |
-| `MINILAB_SERVE_MODELS` | all | comma-separated model ids to load |
+| `MINILAB_SERVE_MODELS` | all | comma-separated model ids to load (the platform's model pickers follow it too: a deployment can keep older releases on disk without offering them) |
 | `MINILAB_MAX_BATCH` | `8` | KV cache slots per model = max sequences decoded together |
 | `MINILAB_MAX_QUEUE` | `64` | waiting requests per model before `503 overloaded` |
 | `MINILAB_PREFIX_CACHE` | `1` | `0` turns [prefix caching](#prefix-caching) off |
