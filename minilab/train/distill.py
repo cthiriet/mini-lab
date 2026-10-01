@@ -22,6 +22,10 @@ The student starts from the SFT model. Each step:
 
     uv run python -m minilab.train.rl --run runs/small --stage rl_math
     uv run python -m minilab.train.distill --run runs/small
+
+mini-4 (`world = "unified"`) also codes: its mix has "code" problems, one turn of an agent
+transcript each (a tool call or the answer, with the earlier calls and results as context), whose
+teacher is the SFT model. Without them, the coding agent would drift like any skill left out.
 """
 
 from __future__ import annotations
@@ -34,10 +38,11 @@ import torch
 import torch.nn.functional as F
 
 from minilab.checkpoint import load_checkpoint
+from minilab.data import code
 from minilab.eval.tasks import grade
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
-from minilab.tokenizer.chat import render_prompt
+from minilab.tokenizer.chat import PromptTooLong, render_prompt
 from minilab.train.rl import sample_problem
 from minilab.train.trainer import Logger, load_config, lr_at, make_optimizer, parse_args, save_stage, setup
 
@@ -49,8 +54,14 @@ def distill_step(student: GPT, teachers: list[GPT], tok: Tokenizer, opt: torch.o
     device = student.wte.weight.device
     stop = {tok.special("<|assistant_end|>")}
 
-    # 1) the student's own answers
-    rendered = [(p, t, render_prompt(tok, p["messages"], p["tools"])) for p, t in problems]
+    # 1) the student's own answers (an agent's long transcript is fitted like the server fits it)
+    budget = student.config.block_size - max_new_tokens if tok.chat_template == "code" else None
+    rendered = []
+    for p, t in problems:
+        try:
+            rendered.append((p, t, render_prompt(tok, p["messages"], p["tools"], budget=budget)))
+        except PromptTooLong:
+            continue
     rendered = [r for r in rendered if len(r[2]) < student.config.block_size]
     student.eval()
     completions = student.generate([ids for _, _, ids in rendered], max_new_tokens,
@@ -83,9 +94,9 @@ def distill_step(student: GPT, teachers: list[GPT], tok: Tokenizer, opt: torch.o
     torch.nn.utils.clip_grad_norm_(student.parameters(), grad_clip)
     opt.step()
 
-    # the reward RL would have given, for comparison (not trained on)
-    rewards = [float(grade(tok, c, p)) for (p, _, _), c in zip(rendered, completions)]
-    return {"kl": loss.item(), "reward": sum(rewards) / len(rewards),
+    # the reward RL would have given, for comparison (not trained on; an agent's turn has none)
+    rewards = [float(grade(tok, c, p)) for (p, _, _), c in zip(rendered, completions) if p["kind"] != "code"]
+    return {"kl": loss.item(), "reward": sum(rewards) / max(1, len(rewards)),
             "completion_len": sum(map(len, completions)) / len(completions), "tokens": int(mask.sum())}
 
 
@@ -103,6 +114,8 @@ def main() -> None:
     teacher_of = {kind: names.index(name) for kind, name in sc["teachers"].items()}
     print("teachers: " + ", ".join(f"{k} -> {v}" for k, v in sc["teachers"].items()) + ", everything else -> sft")
 
+    # mini-4: agent transcripts to cut into one-turn problems, apart from the SFT set's
+    code_pool = code.sft_set(cfg, seed + 5, size=sc["code_pool"]) if "code" in sc["mix"] else None
     rng = random.Random(seed + 5)
     gen = torch.Generator(device=device).manual_seed(seed + 5)
     opt = make_optimizer(student, sc["lr"], sc.get("weight_decay", 0.0), cfg.get("optimizer", "adamw"))
@@ -114,7 +127,7 @@ def main() -> None:
         lr = lr_at(step, steps, sc["lr"], sc.get("warmup", 0), sc.get("min_lr_frac", 0.1))
         for group in opt.param_groups:
             group["lr"] = lr
-        problems = [sample_problem(rng, sc) for _ in range(sc["prompts_per_step"])]
+        problems = [sample_problem(rng, sc, code_pool) for _ in range(sc["prompts_per_step"])]
         stats = distill_step(student, teachers, tok, opt, [(p, teacher_of.get(p["kind"], 0)) for p in problems],
                              sc["max_new_tokens"], sc.get("temperature", 1.0), gen, sc.get("grad_clip", 1.0))
         tokens += stats.pop("tokens")

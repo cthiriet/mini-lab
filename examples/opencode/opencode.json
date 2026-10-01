@@ -9,6 +9,10 @@
         "apiKey": "{file:/run/minilab/key}"
       },
       "models": {
+        "mini-4": {
+          "name": "mini-4",
+          "limit": { "context": 200000, "output": 384 }
+        },
         "mini-code-1": {
           "name": "mini-code-1",
           "limit": { "context": 200000, "output": 384 }
@@ -16,8 +20,8 @@
       }
     }
   },
-  "model": "minilab/mini-code-1",
-  "small_model": "minilab/mini-code-1",
+  "model": "minilab/mini-4",
+  "small_model": "minilab/mini-4",
   "autoupdate": false,
   "share": "disabled"
 }

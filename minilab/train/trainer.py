@@ -250,8 +250,9 @@ def train_loop(model: GPT, batches: Iterator[tuple[torch.Tensor, torch.Tensor]],
         if (step + 1) % log_every == 0 or last:
             dt = time.time() - window_t0
             train_loss = torch.stack(window_loss).mean().item()
+            mem = {"mps_gb": round(torch.mps.driver_allocated_memory() / 2**30, 1)} if device == "mps" else {}
             log.log(step=step + 1, loss=train_loss, lr=lr, grad_norm=float(grad_norm),
-                    tok_per_s=round(window_tokens / dt), elapsed=round(time.time() - t0, 1))
+                    tok_per_s=round(window_tokens / dt), elapsed=round(time.time() - t0, 1), **mem)
             window_loss, window_tokens, window_t0 = [], 0, time.time()
         if val_fn and ((step + 1) % sc.get("eval_every", 10**9) == 0 or last):
             model.eval()

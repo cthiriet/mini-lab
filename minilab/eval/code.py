@@ -28,6 +28,7 @@ import torch
 
 from minilab.data import code
 from minilab.data.sandbox import CODE_TOOLS, OPENCODE_TOOLS, TOOL_SCHEMAS, Container, DockerSandbox
+from minilab.eval.tasks import bits_per_char
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
 from minilab.tokenizer.chat import coerce_arguments, parse_completion, render_prompt
@@ -68,10 +69,14 @@ def play(model: GPT, tok: Tokenizer, episodes: list[Episode], max_steps: int, ma
         prompts, ready = [], []
         for e in active:
             try:
-                prompts.append(render_prompt(tok, e.messages, e.tools, budget=budget))
-                ready.append(e)
+                ids = render_prompt(tok, e.messages, e.tools, budget=budget)
             except ValueError:  # the conversation no longer fits
+                ids = []
+            if not ids or len(ids) >= model.config.block_size:  # (a model without the "code" template)
                 e.done, e.answer = True, ""
+                continue
+            prompts.append(ids)
+            ready.append(e)
         for e, out in zip(ready, _generate(model, tok, prompts, max_new, batch)):
             parsed = parse_completion(tok, out)
             if not parsed.tool_calls or e.sb is None:
@@ -107,12 +112,16 @@ def code_error(message: str) -> str:
     return json.dumps({"error": {"type": "tool.execution", "message": message}, "content": []}, separators=(",", ":"))
 
 
+def held_out_documents(n_docs: int) -> list[str]:
+    docs = code.pretrain_documents(seed=10_000_019)
+    return [next(docs) for _ in range(n_docs)]
+
+
 @torch.no_grad()
 def perplexity(model: GPT, tok: Tokenizer, n_docs: int = 400) -> tuple[float, float]:
     """Loss and perplexity on held-out pretraining documents (packed like in pretraining)."""
     from minilab.data.loader import packed_batches
-    docs = code.pretrain_documents(seed=10_000_019)
-    stream = ([tok.bos_id, *tok.encode(next(docs))] for _ in range(n_docs))
+    stream = ([tok.bos_id, *tok.encode(doc)] for doc in held_out_documents(n_docs))
     device = model.wte.weight.device
     total, count = 0.0, 0
     for x, y in packed_batches(stream, 8, model.config.block_size):
@@ -134,12 +143,12 @@ def _task_episodes(container: Container, kinds: list[str], n: int) -> list[Episo
     return episodes
 
 
-def _chat_episodes(n: int) -> tuple[list[Episode], list[tuple[str, str]]]:
+def _chat_episodes(n: int, name: str = "mini-code") -> tuple[list[Episode], list[tuple[str, str]]]:
     """Small talk (no tool may be called) and opencode's title requests."""
     rng = random.Random(f"{EVAL_SEED}-chat")
     episodes, kinds = [], []
     for _ in range(n):
-        ck, prompt, _ = code.chat_turn(rng)
+        ck, prompt, _ = code.chat_turn(rng, name)
         episodes.append(Episode(None, None, [code.system_message("/home/user/project", rng),
                                              {"role": "user", "content": prompt}], OPENCODE_TOOLS))
         kinds.append(("chat", ck))
@@ -151,13 +160,13 @@ def _chat_episodes(n: int) -> tuple[list[Episode], list[tuple[str, str]]]:
     return episodes, kinds
 
 
-def _chat_ok(kind: tuple[str, str], e: Episode) -> bool:
+def _chat_ok(kind: tuple[str, str], e: Episode, name: str = "mini-code") -> bool:
     answer = (e.answer or "").strip()
     if e.calls or not answer:
         return False
     if kind[0] == "title":
         return "\n" not in answer and len(answer) <= 50
-    return {"identity": "mini-code" in answer, "out_of_scope": "can't" in answer}.get(kind[1], True)
+    return {"identity": f"I'm {name}," in answer, "out_of_scope": "can't" in answer}.get(kind[1], True)
 
 
 def _mean(values) -> float | None:
@@ -166,11 +175,15 @@ def _mean(values) -> float | None:
 
 
 def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
-    ec = cfg["eval"]
+    """mini-code's eval; for mini-4 (`world = "unified"`), the coding half of it, with the
+    [code_eval] section."""
+    ec = cfg["code_eval"] if cfg["data"].get("world") == "unified" else cfg["eval"]
+    name = code.agent_name(cfg)
     t0 = time.time()
     loss, ppl = perplexity(model, tok, ec.get("ppl_docs", 400))
+    bpc = bits_per_char(tok, held_out_documents(ec.get("ppl_docs", 400)), loss)
     result = {"stage": stage, "world": "code", "mode": "chat" if stage != "pretrain" else "completion",
-              "val_loss": round(loss, 4), "val_ppl": round(ppl, 3)}
+              "val_loss": round(loss, 4), "val_ppl": round(ppl, 3), "val_bpc": round(bpc, 4)}
     if stage == "pretrain":  # a base model has no chat format: only its Python
         device = model.wte.weight.device.type
         result["samples"] = [{"prompt": "def add(a, b):", "response": sample(model, tok, "def add(a, b):", device)}]
@@ -189,7 +202,7 @@ def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
             except Exception:  # a check on a project the model mangled
                 oks.append(False)
             e.sb.close()
-    chats, chat_kinds = _chat_episodes(ec.get("n_chat", 30))
+    chats, chat_kinds = _chat_episodes(ec.get("n_chat", 30), name)
     play(model, tok, chats, 1, 128, batch)
 
     by_kind = {k: _mean(ok for e, ok in zip(episodes, oks) if e.task.kind == k) for k in kinds}
@@ -199,8 +212,8 @@ def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
     calls = sum(e.calls for e in episodes)
     result["valid_calls"] = sum(e.valid for e in episodes) / calls if calls else None
     result["steps"] = round(calls / len(episodes), 2)
-    result["chat"] = _mean(_chat_ok(k, e) for k, e in zip(chat_kinds, chats) if k[0] == "chat")
-    result["title"] = _mean(_chat_ok(k, e) for k, e in zip(chat_kinds, chats) if k[0] == "title")
+    result["chat"] = _mean(_chat_ok(k, e, name) for k, e in zip(chat_kinds, chats) if k[0] == "chat")
+    result["title"] = _mean(_chat_ok(k, e, name) for k, e in zip(chat_kinds, chats) if k[0] == "title")
     result["failures"] = {k: [{"prompt": e.task.prompt, "transcript": e.transcript}
                               for e, ok in zip(episodes, oks) if e.task.kind == k and not ok][:2] for k in kinds}
     result["samples"] = [{"prompt": e.task.prompt, "response": "\n".join(e.transcript)}

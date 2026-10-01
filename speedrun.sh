@@ -3,6 +3,7 @@
 #
 #   bash speedrun.sh small     # ~34 min on an Apple M5 Pro (MPS), ~75 min CPU-only -> models/mini-3.2
 #   bash speedrun.sh code      # mini-code, the coding agent for opencode            -> models/mini-code-1
+#   bash speedrun.sh unified   # mini-4: both in one model (stories, addition, code) -> models/mini-4
 #   bash speedrun.sh tiny      # smoke test, ~20 s                                  -> runs/tiny/models/mini-tiny
 #
 # Environment: RUN (run directory, default runs/<preset>), DEVICE (auto|cpu|mps|cuda; default
@@ -19,6 +20,8 @@ DEVICE="${DEVICE:-auto}"
 case "$PRESET" in
   small) ID="mini-3.2" ;;  # the next release: see "Releases" in docs/training.md
   code) ID="mini-code-1" ;;
+  unified) ID="mini-4" ;;
+  unified-tiny) ID="mini-4-tiny"; export MINILAB_MODELS_DIR="${MINILAB_MODELS_DIR:-$RUN/models}" ;;
   tiny) ID="mini-tiny"; export MINILAB_MODELS_DIR="${MINILAB_MODELS_DIR:-$RUN/models}" ;;
   *) ID="mini-${PRESET}" ;;
 esac
@@ -35,6 +38,10 @@ if grep -q '^world = "code"' "$CONFIG"; then
 else
   step "data: TinyStories subset"
   uv run python -m minilab.data.tinystories --config "$CONFIG"
+  if grep -q '^world = "unified"' "$CONFIG"; then  # mini-4 also codes: mini-code's transcripts
+    step "data: code world (SFT transcripts)"
+    uv run python -m minilab.data.code --config "$CONFIG"
+  fi
   # rl_math is the math specialist (train/rl.py on its own config section); distill merges it
   # with the SFT model into the released model.
   STAGES="pretrain midtrain sft rl_math distill"

@@ -5,6 +5,9 @@ a laptop to be the model behind [opencode](https://opencode.ai), the terminal co
 It reads requests like "Run the tests and fix any bug", calls opencode's tools (`read`,
 `write`, `edit`, `glob`, `grep`, `shell`) until the job is done, and says what it did.
 
+Since then, [mini-4](mini-4.md) does all of this too, in the same model as mini's stories and
+additions; `examples/opencode` uses it by default.
+
 It is a demonstration, not a coder: its whole world is small Python projects of a few files
 and little functions (`add`, `greet`, `reverse`...). The point is that tool use, the format a
 real agent harness speaks and a loop of calls and results can be learned by a model this
@@ -193,7 +196,8 @@ contains what the script printed...
 ## Trying it in opencode
 
 `examples/opencode/` runs everything in containers: the inference server and API (serving
-only mini-code-1), and opencode 2.0.20 with a demo project that has a bug. Their network is
+only mini-4 and mini-code-1), and opencode 2.0.20 with a demo project that has a bug. opencode
+uses mini-4 by default; `demo.sh run -m minilab/mini-code-1 ...` picks the specialist. Their network is
 internal: opencode, and whatever the model runs through its `shell` tool, can reach the
 mini-lab API and nothing else. `demo.sh` starts it with a fresh internal token; the API
 container creates a local account with credits and hands its key to opencode.

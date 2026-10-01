@@ -108,7 +108,7 @@ value (`MINILAB_INTERNAL_TOKEN`) before exposing the services.
 | `model` | required: a model id from `GET /v1/models` |
 | `messages` | required: `system`/`developer`, `user`, `assistant` (optionally with `tool_calls`) and `tool` messages. `content` is a string or a list of `{"type": "text"}` parts |
 | `max_completion_tokens` / `max_tokens` | cap on generated tokens. Default: until the model's context window is full |
-| `temperature` | 0 to 2. 0 means greedy decoding. Default: the model's `default_temperature`, 1 for mini (OpenAI's default), 0 for mini-code |
+| `temperature` | 0 to 2. 0 means greedy decoding. Default: the model's `default_temperature`: 1 (OpenAI's default) for mini up to mini-3.2, 0 for mini-code and mini-4, which opencode drives without ever sending one |
 | `top_p` | 0 to 1, default 1 |
 | `top_k` | not in OpenAI's API: keep only the k most likely tokens (with the SDK: `extra_body={"top_k": 20}`) |
 | `seed` | same seed and parameters, same output (streamed or not) |
@@ -241,10 +241,11 @@ objects with mini-lab extras:
 `GET /v1/models/{id}` returns one of them, or `404 model_not_found`.
 
 Two families: `mini`, the chat models (stories, addition, a calculator tool), and
-`mini-code`, the coding agent for opencode ([opencode.md](opencode.md)). A request too long
-for a mini model is rejected with `400 context_length_exceeded`; a mini-code model fits it
-itself (`"truncation": "auto"` in its release.json), dropping the oldest turns, because an
-agent like opencode sends far more than 1,024 tokens of instructions and history.
+`mini-code`, the coding agent for opencode ([opencode.md](opencode.md)); `mini-4` is both
+([mini-4.md](mini-4.md)). A request too long for mini-3.2 or earlier is rejected with
+`400 context_length_exceeded`; mini-code and mini-4 fit it themselves (`"truncation": "auto"`
+in their release.json), dropping the oldest turns, because an agent like opencode sends far
+more than 1,024 tokens of instructions and history.
 
 ## Errors
 

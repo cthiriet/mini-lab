@@ -173,12 +173,12 @@ def test_gate_blocks_regressions_unless_waived(model_and_tok, tmp_path: Path):
 
     same = gate.check(result, baseline, cfg, "cpu", {})
     assert same["passed"] and not same["regressions"] and same["baseline"] == "mini-a"
-    worse = {**result, "val_ppl": result["val_ppl"] * 1.5}
+    worse = {**result, "val_bpc": result["val_bpc"] * 1.5}   # perplexity, in bits per character
     blocked = gate.check(worse, baseline, cfg, "cpu", {})
-    assert not blocked["passed"] and [c["metric"] for c in blocked["regressions"]] == ["ppl"]
+    assert not blocked["passed"] and [c["metric"] for c in blocked["regressions"]] == ["bpc"]
     assert "BLOCKED" in gate.report(blocked)
-    waived = gate.check(worse, baseline, cfg, "cpu", {"ppl": "a test"})
-    assert waived["passed"] and waived["waived"] == {"ppl": "a test"}
+    waived = gate.check(worse, baseline, cfg, "cpu", {"bpc": "a test"})
+    assert waived["passed"] and waived["waived"] == {"bpc": "a test"}
     out = release(run, "rl", "mini-b", models, waived)
-    assert json.loads((out / "gate.json").read_text())["waived"] == {"ppl": "a test"}
+    assert json.loads((out / "gate.json").read_text())["waived"] == {"bpc": "a test"}
     assert "## Release gate" in (out / "MODEL_CARD.md").read_text()

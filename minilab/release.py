@@ -78,15 +78,17 @@ def main() -> None:
     args = p.parse_args()
     run, models_dir = Path(args.run), Path(args.models_dir)
     gate_result = None
-    family = tomllib.loads((run / "config.toml").read_text()).get("release", {}).get("family", "mini")
-    baseline = Path(args.baseline) if args.baseline else gate.newest_release(models_dir, exclude=args.id, family=family)
-    if args.no_gate or baseline is None:
+    rc = tomllib.loads((run / "config.toml").read_text()).get("release", {})
+    families = rc.get("gate_families") or [rc.get("family", "mini")]  # mini-4: mini and mini-code
+    baselines = [Path(args.baseline)] if args.baseline else \
+        [b for f in families if (b := gate.newest_release(models_dir, exclude=args.id, family=f))]
+    if args.no_gate or not baselines:
         print("release gate: " + ("skipped" if args.no_gate else "no earlier release to compare with"))
     else:
         cfg = tomllib.loads((run / "config.toml").read_text())
         new = json.loads((run / args.stage / "eval.json").read_text())
-        gate_result = gate.check(new, baseline, cfg, resolve_device(args.device, generation=True),
-                                 gate.parse_waivers(args.allow), args.stage)
+        gate_result = gate.check_all(new, baselines, cfg, resolve_device(args.device, generation=True),
+                                     gate.parse_waivers(args.allow), args.stage)
         print(gate.report(gate_result))
         if not gate_result["passed"]:
             sys.exit("not released: fix the regressions, or ship anyway with --allow METRIC=REASON")

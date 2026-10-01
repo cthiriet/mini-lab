@@ -38,7 +38,7 @@ from minilab.data.conversations import (GREETINGS, IDENTITY, INSTRUCTIONS, NAME,
 from minilab.data.loader import story_batches
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
-from minilab.tokenizer.chat import parse_completion, recent_turns, render_prompt
+from minilab.tokenizer.chat import ARG, parse_completion, recent_turns, render_prompt
 from minilab.train.trainer import evaluate_loss
 
 EVAL_SEED = 1234
@@ -195,12 +195,24 @@ def turn_ok(tok: Tokenizer, completion: list[int], tools: bool) -> bool:
         return False
     own = {tok.special(t) for t in ("<|think_start|>", "<|think_end|>", "<|tool_call_start|>", "<|tool_call_end|>")}
     body = completion[:completion.index(tok.special("<|assistant_end|>"))]
-    return all(t in own for t in body if tok.is_special(t))
+    return all(t in own for t in _specials(tok, body))
 
 
 def one_short_sentence(text: str, max_words: int = 25) -> bool:
     text = text.strip()
     return re.fullmatch(r"[^.!?\n]+[.!?]", text) is not None and len(text.split()) <= max_words
+
+
+def _specials(tok: Tokenizer, ids: list[int]) -> list[int]:
+    """The special tokens of an answer, but for the <|arg|> separators inside a tool call (the
+    "code" template's calls: calculator<|arg|>expression=347 + 58)."""
+    arg, start, end = tok.special_tokens.get(ARG), tok.special("<|tool_call_start|>"), tok.special("<|tool_call_end|>")
+    out, in_call = [], False
+    for t in ids:
+        if tok.is_special(t) and not (in_call and t == arg):
+            out.append(t)
+            in_call = t == start or (in_call and t != end)
+    return out
 
 
 def grade(tok: Tokenizer, completion: list[int], problem: dict) -> bool:
@@ -223,7 +235,7 @@ def grade(tok: Tokenizer, completion: list[int], problem: dict) -> bool:
     if not c.finished:
         return False
     S = tok.special
-    specials = [t for t in completion[:completion.index(S("<|assistant_end|>"))] if tok.is_special(t)]
+    specials = _specials(tok, completion[:completion.index(S("<|assistant_end|>"))])
     calls = problem["kind"] == "tool" or (problem["kind"] in ("new_question", "long_followup") and problem["tools"])
     if calls and problem["messages"][-1]["role"] != "tool":  # the call itself
         expression = arithmetic.call_expression(c.tool_calls[0]) if len(c.tool_calls) == 1 else None
@@ -417,3 +429,11 @@ def perplexity(model: GPT, tok: Tokenizer, stories: list[str], n_batches: int = 
     loss = evaluate_loss(model, story_batches(tok, stories, 16, model.config.block_size, n_batches),
                          model.wte.weight.device.type)
     return loss, math.exp(loss)
+
+
+def bits_per_char(tok: Tokenizer, texts: list[str], loss: float) -> float:
+    """A loss per token in bits per character of these texts: unlike perplexity, it compares
+    models whose tokenizers differ (mini-4's against mini-3.2's or mini-code-1's)."""
+    chars = sum(map(len, texts))
+    tokens = sum(len(tok.encode(t)) + 1 for t in texts)  # + <|bos|>
+    return loss / math.log(2) * tokens / chars

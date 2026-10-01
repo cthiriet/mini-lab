@@ -58,6 +58,16 @@ bash examples/opencode/demo.sh    # opencode 2 on a demo project, everything in 
 
 How ~10,000 tokens of opencode instructions fit a 1,024-token model, how the transcripts are made (every tool call runs for real), and how the eval keeps the model's commands in a locked-down container: [docs/opencode.md](docs/opencode.md).
 
+## One model for everything: `mini-4`
+
+mini-3.2 and mini-code-1 in a single 5.8M-parameter GPT: stories and addition in the chat app, a coding agent in opencode. It knows which job it is doing from what the client sends, opencode's system prompt and tools or the chat app's calculator, and it matches or beats both on their own evals (whole chats 92% against mini-3.2's 85%, coding tasks 97.8% against mini-code-1's 98.3%), except for plain stories, 7% worse in bits per character: the price of its long SFT on agent transcripts, shipped with a waiver of the release gate.
+
+```bash
+bash speedrun.sh unified          # ~1h35 on MPS -> models/mini-4 (opencode's demo uses it by default)
+```
+
+The recipe, why the SFT replays pretraining documents, and what the scaling law says about its size: [docs/mini-4.md](docs/mini-4.md).
+
 ## The platform
 
 Sign up, get an API key, call the model with the official OpenAI SDK, and watch every token get billed. Or just chat with it.
@@ -140,7 +150,7 @@ More in [docs/architecture.md](docs/architecture.md).
 minilab/
   tokenizer/    BPE from scratch (digits always split) + chat template
   model/        the transformer, KV cache, sampling
-  data/         TinyStories download, synthetic arithmetic and conversations; mini-code's toy code world and tool sandbox
+  data/         TinyStories download, synthetic arithmetic and conversations; the toy code world and tool sandbox
   train/        tokenizer, pretrain, midtrain, sft, rl (GRPO)
   eval/         evals and model card
   report.py     HTML training report for one or more runs
@@ -150,8 +160,8 @@ minilab/
   platform/     dashboard, billing, playground, docs
   chat/         chat app
   db/           SQLite schema and data access
-configs/        tiny (CI smoke test), small (the speedrun) and code (mini-code)
-examples/       opencode/: mini-code in opencode, in containers
+configs/        tiny (CI smoke test), small (mini-3.2), code (mini-code-1), unified (mini-4) and unified-tiny
+examples/       opencode/: mini-4 and mini-code-1 in opencode, in containers
 tests/          unit tests, service tests, and an end-to-end test of the whole stack
 ```
 

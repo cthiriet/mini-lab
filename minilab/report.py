@@ -108,8 +108,11 @@ def progression_table(run: dict) -> str:
     stages = [s for s in STAGES if s in run["stages"]]
     evals = {s: run["stages"][s]["eval"] for s in stages}
     rows = []
-    code = any(evals[s].get("world") == "code" for s in stages)
-    for path, label, kind in CODE_EVAL_ROWS if code else EVAL_ROWS:
+    worlds = {evals[s].get("world") for s in stages}
+    rows_spec = CODE_EVAL_ROWS if "code" in worlds else EVAL_ROWS
+    if "unified" in worlds:  # mini-4: mini's rows, then mini-code's (under "code" in eval.json)
+        rows_spec = EVAL_ROWS + [(f"code.{path}", label, kind) for path, label, kind in CODE_EVAL_ROWS]
+    for path, label, kind in rows_spec:
         values = {s: _get(evals[s], path) for s in stages}
         if all(v is None for v in values.values()):
             continue

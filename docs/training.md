@@ -177,10 +177,11 @@ holds the id of the next release.
 | `mini-3` | twice the pretraining (7000 steps, 200 MB of stories), from a small [scaling law](#what-we-tuned-and-why) | story perplexity 6.46 → 5.75, instructions 98% → 100%, 5 digits at T=1 97% → 100% |
 | `mini-3.1` | SFT and distillation also show something else after an answer | a story, a greeting, "Who are you?" or a refusal after an addition: 28% → 99% (mini-2.1: 44%) |
 | `mini-3.2` | SFT also shows requests after small talk; the specialist practices word problems and 5-digit totals | a follow-up on a 5-digit total 63% → 91%, 5-digit additions with the calculator 96% → 98%; whole chats unchanged (85%) |
+| `mini-4` | one model with mini-code-1's coding agent: Python in pretraining, agent transcripts and pretraining documents in SFT, a 1,024-token context (`bash speedrun.sh unified`) | whole chats 85% → 92%, coding tasks 97.8% (mini-code-1: 98.3%); plain stories 0.635 → 0.678 bits per character, waived. See [mini-4.md](mini-4.md) |
 
 A second family, `mini-code` (`bash speedrun.sh code`), is a coding agent for opencode:
 `mini-code-1` does 98% of its coding tasks end to end. See [opencode.md](opencode.md).
-The platform's examples and chat app default to the newest mini model.
+mini-4 does both. The platform's examples and chat app default to the newest mini model.
 
 ## Reading a run
 

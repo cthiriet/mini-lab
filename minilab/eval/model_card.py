@@ -50,10 +50,13 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
     block = ["SwiGLU" if m.get("mlp") == "swiglu" else "GELU"] + (["QK-norm"] if m.get("qk_norm") else []) + \
         (["gated attention"] if m.get("attn_gate") else [])
     code = d.get("world") == "code"
+    unified = d.get("world") == "unified"
     what = (CODE_WHAT if code else
             "It tells short children's stories and adds numbers, either step by step "
             "(the scratchpad is returned as reasoning) or by calling a `calculator` tool when one is provided. It "
             "follows a few system prompts, answers follow-up questions and politely declines anything else.")
+    if unified:
+        what += " In [opencode](https://opencode.ai), the same model is a coding agent: " + CODE_WHAT.split(": ", 1)[1]
 
     lines = [
         f"# {name}",
@@ -99,7 +102,9 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
         "",
         f"- **Pretraining**: the first {d['train_mb']:g} MB of TinyStoriesV2-GPT4 (roneneldan/TinyStories), "
         f"with synthetic arithmetic worksheets mixed in ({cfg['pretrain']['arith_frac']:.0%} of documents): "
-        f"equations, sentences, word problems and worked column additions, operands of {_digits(d['digits'])} digits.",
+        f"equations, sentences, word problems and worked column additions, operands of {_digits(d['digits'])} digits"
+        + (" - and Python documents of the toy code world of `minilab/data/code.py` (the files of small projects with "
+           "what their scripts print, functions with what they do, bugs with their fixes)." if unified else "."),
         "- **Midtraining** (format and skills, at volume): single-turn conversations, no system prompt: addition "
         "questions in many phrasings answered with a scratchpad (or a calculator call when tools are enabled), "
         f"operands of {_digits(cfg.get('midtrain', {}).get('digits', d['digits']))} digits; story requests answered "
@@ -107,13 +112,20 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
         f"- **SFT** (behavior): a fixed set of {cfg.get('sft', {}).get('size', 0):,} conversations: system prompts to "
         "obey (number only, no calculator, one sentence, start with \"Sure!\"), follow-up questions about an earlier "
         "answer, new requests after an answer (another addition, or something else), identity, polite refusals of "
-        "out-of-scope requests, and plain conversations.",
+        "out-of-scope requests, and plain conversations."
+        + (f" Mixed with {cfg['sft'].get('code_size', 0):,} transcripts of opencode sessions "
+           f"({cfg['sft'].get('code_frac', 0):.0%} of the rows): a request about a random project, solved by an "
+           "oracle with opencode's tools played for real in a sandbox (explore, create, modify, repair); and "
+           f"with pretraining documents ({cfg['sft'].get('text_frac', 0):.0%} of the rows, loss on every token), "
+           "without which the long SFT made the model forget plain text."
+           if unified else ""),
         *([f"- **RL (math specialist)**: addition questions with {_digits(cfg['rl_math']['digits'])}-digit operands "
            "(including lengths the chat data never showed) and calculator problems; reward 1 when the answer is "
            "exactly right and in the requested form.",
            "- **Distillation**: the SFT model answers addition, calculator, instruction and refusal problems, and "
            "learns the next-token distributions of the math specialist (additions, calculator) and of the SFT "
-           "model (everything else) on its own answers."] if "distill" in metas else []),
+           "model (everything else" + (", one turn of an agent transcript included" if unified else "")
+           + ") on its own answers."] if "distill" in metas else []),
         *([f"- **RL**: addition questions with {_digits(cfg['rl']['digits'])}-digit operands (including lengths the "
            "chat data never showed), plus calculator, instruction and refusal problems; reward 1 when the answer is "
            "exactly right and in the requested form."] if "rl" in metas else []),
@@ -128,7 +140,7 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
         "- `ppl`: perplexity on held-out TinyStories stories.",
         "- `Nd`: greedy answers to N-digit additions that are exactly `The answer is c.` (chat format; the base model "
         "gets the raw-text prompt `a + b =` and must continue with the sum).",
-        "- `Nd@T=1`: the hardest in-distribution digit count, sampling at temperature 1 (the API default).",
+        "- `Nd@T=1`: the hardest in-distribution digit count, sampling at temperature 1 (OpenAI's default).",
         "- `tool call`: with `tools=[calculator]`, the first turn is a calculator call with a correct expression; "
         "`tool ans`: after the tool result, the final answer is correct.",
         "- `story`: \"Tell me a story about a dog.\" (15 topics x 3 phrasings) -> the story mentions the topic.",
@@ -136,8 +148,16 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
         "sentence, \"Sure!\"), follow-up questions answered, held-out out-of-scope questions refused, identity, "
         "and in-scope requests *not* refused.",
         "- `format`: fraction of assistant turns properly ended (and no tool call without tools).",
+        *(["- `agent`: coding tasks done end to end in opencode's format (13 kinds, "
+           f"{cfg['code_eval']['n_per_kind']} each), the model's tool calls run in a locked-down Docker container; "
+           "`valid calls`: tool calls opencode accepts."] if unified else []),
         "",
     ]
+    coding = next((r for r in results if r["stage"] == stage), {}).get("code", {}).get("tasks")
+    if unified and coding:
+        lines += ["| coding task | success |", "|---|---:|"]
+        lines += [f"| {k} | {100 * v:.0f}% |" for k, v in coding.items() if v is not None]
+        lines.append("")
     samples = next((r.get("samples", []) for r in results if r["stage"] == stage), [])
     if samples:
         lines += ["## Samples (greedy)", ""]
@@ -150,12 +170,19 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
         "OpenAI-style messages rendered with special tokens (see `minilab/tokenizer/chat.py`). Addition is "
         "answered with a scratchpad inside `<|think_start|>...<|think_end|>` (column by column, right to left), "
         "then `The answer is c.` With `tools: calculator`, the model emits "
-        '`{"name": "calculator", "arguments": {"expression": "a + b"}}` and answers after the tool result.',
+        + ("`calculator<|arg|>expression=a + b` between `<|tool_call_start|>` and `<|tool_call_end|>` (the \"code\" "
+           "template, whose raw arguments let an agent write code without JSON escaping; opencode's system prompt is "
+           "cut to its first sentence and long sessions are fitted into the context by the server)"
+           if unified else '`{"name": "calculator", "arguments": {"expression": "a + b"}}`')
+        + " and answers after the tool result.",
         "",
         "## Limitations",
         "",
-        "- A toy: it only knows simple children's stories and addition. Anything else gets a polite refusal "
-        "at best and nonsense at worst. It has no world knowledge.",
+        "- A toy: it only knows simple children's stories and addition"
+        + (", and in opencode the tiny Python projects of its training world" if unified else "")
+        + ". Anything else gets a polite refusal at best and nonsense at worst. It has no world knowledge.",
+        *(["- In opencode it runs whatever command it decides to: only use it in a sandbox (`examples/opencode`)."]
+          if unified else []),
         "- Stories are often repetitive or incoherent after a few sentences; the context is only "
         f"{m['block_size']} tokens.",
         "- Addition is reliable only for the operand lengths it was trained on; see the held-out columns.",

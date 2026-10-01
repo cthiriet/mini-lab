@@ -40,7 +40,8 @@ def main() -> None:
     def documents(seed: int, text_frac: float) -> Iterator[list[int]]:
         rng = random.Random(seed)
         convs = midtrain_stream(seed, sc, d["digits"], pool)
-        text = pretrain_documents(tok, stories, d["digits"], cfg["pretrain"]["arith_frac"], seed)
+        text = pretrain_documents(tok, stories, d["digits"], cfg["pretrain"]["arith_frac"], seed,
+                                  cfg["pretrain"].get("code_frac", 0.0))  # mini-4: Python too
         while True:
             if rng.random() < text_frac:
                 yield next(text)

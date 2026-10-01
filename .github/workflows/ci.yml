@@ -22,6 +22,10 @@ jobs:
         run: bash speedrun.sh tiny
         env:
           DEVICE: cpu
+      - name: Tiny mini-4 speedrun (stories, addition and code in one model; the coding eval in a Docker sandbox)
+        run: bash speedrun.sh unified-tiny
+        env:
+          DEVICE: cpu
       - name: Upload the training report
         if: always()
         uses: actions/upload-artifact@v4
@@ -30,6 +34,8 @@ jobs:
           path: |
             runs/tiny/report.html
             runs/tiny/*/eval.json
+            runs/unified-tiny/report.html
+            runs/unified-tiny/*/eval.json
           if-no-files-found: ignore
 
   docker:

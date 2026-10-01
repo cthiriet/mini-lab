@@ -7,7 +7,8 @@ learns English, what a story looks like, and the mechanics of addition.
 
 For mini-code (`[data] world = "code"`), the documents are Python instead: the files of small
 projects with what their scripts print, functions with what they do in English, and bugs with
-their fixes (data/code.py). No chat and no tools yet.
+their fixes (data/code.py). No chat and no tools yet. For mini-4 (`world = "unified"`), both:
+stories and worksheets, with Python documents mixed in (`code_frac`).
 """
 
 from __future__ import annotations
@@ -52,12 +53,19 @@ def main() -> None:
         prompt = "def add(a, b):"
     else:
         stories = load_stories("train", d["train_mb"])
-        batches = packed_batches(pretrain_documents(tok, stories, d["digits"], sc["arith_frac"], seed), B, T)
+        code_frac = sc.get("code_frac", 0.0)
+        batches = packed_batches(pretrain_documents(tok, stories, d["digits"], sc["arith_frac"], seed, code_frac), B, T)
         val_batches = story_batches(tok, load_stories("val", d["val_mb"]), B, T, sc.get("val_batches", 10))
         prompt = "Once upon a time"
+    code_val = []
+    if d.get("world") == "unified":  # held-out Python too
+        held_out = ([tok.bos_id, *tok.encode(doc)] for doc in code.pretrain_documents(10_000_019))
+        code_val = list(itertools.islice(packed_batches(held_out, B, T), sc.get("val_batches", 10)))
 
     def val_fn() -> dict:
-        return {"val_loss": evaluate_loss(model, val_batches, device), "sample": sample_story(model, tok, device, prompt)}
+        extra = {"code_val_loss": evaluate_loss(model, code_val, device)} if code_val else {}
+        return {"val_loss": evaluate_loss(model, val_batches, device), **extra,
+                "sample": sample_story(model, tok, device, prompt)}
 
     log = Logger(run / "pretrain" / "log.jsonl")
     stats = train_loop(model, batches, sc, log, device, val_fn, cfg.get("optimizer", "adamw"))

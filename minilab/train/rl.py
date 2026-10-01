@@ -34,6 +34,7 @@ import torch
 import torch.nn.functional as F
 
 from minilab.checkpoint import load_checkpoint
+from minilab.data import code
 from minilab.eval.tasks import grade, make_problem
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
@@ -47,13 +48,16 @@ def reward(tok: Tokenizer, completion: list[int], problem: dict) -> float:
     return float(grade(tok, completion, problem))
 
 
-def sample_problem(rng: random.Random, sc: dict) -> dict:
+def sample_problem(rng: random.Random, sc: dict, code_pool: list[dict] | None = None) -> dict:
     """A problem of a kind drawn from the config's mix, from the eval's own generators
     (minilab.eval.tasks.make_problem). "add" covers every length seen in pretraining:
     the lengths SFT demonstrated carry no signal, the longer ones are where RL learns.
     The other kinds (calculator, system prompts, follow-ups, refusals) keep those
-    skills from drifting: as soon as one degrades, it fails and gets a signal."""
+    skills from drifting: as soon as one degrades, it fails and gets a signal.
+    "code" (mini-4's distillation only): one turn of an agent transcript from `code_pool`."""
     kind = rng.choices(list(sc["mix"]), weights=list(sc["mix"].values()))[0]
+    if kind == "code":
+        return code.turn_problem(rng, rng.choice(code_pool))
     return make_problem(kind, rng, sc["digits"] if kind in ("add", "tool", "word", "new_question") else sc["chat_digits"])
 
 
