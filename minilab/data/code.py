@@ -15,7 +15,7 @@ The four families of tasks:
     explore   list_files, find_def, show_file, explain, run, run_tests
     create    create_func, create_script
     modify    rename, change_const, add_func
-    repair    fix_test, fix_crash
+    repair    fix_test, fix_crash (+ fix_distractor, the eval's fix_test with a lure in every module)
     + chat (small talk, identity, out of scope) and title (opencode's title requests)
 
 Transcripts are played for real in a Sandbox (data/sandbox.py): every tool result is what
@@ -727,6 +727,11 @@ def task_rename(rng: random.Random, p: Project) -> Task | None:
                          f"Change the name of {f.name} to {g}.", f"Rename {f.name} to {g} everywhere.",
                          f"Call the function {g} instead of {f.name}.", f"Rename {f.name} in {m.path} to {g}."])
     users = [path for path, text in p.files.items() if re.search(rf"\b{f.name}\b", text)]
+    # replaceAll changes every occurrence: skip names that a longer word holds (`from greetings import
+    # greet`) or that a string uses (`lower_case("HELLO") == "hello"` for hello)
+    if any(re.search(rf"\w{f.name}|{f.name}\w", text) for text in p.files.values()) or \
+            any(re.search(rf"[\"'][^\"'\n]*\b{f.name}\b", text) for path, text in p.files.items() if path.endswith(".py")):
+        return None
 
     def solve(ctx: Ctx) -> Oracle:
         out = ctx.rel((yield "grep", {"pattern": f.name}))
@@ -782,10 +787,20 @@ def task_change_const(rng: random.Random, p: Project) -> Task | None:
         return answer
 
     def check(sb: Sandbox, answer: str) -> bool:
-        text = sb.read_file(script) or ""
-        return new_line in text and old_line not in text
+        lines = (sb.read_file(script) or "").splitlines()   # whole lines: "N = 1" is a piece of "N = 12"
+        return new_line in lines and old_line not in lines
 
     return Task("change_const", p.files, prompt, solve, check, f"Set {c.name} to {shown}")
+
+
+def _unique_tail(text: str) -> str:
+    """The fewest last lines of `text` found only once in it: an oldString to append after."""
+    lines = text.rstrip("\n").split("\n")
+    for k in range(1, len(lines) + 1):
+        tail = "\n".join(lines[-k:])
+        if text.count(tail) == 1:
+            return tail
+    return text.rstrip("\n")
 
 
 def task_add_func(rng: random.Random, p: Project) -> Task | None:
@@ -799,7 +814,7 @@ def task_add_func(rng: random.Random, p: Project) -> Task | None:
     g = new[0]
     ph = rng.choice(g.kind.phrases)
     # A third of the time, a function of the file isn't written the usual way (here, it has a bug):
-    # the new file must keep it as it is, so the model learns to copy, not to recall.
+    # the file must keep it as it is.
     files = dict(p.files)
     odd = rng.choice(m.funcs) if rng.random() < 0.35 else None
     bug = body_bug(rng, odd) if odd else None
@@ -811,9 +826,11 @@ def task_add_func(rng: random.Random, p: Project) -> Task | None:
                          f"Write a new function {g.name} in {m.path} that {ph}."])
 
     def solve(ctx: Ctx) -> Oracle:
+        # The new function goes after the file's last lines with an edit: rewriting the whole file
+        # with `write` made the model copy it back, and a tiny model garbles long copies.
         out = yield "read", {"path": m.path}
-        old = "\n".join(re.sub(r"^\d+: ", "", l) for l in out.splitlines()[1:]) + "\n"
-        yield "write", {"path": m.path, "content": old + "\n\n" + g.code()}
+        tail = _unique_tail("\n".join(re.sub(r"^\d+: ", "", l) for l in out.splitlines()[1:]))
+        yield "edit", {"path": m.path, "oldString": tail, "newString": tail + "\n\n\n" + g.code().rstrip("\n")}
         return f"Added {tick(g.sig)} to {tick(m.path)}."
 
     def check(sb: Sandbox, answer: str) -> bool:
@@ -826,8 +843,10 @@ def task_add_func(rng: random.Random, p: Project) -> Task | None:
 
 # ---- repair -------------------------------------------------------------------
 
-def task_fix_test(rng: random.Random, p: Project) -> Task | None:
-    """A function has a bug that its test catches: run the test, find the function, fix it."""
+def task_fix_test(rng: random.Random, p: Project, distractor_frac: float = 0.8) -> Task | None:
+    """A function has a bug that its test catches: run the test, find the function, fix it.
+    Most broken modules also have a distractor, a function whose correct code looks like one of
+    the bug's (see _distractor)."""
     if not p.tests:
         return None
     test = rng.choice(list(p.tests))
@@ -838,7 +857,9 @@ def task_fix_test(rng: random.Random, p: Project) -> Task | None:
         return None
     bad_body, good_part = bug
     module = Module(m.path, list(m.funcs))
-    distractor = _distractor(rng, f, bad_body, p) if rng.random() < 0.5 else None
+    distractor = _distractor(rng, f, bad_body, p) if rng.random() < distractor_frac else None
+    if distractor_frac == 1 and distractor is None:
+        return None
     if distractor:
         module.funcs.insert(rng.randint(0, len(module.funcs)), distractor)
     files = dict(p.files)
@@ -892,14 +913,20 @@ def task_fix_test(rng: random.Random, p: Project) -> Task | None:
     return Task("fix_test", files, prompt, solve, check, title)
 
 
-def _distractor(rng: random.Random, f: Func, bad_body: str, p: Project) -> Func | None:
-    """A function whose correct code is one of f's *other* bugs (multiply's `return a * b` next to
-    a broken add): the fix must go to the line of the failing function, not to what looks like a bug."""
+def bad_lines(f: Func, bad_body: str) -> set[str]:
+    """The lines of f's *other* bugs: what a bug in f could look like, besides the one it has."""
     lines = set()
     for old, new in f.kind.bugs:
         other = f.kind.body.replace(old, new, 1)
         if other != bad_body:
             lines |= set(other.split("\n")) - set(f.kind.body.split("\n"))
+    return lines
+
+
+def _distractor(rng: random.Random, f: Func, bad_body: str, p: Project) -> Func | None:
+    """A function whose correct code is one of f's *other* bugs (multiply's `return a * b` next to
+    a broken add): the fix must go to the line of the failing function, not to what looks like a bug."""
+    lines = bad_lines(f, bad_body)
     kinds = [k for k in KINDS if k.key != f.kind.key and lines & set(k.body.split("\n"))]
     for kind in rng.sample(kinds, len(kinds)):
         name = rng.choice(kind.names)
@@ -948,14 +975,18 @@ def task_fix_crash(rng: random.Random, p: Project) -> Task | None:
 
 
 def _slip(rng: random.Random, old: str) -> str:
-    """oldString copied slightly wrong: a missing or extra space, or a dropped character."""
-    r = rng.random()
-    if r < 0.3 and old.startswith("    "):
-        return old[1:]
-    if r < 0.5:
-        return " " + old if not old.startswith(" ") else old.replace(" ", "  ", 1)
-    i = rng.randrange(len(old.strip()) or 1) + len(old) - len(old.lstrip())
-    return old[:i] + old[i + 1:] if old[:i] + old[i + 1:] != old else old + "x"
+    """oldString copied slightly wrong: an extra space, or a dropped character. Never a piece of
+    the line (a missing indent space, a dropped last character): that edit would go through, into
+    a broken file."""
+    for _ in range(10):
+        if rng.random() < 0.4:
+            slip = " " + old if not old.startswith(" ") else old.replace(" ", "  ", 1)
+        else:
+            i = rng.randrange(len(old.strip()) or 1) + len(old) - len(old.lstrip())
+            slip = old[:i] + old[i + 1:]
+        if slip not in old:
+            return slip
+    return old + "x"
 
 
 def _recovering_edit(rng: random.Random, path: str, old: str, new: str) -> Oracle:
@@ -1015,6 +1046,10 @@ def chat_turn(rng: random.Random) -> tuple[str, str, str]:
 # Sampling tasks and playing them
 # ---------------------------------------------------------------------------
 
+def _renamed(task: Task | None, kind: str) -> Task | None:
+    return dataclasses.replace(task, kind=kind) if task else None
+
+
 TASKS: dict[str, Callable[[random.Random, Project], Task | None]] = {
     "list_files": task_list_files, "find_def": task_find_def, "show_file": task_show_file, "explain": task_explain,
     "run": task_run, "run_tests": task_run_tests,
@@ -1022,20 +1057,23 @@ TASKS: dict[str, Callable[[random.Random, Project], Task | None]] = {
     "rename": task_rename, "change_const": task_change_const, "add_func": task_add_func,
     "fix_test": task_fix_test, "fix_crash": task_fix_crash,
 }
+# The eval's kinds: also fix_test with a distractor in every broken module, like opencode's demo project.
+EVAL_TASKS = {**TASKS, "fix_distractor": lambda rng, p: _renamed(task_fix_test(rng, p, distractor_frac=1),
+                                                                "fix_distractor")}
 FAMILIES = {
     "explore": ["list_files", "find_def", "show_file", "explain", "run", "run_tests"],
     "create": ["create_func", "create_script"],
     "modify": ["rename", "change_const", "add_func"],
-    "repair": ["fix_test", "fix_crash"],
+    "repair": ["fix_test", "fix_crash", "fix_distractor"],
 }
 READ_ONLY = {"list_files", "find_def", "show_file", "explain", "run", "run_tests"}
 
 
-def sample_task(rng: random.Random, kind: str, tries: int = 50) -> tuple[Task, Project]:
+def sample_task(rng: random.Random, kind: str, tries: int = 300) -> tuple[Task, Project]:
     """A task of this kind on a fresh random project (resampled until the kind applies)."""
     for _ in range(tries):
         project = make_project(rng)
-        task = TASKS[kind](rng, project)
+        task = EVAL_TASKS[kind](rng, project)
         if task is not None:
             return task, project
     raise RuntimeError(f"could not make a {kind} task")
@@ -1102,6 +1140,10 @@ def play(task: Task, sb: Sandbox, start: int = 0) -> list[dict]:
             call = oracle.send(messages[-1]["content"])
     except StopIteration as stop:
         messages.append({"role": "assistant", "content": stop.value})
+    # A transcript whose oracle didn't solve its task would teach the model to stop at a broken
+    # project, or to say it fixed what it didn't.
+    if not task.check(sb, messages[-1]["content"]):
+        raise ValueError(f"the {task.kind} oracle failed its own check: {messages[-1]['content']!r}")
     return messages
 
 
@@ -1159,12 +1201,19 @@ def conversation(rng: random.Random, kind: str) -> dict:
         plan = [last, None] + ([None] if rng.random() < 0.4 else [])
     with Sandbox(plan[0].files) as sb:
         for task in plan:
-            if task is None:
+            follow_up = task is None
+            if follow_up:
                 task = _follow_up(rng, dataclasses.replace(project, files=sb.files()))
                 if task is None:
                     break
-            messages.append({"role": "user", "content": noisy(rng, task.prompt)})
-            messages += play(task, sb, start=len(messages))
+            prompt = {"role": "user", "content": noisy(rng, task.prompt)}
+            try:
+                turns = play(task, sb, start=len(messages) + 1)
+            except ValueError:
+                if not follow_up:
+                    raise
+                break  # its check reads the stale metadata (a function renamed earlier): end the session here
+            messages += [prompt, *turns]
         _maybe_small_talk(rng, messages)
         messages = _relocate(messages, str(sb.root), root)
     return {"kind": kind, "tools": tool_list(rng), "messages": messages}
@@ -1273,7 +1322,7 @@ def text_of(conv: dict) -> list[str]:
 # Datasets: generated once, cached under data/code/
 # ---------------------------------------------------------------------------
 
-DATA_VERSION = 3   # bump when the world or the tasks change: cached sets are regenerated
+DATA_VERSION = 6   # bump when the world or the tasks change: cached sets are regenerated
 CHUNK = 250
 
 

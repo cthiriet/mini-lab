@@ -190,7 +190,7 @@ def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
         result["eval_seconds"] = round(time.time() - t0, 1)
         return result
 
-    kinds = list(code.TASKS)
+    kinds = list(code.EVAL_TASKS)
     max_steps, max_new, batch = ec.get("max_steps", 8), ec.get("max_new_tokens", 384), ec.get("batch", 32)
     with Container() as container:
         episodes = _task_episodes(container, kinds, ec["n_per_kind"])

@@ -52,7 +52,7 @@ of "a story about a cat" get the same story without a cat. The coding tasks are 
 | `instr` | instruction following, the mean of twelve checks of 30 prompts (in `eval.json`): the four system prompts below obeyed, follow-ups (on short and on 3-5 digit totals), a new question or something else after an answer, a request after small talk, refusals of held-out out-of-scope questions, identity, and in-scope requests *not* refused |
 | `chat` | 200 whole conversations of 3-5 requests that mix additions, follow-ups, stories, small talk, "Who are you?" and out-of-scope questions, with the calculator on or off, played as the chat app plays them (its history, its calculator loop, the server's context fitting), greedy: the share where every answer is right |
 | `format` | share of all chat turns that end with `<|assistant_end|>`, with no tool call when no tool is available, and no other role's tokens (e.g. an invented `<|tool_start|>` result) |
-| `agent` | coding tasks done end to end in opencode's format: 13 kinds x 50 new tasks, the model's tool calls run in a locked-down Docker container, and the task's check run on the project's files and the answer |
+| `agent` | coding tasks done end to end in opencode's format: 50 new tasks of each kind (fix_distractor: a failing test with a lure in the module, like opencode's demo), the model's tool calls run in a locked-down Docker container, and the task's check run on the project's files and the answer |
 | `valid calls` | tool calls opencode would accept: a known tool, valid arguments |
 
 What each stage did:

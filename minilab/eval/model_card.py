@@ -12,6 +12,7 @@ import json
 import tomllib
 from pathlib import Path
 
+from minilab.data import code
 from minilab.eval.run import markdown_table, summary
 from minilab.train.trainer import STAGES
 
@@ -138,7 +139,7 @@ def model_card(run: Path, stage: str, model_id: str | None = None) -> str:
         "and in-scope requests *not* refused.",
         "- `chat`: whole conversations of 3-5 turns played like the chat app, every answer right.",
         "- `format`: fraction of assistant turns properly ended (and no tool call without tools).",
-        *(["- `agent`: coding tasks done end to end in opencode's format (13 kinds, "
+        *([f"- `agent`: coding tasks done end to end in opencode's format ({len(code.EVAL_TASKS)} kinds, "
            f"{cfg['code_eval']['n_per_kind']} each), the model's tool calls run in a locked-down Docker container; "
            "`valid calls`: tool calls opencode accepts."] if "code_eval" in cfg else []),
         "",

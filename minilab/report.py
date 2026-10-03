@@ -51,14 +51,14 @@ EVAL_ROWS = [
 # The coding eval (eval/code.py), under "code" in eval.json
 CODE_EVAL_ROWS = [
     ("val_ppl", "Python perplexity (lower is better)", "num"),
-    ("agent", "Coding tasks done, all 13 kinds", "pct"),
+    ("agent", "Coding tasks done, every kind", "pct"),
     ("families.explore", "Explore: list, find, read, explain, run, test", "pct"),
     ("families.create", "Create: a function, a script", "pct"),
     ("families.modify", "Modify: rename, set a constant, add a function", "pct"),
     ("families.repair", "Repair: a failing test, a crashing script", "pct"),
     *[(f"tasks.{k}", f"· {k}", "pct") for k in ("list_files", "find_def", "show_file", "explain", "run", "run_tests",
                                                 "create_func", "create_script", "rename", "change_const", "add_func",
-                                                "fix_test", "fix_crash")],
+                                                "fix_test", "fix_crash", "fix_distractor")],
     ("valid_calls", "Tool calls opencode accepts", "pct"),
     ("chat", "Small talk, without tools", "pct"),
     ("title", "opencode's session titles", "pct"),

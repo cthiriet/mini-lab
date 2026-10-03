@@ -62,7 +62,7 @@ def test_sandbox_stays_in_the_project(tmp_path):
 
 # ---- the toy world ---------------------------------------------------------------
 
-@pytest.mark.parametrize("kind", list(code.TASKS))
+@pytest.mark.parametrize("kind", list(code.EVAL_TASKS))
 def test_oracles_solve_their_tasks(kind):
     """Every oracle transcript passes its task's check; doing nothing never does."""
     rng = random.Random(f"test-{kind}")
@@ -72,6 +72,13 @@ def test_oracles_solve_their_tasks(kind):
             assert not task.check(sb, "")
             messages = code.play(task, sb)
             assert task.check(sb, messages[-1]["content"]), (task.prompt, messages)
+
+
+def test_slipped_edits_never_go_through():
+    """The edits shown as mistakes must fail: a slip that is a piece of the line would edit it."""
+    rng = random.Random(0)
+    for old in ["    return a - b", "    if x > 0:", 'print(greet("Ada"))', "    total = 0"]:
+        assert all(code._slip(rng, old) not in old for _ in range(200))
 
 
 def test_conversations_are_deterministic_and_relocated():
