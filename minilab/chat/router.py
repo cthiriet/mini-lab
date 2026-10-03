@@ -16,8 +16,6 @@ router = APIRouter()
 # Greedy decoding (the model's default) repeats itself in stories; temperature 1 wanders off: a
 # refusal here, a garbled number there. The chat app is our product, so it picks in between.
 CHAT_TEMPERATURE = 0.6
-# The server keeps only what fits in the context (the newest turns): no need to send a long chat.
-MAX_MESSAGES = 40
 
 
 @router.get("")
@@ -27,7 +25,7 @@ async def chat_page(request: Request, ctx: Ctx = Depends(get_ctx)):
 
 @router.post("/api/chat")
 async def chat_api(request: Request, body: ChatRequest, ctx: Ctx = Depends(get_ctx)):
-    messages = [m.model_dump() for m in body.messages if m.role != "system"][-MAX_MESSAGES:]
+    messages = [m.model_dump() for m in body.messages if m.role != "system"]
     events = request.app.state.gateway.stream_chat(
         org_id=ctx.org["id"], source="chat", model=body.model, messages=messages,
         temperature=CHAT_TEMPERATURE if body.temperature is None else body.temperature,

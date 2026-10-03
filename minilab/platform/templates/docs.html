@@ -49,7 +49,7 @@ response = client.chat.completions.create(
 )
 print(response.choices[0].message.content)
 print(response.usage)  # prompt_tokens, completion_tokens: what you are billed for', lang="python") }}
-      <p class="text-muted">The models are tiny: they write short children's stories and do simple arithmetic (with a calculator). Don't expect more, that's the charm.</p>
+      <p class="text-muted">The models are tiny: they write short children's stories, do simple arithmetic (with a calculator) and, in a coding agent like opencode, edit tiny Python projects. Don't expect more, that's the charm.</p>
     </section>
 
     <section class="space-y-4">
@@ -126,7 +126,7 @@ for chunk in stream:
 
     <section class="space-y-4">
       {{ h2("tool-calling", "Tool calling") }}
-      <p>The models were trained to use one tool, a calculator, for arithmetic. Declare it in {{ c("tools") }}; when the model wants it, the response has {{ c("finish_reason: \"tool_calls\"") }} and {{ c("message.tool_calls") }}. Run the calculation yourself, append the result as a {{ c("tool") }} message, and call the API again for the final answer.</p>
+      <p>In a chat, the models were trained to use one tool, a calculator, for arithmetic (and opencode's tools in opencode). Declare it in {{ c("tools") }}; when the model wants it, the response has {{ c("finish_reason: \"tool_calls\"") }} and {{ c("message.tool_calls") }}. Run the calculation yourself, append the result as a {{ c("tool") }} message, and call the API again for the final answer.</p>
       {{ code_block("doc-tools", 'tools = [{
     "type": "function",
     "function": {
@@ -172,7 +172,7 @@ print(response.choices[0].message.content)  # "The answer is 405."', lang="pytho
           <tbody class="[&_td]:align-top">
             {% for status, code, desc in [
               (400, "invalid_request_error", "The request is malformed or uses an unsupported parameter (see param)."),
-              (400, "context_length_exceeded", "The conversation plus max_tokens doesn't fit in the model's context window. Send fewer or shorter messages, or lower max_tokens."),
+              (400, "context_length_exceeded", "The last message alone doesn't fit in the model's context window (earlier turns are dropped to make room). Send a shorter message, or lower max_tokens."),
               (401, "invalid_api_key", "The key is missing, wrong or revoked."),
               (404, "model_not_found", "No model with this id is being served."),
               (429, "insufficient_quota", "Your organization has no credits left, or the key reached its spend limit. Retrying won't help: add credits."),

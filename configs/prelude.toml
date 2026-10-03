@@ -1,6 +1,6 @@
 # prelude: one 5.8M-parameter GPT with a 1,024-token context that tells short stories, adds
 # numbers (step by step or with a calculator) and, in opencode, is a coding agent for tiny
-# Python projects. ~1h35 on an Apple M5 Pro (MPS), Docker needed for the coding eval.
+# Python projects. ~1h30 on an Apple M5 Pro (MPS), Docker needed for the coding eval.
 #
 #   bash speedrun.sh
 seed = 0
@@ -18,7 +18,7 @@ vocab_size = 4096
 sample_stories = 8000
 code_sample = 2000          # agent transcripts, and as many Python documents
 
-[model]                     # 5.8M parameters: the compute-optimal size for this budget (docs/training.md)
+[model]                     # 5.8M parameters: a little under the compute-optimal size, where it's flat (docs/training.md)
 block_size = 1024           # opencode's requests, cut down by the chat template
 n_layer = 6
 n_head = 4
@@ -50,7 +50,7 @@ eval_every = 200
 log_every = 25
 
 [sft]                       # chat conversations and agent transcripts, one row each
-size = 16000                # chat conversations (1.4 epochs)
+size = 16000                # chat conversations (1.8 epochs)
 mix = { plain = 0.13, instruction = 0.33, followup = 0.12, new_question = 0.12, switch = 0.08, mixed = 0.1, refusal = 0.08, identity = 0.04 }
 digits = [1, 2, 3]
 tool_frac = 0.3

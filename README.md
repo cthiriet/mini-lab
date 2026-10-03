@@ -25,48 +25,27 @@ Each part of a real lab has a minimal, readable version here:
 | **Platform** | Sign-up, orgs and projects, API keys, usage, logs, billing (Stripe), playground, docs | [`minilab/platform`](minilab/platform), [docs/platform.md](docs/platform.md) |
 | **Product** | A ChatGPT-like chat app with a calculator tool | [`minilab/chat`](minilab/chat) |
 
-Everything runs on a CPU. The whole training pipeline, from raw text to a released model, runs in about 34 minutes on a laptop with an Apple Silicon GPU, or about 75 minutes on its CPU alone.
+No GPU required: the whole training pipeline, from raw text to a released model, runs on a laptop (about 1h30 on an Apple M5 Pro, its GPU through MPS for training).
 
-## The model: `mini-3.2`
+## The model: `prelude-1`
 
-A 5.8M-parameter GPT that writes short children's stories and adds numbers, either step by step or with a calculator tool. It's tiny on purpose: every training stage has an effect you can measure.
-
-Releases are named like the labs' models: a new number for a new recipe, a point release for a significant fix. `mini-2` brought [Muon](docs/training.md#what-we-tuned-and-why) and a math specialist distilled into the SFT model, instead of AdamW and a single RL run (story perplexity 7.37 → 6.39, 5-digit additions 91% → 100%). `mini-2.1` fixed multi-turn chats: follow-ups on a 4-5 digit total went from 37% to 97%. `mini-3` spends twice the compute on pretraining, where [a small scaling law](docs/training.md#what-we-tuned-and-why) said it pays most (story perplexity 6.46 → 5.75). `mini-3.1` stops reading every request after an answer as more math ("tell me a story" got a calculator call), and `mini-3.2` stops copying long numbers short in follow-ups and word problems. All [releases](docs/training.md#releases).
+A 5.8M-parameter GPT with a 1,024-token context. In the chat app it writes short children's stories and adds numbers, either step by step or with a calculator tool. In [opencode](https://opencode.ai) it is a coding agent: given "Run the tests and fix any bug", it globs for the tests, runs them, greps for the failing function, reads it, edits the line, runs the tests again and says what it fixed. It knows which job it is doing from what the client sends, as any assistant model does. It's tiny on purpose: every training stage has an effect you can measure.
 
 | Stage | What it teaches |
 |---|---|
-| **Pretraining** | Language: next-token prediction on [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) and arithmetic worksheets |
+| **Pretraining** | Language: next-token prediction on [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories), arithmetic worksheets and small Python projects |
 | **Midtraining** | The chat format and skills: turns, step-by-step reasoning, calculator calls |
-| **SFT** | Behavior: follow system prompts and multi-turn follow-ups, politely refuse what it can't do |
+| **SFT** | Behavior: follow system prompts and multi-turn follow-ups, politely refuse what it can't do; and opencode sessions, every tool call played for real in a sandbox |
 | **RL (GRPO)** | Practice: a math specialist extends step-by-step addition to longer numbers it was never shown in SFT |
 | **Distillation** | One model from two teachers: the math specialist on additions, the SFT model on everything else |
 
-Each stage is evaluated, and the training report shows what it changed (addition of 4 and 5 digits only appears with RL; instruction following with SFT). A release gate then evaluates the new model next to the previous release, whole chats included, and blocks any regression:
+Each stage is evaluated, and the training report shows what it changed (addition of 5 digits only appears with RL; instruction following with SFT). The coding tasks are played end to end, the model's commands running in a locked-down Docker container. A release gate then evaluates the new model next to the previous release, whole chats included, and blocks any regression:
 
 <p align="center"><img src="docs/assets/report.png" alt="Training report: per-stage evaluation heatmap" width="800"></p>
 
-See [docs/training.md](docs/training.md) for the full results and what we learned along the way (including three reward hacks RL found).
+On its own eval, `prelude-1` gets 100% of 1-5 digit additions (greedy and sampled at temperature 1), 99% of the instruction checks, 90% of whole chats and 98% of its coding tasks done end to end, after 70 minutes of training (about 1h30 with the evals).
 
-## The coding agent: `mini-code-1`
-
-A second model, as small, trained to be the model behind [opencode](https://opencode.ai): given "Run the tests and fix any bug", it globs for the tests, runs them, greps for the failing function, reads it, edits the line, runs the tests again and says what it fixed. Its world is tiny (small Python projects of little functions), but the tool calls, the loop and the format are the ones a real coding agent speaks: 98% of its coding tasks done end to end, trained in 24 minutes.
-
-```bash
-bash speedrun.sh code             # data, pretraining on Python, SFT on agent transcripts -> models/mini-code-1
-bash examples/opencode/demo.sh    # opencode 2 on a demo project, everything in containers without internet
-```
-
-How ~10,000 tokens of opencode instructions fit a 1,024-token model, how the transcripts are made (every tool call runs for real), and how the eval keeps the model's commands in a locked-down container: [docs/opencode.md](docs/opencode.md).
-
-## One model for everything: `mini-4`
-
-mini-3.2 and mini-code-1 in a single 5.8M-parameter GPT: stories and addition in the chat app, a coding agent in opencode. It knows which job it is doing from what the client sends, opencode's system prompt and tools or the chat app's calculator, and it matches or beats both on their own evals (whole chats 92% against mini-3.2's 85%, coding tasks 97.8% against mini-code-1's 98.3%), except for plain stories, 7% worse in bits per character: the price of its long SFT on agent transcripts, shipped with a waiver of the release gate.
-
-```bash
-bash speedrun.sh unified          # ~1h35 on MPS -> models/mini-4 (opencode's demo uses it by default)
-```
-
-The recipe, why the SFT replays pretraining documents, and what the scaling law says about its size: [docs/mini-4.md](docs/mini-4.md).
+See [docs/training.md](docs/training.md) for the full results and what we learned along the way (including the reward hacks RL found), [docs/opencode.md](docs/opencode.md) for how ~10,000 tokens of opencode instructions fit a 1,024-token model, and [docs/history.md](docs/history.md) for the releases that led here.
 
 ## The platform
 
@@ -86,17 +65,19 @@ git clone https://github.com/cthiriet/mini-lab && cd mini-lab
 uv sync
 ```
 
-**1. Train a model** (downloads about 200 MB of TinyStories, then trains all five stages and releases `models/mini-3.2`):
+**1. Train a model** (downloads about 200 MB of TinyStories, then trains all five stages and releases `models/prelude-1`; the coding eval needs Docker running):
 
 ```bash
-bash speedrun.sh small
+bash speedrun.sh
 ```
 
-It ends with an eval table per stage and writes a training report with every curve to `runs/small/report.html`. To open it, or to compare runs:
+It ends with an eval table per stage and writes a training report with every curve to `runs/prelude/report.html`. To open it, or to compare runs:
 
 ```bash
-uv run python -m minilab.report runs/small --open
+uv run python -m minilab.report runs/prelude --open
 ```
+
+`bash speedrun.sh tiny` runs every stage on a far smaller model in under a minute, to check the pipeline.
 
 To try the serving stack without training, create a random-weight model instead: `uv run python -m minilab.testing models`.
 
@@ -113,13 +94,13 @@ from openai import OpenAI
 
 client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="sk-mini-...")
 reply = client.chat.completions.create(
-    model="mini-3.2",
+    model="prelude-1",
     messages=[{"role": "user", "content": "What is 347 + 58?"}],
 )
 print(reply.choices[0].message.content)
 ```
 
-The request shows up in **Logs**, its cost in **Usage** and **Billing**. Try the chat app at http://127.0.0.1:3000/chat.
+The request shows up in **Logs**, its cost in **Usage** and **Billing**. Try the chat app at http://127.0.0.1:3000/chat, and the model in opencode with `bash examples/opencode/demo.sh` (everything in containers without internet).
 
 **Docker:** after training (or creating a random model), set a secret for the internal token and start the three services:
 
@@ -139,7 +120,7 @@ docker compose up --build
                         inference :8001     chat template · KV cache · continuous batching
                              │
                              ▼
-                        models/mini-3.2     ◄── bash speedrun.sh small
+                        models/prelude-1    ◄── bash speedrun.sh
 ```
 
 More in [docs/architecture.md](docs/architecture.md).
@@ -151,7 +132,7 @@ minilab/
   tokenizer/    BPE from scratch (digits always split) + chat template
   model/        the transformer, KV cache, sampling
   data/         TinyStories download, synthetic arithmetic and conversations; the toy code world and tool sandbox
-  train/        tokenizer, pretrain, midtrain, sft, rl (GRPO)
+  train/        tokenizer, pretrain, midtrain, sft, rl_math (GRPO), distill
   eval/         evals and model card
   report.py     HTML training report for one or more runs
   release.py    promote a run to models/<id>
@@ -160,8 +141,8 @@ minilab/
   platform/     dashboard, billing, playground, docs
   chat/         chat app
   db/           SQLite schema and data access
-configs/        tiny (CI smoke test), small (mini-3.2), code (mini-code-1), unified (mini-4) and unified-tiny
-examples/       opencode/: mini-4 and mini-code-1 in opencode, in containers
+configs/        prelude (the recipe) and tiny (its smoke test, in CI)
+examples/       opencode/: the model in opencode, in containers
 tests/          unit tests, service tests, and an end-to-end test of the whole stack
 ```
 
@@ -179,7 +160,7 @@ Contributions are welcome, especially ones that make a part of the lab clearer o
 
 ## Limitations
 
-- `mini-3.2` is a toy. It tells simple stories and adds numbers; it does not know anything else, and says so.
+- `prelude-1` is a toy. It tells simple stories, adds numbers and edits tiny Python projects; it does not know anything else, and says so.
 - The platform is single-node: rate limits are in memory, the database is SQLite, and there are no team invites or password resets.
 - Payments use Stripe in test mode. Without Stripe keys, a clearly labeled test-mode button adds credits.
 

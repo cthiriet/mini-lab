@@ -104,10 +104,17 @@ batch.
 | context full | `length` |
 | any of the above, and the completion contains tool calls | `tool_calls` |
 
-The context rule is that prompt + completion must fit in `block_size`. A prompt
-that leaves no room is rejected with `400 context_length_exceeded`. `max_tokens:
-null` means "until the context is full", and a larger `max_tokens` is clamped to
-the room left. This also guarantees that a decode step never overflows the KV cache.
+The context rule is that prompt + completion must fit in `block_size`. The prompt
+is fitted first (`render_prompt(..., budget=...)` in `tokenizer/chat.py`): it may take
+the context minus `max_tokens`, or minus a quarter of the context when `max_tokens` is
+null, and never more than half for the answer. What doesn't fit goes, oldest first:
+earlier turns, a whole turn at a time, then the current request's tool results, cut,
+then its oldest tool round trips. The server does the context management a client
+would do, because an agent like opencode sends ~10,000 tokens of instructions to a
+1,024-token model. Only a last request that doesn't fit on its own is rejected with
+`400 context_length_exceeded`. `max_tokens: null` means "until the context is full",
+and a larger `max_tokens` is clamped to the room left, so a decode step never
+overflows the KV cache.
 
 **Admission control.** The waiting queue is bounded (`MINILAB_MAX_QUEUE`), and a
 full queue answers `503 overloaded` right away. A client (the gateway) can then
@@ -162,8 +169,8 @@ scratchpad, so the shared prefix ends where the previous answer starts, and the
 answer itself is prefilled again.
 
 `uv run python -m minilab.inference.bench --models-dir models --chats 32` plays chats
-of 4 turns, as the chat app sends them, with the cache on and off. On mini-3.2, on one
-CPU thread (like the production server):
+of 4 turns, as the chat app sends them, with the cache on and off. On mini-3.2 (an
+earlier release with a 256-token context), on one CPU thread (like the production server):
 
 | 32 chats x 4 turns | prompt tokens prefilled | time to first token, turns 2-4 |
 |---|---:|---:|
@@ -224,7 +231,7 @@ little. From 2 to 8, the cost of a decode step barely moves (2.9 → 3.1 ms on t
 ## Known limitations
 
 - **Prefill.** Each prompt is prefilled on its own. While it runs, the decode batch
-  waits, which is fine for 256-token contexts. There is no chunked prefill. The
+  waits, which is fine for a 1,024-token context. There is no chunked prefill. The
   prefix cache only reuses a finished request's slot: two requests in flight at the
   same time with the same system prompt each prefill it.
 - **Fixed-size cache.** Every slot reserves a full `block_size`; there is no paged

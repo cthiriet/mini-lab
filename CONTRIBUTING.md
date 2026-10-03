@@ -8,8 +8,8 @@ smaller or more correct, rather than adding options.
 
 ```bash
 uv sync                                   # Python 3.11+, CPU-only PyTorch is fine
-uv run pytest                             # ~10 s: unit, service and end-to-end tests
-DEVICE=cpu bash speedrun.sh tiny          # ~15 s: the whole training pipeline, tiny model
+uv run pytest                             # ~15 s: unit, service and end-to-end tests
+bash speedrun.sh tiny                     # ~40 s: the whole training pipeline, tiny model (needs Docker)
 ```
 
 To work on the serving stack without training, create a random-weight model and start
@@ -32,8 +32,8 @@ uv run python -m minilab.testing models
   (`minilab/tokenizer`, `minilab/model`, `minilab/checkpoint.py`, `minilab/registry.py`,
   `minilab/db`) are covered in `tests/test_core.py` and `tests/test_db.py`.
 - **Training changes** should come with the before/after eval table from
-  `uv run python -m minilab.eval.run --run runs/small --summary` (and ideally the
-  training report, `uv run python -m minilab.report runs/small`).
+  `uv run python -m minilab.eval.run --run runs/prelude --summary` (and ideally the
+  training report, `uv run python -m minilab.report runs/prelude`).
 - **Docs.** Each component has a doc in `docs/`; update it when behavior changes.
 - All code, comments and docs are in English.
 

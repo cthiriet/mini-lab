@@ -50,23 +50,21 @@ Each service is a FastAPI app built by a `create_app()` factory and started with
 
 Configuration is read from environment variables by `minilab.settings.get_settings()`:
 `MINILAB_DB`, `MINILAB_MODELS_DIR`, `MINILAB_INFERENCE_URL`, `MINILAB_API_URL`,
-`MINILAB_PUBLIC_API_URL`, `MINILAB_PLATFORM_URL`, `MINILAB_INTERNAL_TOKEN`, `MINILAB_DEFAULT_RPM`,
+`MINILAB_PUBLIC_API_URL`, `MINILAB_PLATFORM_URL`, `MINILAB_INTERNAL_TOKEN`, `MINILAB_SERVE_MODELS`
+(the releases to serve, when `models/` keeps older ones), `MINILAB_DEFAULT_RPM`,
 `MINILAB_DEFAULT_TPM`, `MINILAB_SIGNUP_CREDIT_USD`, `MINILAB_CREDIT_PACKS_USD`,
 `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`.
 
 ## Chat template
 
 See `minilab/tokenizer/chat.py`. Special tokens delimit turns; tools are announced
-with a `<|system_start|>tools: calculator<|system_end|>` block; tool calls are JSON
-between `<|tool_call_start|>` / `<|tool_call_end|>`; tool results go in
-`<|tool_start|>` / `<|tool_end|>`; optional scratchpad reasoning goes in
-`<|think_start|>` / `<|think_end|>`. Generation stops at `<|assistant_end|>`.
-
-The tokenizer names its template (`chat_template` in tokenizer.json). The "code" template
-(mini-code and mini-4) writes tool arguments raw, separated by `<|arg|>` (`edit<|arg|>path=calc.py<|arg|>...`),
-cuts system prompts to their first sentence, shows paths relative to the working directory,
-and can fit a prompt into a token budget by dropping old turns: see
-[opencode.md](opencode.md).
+with a `<|system_start|>tools: calculator<|system_end|>` block; a tool call is its name
+and raw arguments separated by `<|arg|>` (`calculator<|arg|>expression=347 + 58`), between
+`<|tool_call_start|>` / `<|tool_call_end|>`; tool results go in `<|tool_start|>` /
+`<|tool_end|>`; optional scratchpad reasoning goes in `<|think_start|>` / `<|think_end|>`.
+Generation stops at `<|assistant_end|>`. For agents, the template also cuts system prompts
+to their first sentence, shows paths relative to the working directory, and fits a prompt
+into a token budget by dropping old turns: see [opencode.md](opencode.md).
 
 Note: `Tokenizer.train` may learn fewer merges than requested on small corpora, so
 always build the model with `tokenizer.vocab_size`.
@@ -79,7 +77,7 @@ Every request must carry `Authorization: Bearer $MINILAB_INTERNAL_TOKEN`.
 
 ```json
 {
-  "model": "mini-3.2",
+  "model": "prelude-1",
   "messages": [{"role": "user", "content": "What is 2 + 2?"}],
   "tools": ["calculator"],
   "max_tokens": 128,
@@ -101,7 +99,7 @@ Non-streaming response (`200`):
 
 ```json
 {
-  "model": "mini-3.2",
+  "model": "prelude-1",
   "content": "4",
   "reasoning": null,
   "tool_calls": [],

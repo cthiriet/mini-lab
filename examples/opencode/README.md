@@ -5,7 +5,7 @@ and opencode with a small demo project whose `add` returns `a - b`. See
 [docs/opencode.md](../../docs/opencode.md) for how the coding agent was made.
 
 ```bash
-bash speedrun.sh                                         # trains and releases models/prelude-1 (~1h35 on MPS)
+bash speedrun.sh                                         # trains and releases models/prelude-1 (~1h30 on MPS)
 bash examples/opencode/demo.sh                           # opencode's TUI: you approve each action
 bash examples/opencode/demo.sh run --auto "Run the tests and fix any bug"
 ```

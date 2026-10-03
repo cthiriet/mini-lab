@@ -131,9 +131,8 @@ the same formula the gateway bills with. Each call is also in the logs.
 
 **Chat history** lives in the browser's `localStorage` (per user, wrapped in
 try/catch so a blocked storage only loses persistence), so the server keeps no
-conversations. Each turn sends the last 10 messages; the models have tiny context
-windows, so when the gateway answers `context_length_exceeded` the chat app drops
-the oldest turns and retries.
+conversations. Each turn sends the last 10 messages, and the inference server keeps
+the newest turns that fit in the model's context, with room for the answer.
 
 ## Design
 
@@ -143,8 +142,8 @@ the oldest turns and retries.
   few `@apply` rules in the same file.
 - One typeface, [Recursive](https://www.recursive.design/): its `CASL` axis gives the
   casual headings, its `MONO` axis the code and numbers.
-- The logo is a flask; in the header it doubles as the balance gauge (blue, amber
-  when low, red when empty).
+- The logo is a chip wired out like a neural net; the flask of the README is the
+  balance gauge in the header (blue, amber when low, red when empty).
 - Charts are inline SVG built by `web.bar_chart` (no chart library), with HTML axis
   labels and keyboard-focusable bars with tooltips.
 

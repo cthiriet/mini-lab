@@ -483,16 +483,6 @@ def test_chat_reports_gateway_errors(app):
                        "message": "You exceeded your current quota."}]
 
 
-def test_chat_sends_only_the_recent_messages(app, gateway_calls):
-    """The server fits the conversation into the context: a long chat sends only its last messages."""
-    client = signup(app)
-    history = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"message {i}"} for i in range(99)]
-    events = sse_events(client.post("/chat/api/chat", json={"model": "mini-test", "messages": history}))
-    assert events[-1]["type"] == "done"
-    (call,) = gateway_calls
-    assert call["body"]["messages"][-1]["content"] == "message 98" and len(call["body"]["messages"]) <= 40
-
-
 def test_chat_request_validation(app):
     client = signup(app)
     r = client.post("/chat/api/chat", json={"model": "mini-test", "messages": []})

@@ -7,7 +7,7 @@
   const $ = (id) => document.getElementById(id);
   const STORE_KEY = `minilab.chat.v1.${app.dataset.user}`; // per user: browsers can be shared
   const PREFS_KEY = `minilab.chat.prefs.${app.dataset.user}`;
-  const HISTORY_SENT = 10; // the model's context is tiny; the server trims further if needed
+  const HISTORY_SENT = 10; // the model's context is tiny; the server keeps what fits
 
   // ---- storage (wrapped: localStorage can be full, disabled or blocked) --------------
 

@@ -19,3 +19,6 @@ It's built to run locally. If you expose it anyway:
 - serve the platform over HTTPS and set `MINILAB_PLATFORM_URL` accordingly;
 - configure Stripe keys, or anyone can add free test-mode credits;
 - keep the inference server (port 8001) off the public network.
+
+The model runs whatever shell commands it decides to in a coding agent like opencode:
+only use it in a sandbox, as `examples/opencode` does.

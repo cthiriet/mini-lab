@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The whole training pipeline, from downloading data to a released model.
 #
-#   bash speedrun.sh         # ~1h35 on an Apple M5 Pro (MPS)  -> models/prelude-1
-#   bash speedrun.sh tiny    # smoke test, a few minutes        -> runs/tiny/models/prelude-tiny
+#   bash speedrun.sh         # ~1h30 on an Apple M5 Pro (DEVICE=mps) -> models/prelude-1
+#   bash speedrun.sh tiny    # smoke test, under a minute          -> runs/tiny/models/prelude-tiny
 #
 # The coding eval runs the model's tool calls in a Docker container: Docker must be running.
 #

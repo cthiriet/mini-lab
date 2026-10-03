@@ -108,12 +108,12 @@ value (`MINILAB_INTERNAL_TOKEN`) before exposing the services.
 | `model` | required: a model id from `GET /v1/models` |
 | `messages` | required: `system`/`developer`, `user`, `assistant` (optionally with `tool_calls`) and `tool` messages. `content` is a string or a list of `{"type": "text"}` parts |
 | `max_completion_tokens` / `max_tokens` | cap on generated tokens. Default: until the model's context window is full |
-| `temperature` | 0 to 2. 0 means greedy decoding. Default: the model's `default_temperature`: 1 (OpenAI's default) for mini up to mini-3.2, 0 for mini-code and mini-4, which opencode drives without ever sending one |
+| `temperature` | 0 to 2. 0 means greedy decoding. Default: the model's `default_temperature`, 0 for prelude, which opencode drives without ever sending one (OpenAI's default is 1) |
 | `top_p` | 0 to 1, default 1 |
 | `top_k` | not in OpenAI's API: keep only the k most likely tokens (with the SDK: `extra_body={"top_k": 20}`) |
 | `seed` | same seed and parameters, same output (streamed or not) |
 | `stop` | a string or up to 4 strings; generation stops before them |
-| `tools` | function tools. Only their **names** reach the model (it was trained on `tools: calculator`, not on JSON schemas). mini-code writes every argument as text: the gateway types them with the tools' JSON schemas (`"true"` becomes `true` where `parameters` says boolean) |
+| `tools` | function tools. Only their **names** reach the model (it was trained on `tools: calculator`, not on JSON schemas). The model writes every argument as text: the gateway types them with the tools' JSON schemas (`"true"` becomes `true` where `parameters` says boolean) |
 | `tool_choice` | `auto` (default) or `none` (the model doesn't see the tools) |
 | `stream` | send the answer as server-sent events |
 | `stream_options.include_usage` | add a last chunk with the token usage |
@@ -134,7 +134,7 @@ parts are rejected too: the models only read text.
   "id": "chatcmpl-7846376cf6989261b83423de",
   "object": "chat.completion",
   "created": 1760000000,
-  "model": "mini-3.2",
+  "model": "prelude-1",
   "choices": [{
     "index": 0,
     "message": {"role": "assistant", "content": "4", "refusal": null, "reasoning_content": "2 + 2 = 4"},
@@ -211,7 +211,7 @@ def calculator(expression: str) -> str:
 
 messages = [{"role": "user", "content": "What is 347 + 58?"}]
 while True:
-    reply = client.chat.completions.create(model="mini-3.2", messages=messages, tools=tools)
+    reply = client.chat.completions.create(model="prelude-1", messages=messages, tools=tools)
     message = reply.choices[0].message
     if reply.choices[0].finish_reason != "tool_calls":
         print(message.content)                      # "The answer is 405."
@@ -232,20 +232,18 @@ objects with mini-lab extras:
 
 ```json
 {"object": "list", "data": [{
-  "id": "mini-3.2", "object": "model", "created": 1760000000, "owned_by": "mini-lab", "family": "mini",
-  "description": "...", "context_length": 256,
+  "id": "prelude-1", "object": "model", "created": 1760000000, "owned_by": "mini-lab",
+  "description": "...", "context_length": 1024,
   "pricing": {"input_per_1m": 10.0, "output_per_1m": 50.0}
 }]}
 ```
 
 `GET /v1/models/{id}` returns one of them, or `404 model_not_found`.
 
-Two families: `mini`, the chat models (stories, addition, a calculator tool), and
-`mini-code`, the coding agent for opencode ([opencode.md](opencode.md)); `mini-4` is both
-([mini-4.md](mini-4.md)). A request too long for mini-3.2 or earlier is rejected with
-`400 context_length_exceeded`; mini-code and mini-4 fit it themselves (`"truncation": "auto"`
-in their release.json), dropping the oldest turns, because an agent like opencode sends far
-more than 1,024 tokens of instructions and history.
+A conversation longer than the context is fitted to it by the server, which drops the oldest
+turns, because an agent like opencode sends far more than 1,024 tokens of instructions and
+history ([opencode.md](opencode.md)). Only a last request that doesn't fit on its own is
+rejected with `400 context_length_exceeded`.
 
 ## Errors
 
@@ -258,7 +256,7 @@ Errors have OpenAI's shape, so the SDKs raise the matching exception:
 
 | Status | `code` | When | Python SDK |
 |---|---|---|---|
-| 400 | `null`, `unsupported_parameter`, `context_length_exceeded` | malformed or unsupported request; prompt + `max_tokens` longer than the context window | `BadRequestError` |
+| 400 | `null`, `unsupported_parameter`, `context_length_exceeded` | malformed or unsupported request; the last request alone longer than the context window (minus room for the answer) | `BadRequestError` |
 | 401 | `invalid_api_key` | missing, unknown or revoked key | `AuthenticationError` |
 | 404 | `model_not_found` | unknown model | `NotFoundError` |
 | 404 | `null` | unknown URL | `NotFoundError` |
@@ -332,9 +330,9 @@ spend, in one database transaction.
   would spend compute nobody reads. A stream that breaks on our side after some
   text was sent (`502 upstream_error`) is billed the same way: otherwise breaking a
   stream on purpose would be a way to get text for free.
-- Prompts that clearly can't fit in the context window are rejected with
-  `400 context_length_exceeded` before they reach the inference server, whose
-  tokenizer (pure Python) would otherwise spend seconds on them.
+- Bodies over 1 MB are rejected with `413` before they are parsed. The inference
+  server's tokenizer is pure Python, and cuts the text into chunks of at most 32
+  characters, so even a megabyte of adversarial text encodes in about 1.5 s.
 - A request is refused with `429 insufficient_quota` when the organization's
   balance is zero or less, or when the key's spend reached its spend limit. The
   check happens before generating, so concurrent requests can take the balance
