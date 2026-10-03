@@ -120,4 +120,35 @@
     el.style.height = `${el.scrollHeight}px`;
   };
   document.addEventListener("input", (e) => e.target.matches?.("textarea[data-autosize]") && window.autosize(e.target));
+
+  // Syntax colors for code samples: <pre data-lang="python|bash|json|headers">. A few regexes
+  // per language cover our snippets; whatever no rule matches stays plain text.
+  const STRING = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/;
+  const SYNTAX = Object.fromEntries(Object.entries({
+    python: {
+      comment: /#.*/, string: STRING, number: /\b\d+(?:\.\d+)?\b/,
+      keyword: /\b(?:import|from|as|def|return|for|in|if|elif|else|and|or|not|with|True|False|None)\b/,
+      function: /\b[A-Za-z_]\w*(?=\()/,
+    },
+    bash: { string: /"(?:[^"\\]|\\.)*"|'[^']*'/, variable: /\$\w+/, function: /^(?:curl|export)\b/ },
+    json: { key: /"(?:[^"\\\n]|\\.)*"(?=\s*:)/, string: STRING, number: /-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/, keyword: /\b(?:true|false|null)\b/ },
+    headers: { key: /^[\w-]+(?=:)/, number: /\d+/ },
+  }).map(([lang, rules]) => [lang, new RegExp(Object.entries(rules).map(([kind, re]) => `(?<${kind}>${re.source})`).join("|"), "gm")]));
+
+  window.highlight = (pre) => {
+    const pattern = SYNTAX[pre.dataset.lang];
+    if (!pattern) return;
+    const el = pre.querySelector("code") || pre;
+    const text = el.textContent;
+    const out = document.createDocumentFragment();
+    let last = 0;
+    for (const match of text.matchAll(pattern)) {
+      const kind = Object.keys(match.groups).find((k) => match.groups[k] !== undefined);
+      out.append(text.slice(last, match.index), Object.assign(document.createElement("span"), { className: `tok-${kind}`, textContent: match[0] }));
+      last = match.index + match[0].length;
+    }
+    out.append(text.slice(last));
+    el.replaceChildren(out);
+  };
+  $$("pre[data-lang]").forEach(window.highlight);
 })();

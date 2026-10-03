@@ -130,9 +130,9 @@
 <button type="button" class="btn btn-quiet px-2.5 py-1 text-xs" data-copy="{{ target }}" aria-label="{{ label }}">{{ label }}</button>
 {%- endmacro %}
 
-{% macro code_block(id, text, label=None) -%}
+{% macro code_block(id, text, label=None, lang=None) -%}
 <div class="relative">
-  <pre id="{{ id }}" class="code-block pr-20"{% if label %} aria-label="{{ label }}"{% endif %}><code>{{ text }}</code></pre>
+  <pre id="{{ id }}" class="code-block pr-20"{% if lang %} data-lang="{{ lang }}"{% endif %}{% if label %} aria-label="{{ label }}"{% endif %}><code>{{ text }}</code></pre>
   <div class="absolute top-2.5 right-2.5">{{ copy_button("#" ~ id) }}</div>
 </div>
 {%- endmacro %}

@@ -73,6 +73,11 @@
       .data-table th { @apply px-3 py-2 text-xs font-semibold whitespace-nowrap text-muted; }
       .data-table td { @apply border-t border-rule px-3 py-2.5 align-middle; }
       .code-block { @apply mono overflow-x-auto rounded-lg border border-rule bg-sunken p-4 text-[13px] leading-relaxed; }
+      .tok-comment { @apply text-muted; }
+      .tok-keyword { @apply text-reagent; }
+      .tok-string { @apply text-ok; }
+      .tok-number { @apply text-warn; }
+      .tok-function, .tok-variable, .tok-key { @apply text-copper; }
       .page-title { @apply casual text-3xl leading-tight font-[780] tracking-tight; }
       .page-lede { @apply mt-1.5 max-w-2xl text-muted; }
     }

@@ -76,7 +76,7 @@
   -d \'{
     "model": "' ~ model_id ~ '",
     "messages": [{"role": "user", "content": "Tell me a story about a dog"}]
-  }\'') }}
+  }\'', lang="bash") }}
     </div>
     <div id="panel-python" role="tabpanel" aria-labelledby="tab-python" class="mt-4" hidden>
       {{ code_block("qs-python", '# pip install openai
@@ -89,7 +89,7 @@ response = client.chat.completions.create(
     model="' ~ model_id ~ '",
     messages=[{"role": "user", "content": "Tell me a story about a dog"}],
 )
-print(response.choices[0].message.content)') }}
+print(response.choices[0].message.content)', lang="python") }}
     </div>
   </div>
 </section>

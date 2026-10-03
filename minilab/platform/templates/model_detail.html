@@ -52,7 +52,7 @@
 {% if evals %}
 <details class="mt-10 max-w-4xl">
   <summary class="cursor-pointer text-sm font-semibold text-muted hover:text-ink">Raw evaluation results (eval.json)</summary>
-  <div class="mt-3">{{ code_block("evals", evals|pretty_json) }}</div>
+  <div class="mt-3">{{ code_block("evals", evals|pretty_json, lang="json") }}</div>
 </details>
 {% endif %}
 {% endblock %}

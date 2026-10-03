@@ -37,7 +37,7 @@
 curl ' ~ base ~ '/chat/completions \\
   -H "Authorization: Bearer $MINILAB_API_KEY" \\
   -H "Content-Type: application/json" \\
-  -d \'{"model": "' ~ model_id ~ '", "messages": [{"role": "user", "content": "Tell me a story about a cat"}]}\'') }}
+  -d \'{"model": "' ~ model_id ~ '", "messages": [{"role": "user", "content": "Tell me a story about a cat"}]}\'', lang="bash") }}
       <p>With the official Python SDK (<code class="mono">pip install openai</code>):</p>
       {{ code_block("doc-qs-py", 'import os
 from openai import OpenAI
@@ -48,7 +48,7 @@ response = client.chat.completions.create(
     messages=[{"role": "user", "content": "Tell me a story about a cat"}],
 )
 print(response.choices[0].message.content)
-print(response.usage)  # prompt_tokens, completion_tokens: what you are billed for') }}
+print(response.usage)  # prompt_tokens, completion_tokens: what you are billed for', lang="python") }}
       <p class="text-muted">The models are tiny: they write short children's stories and do simple arithmetic (with a calculator). Don't expect more, that's the charm.</p>
     </section>
 
@@ -103,7 +103,7 @@ print(response.usage)  # prompt_tokens, completion_tokens: what you are billed f
     "finish_reason": "stop"
   }],
   "usage": {"prompt_tokens": 14, "completion_tokens": 58, "total_tokens": 72}
-}') }}
+}', lang="json") }}
       <p>{{ c("finish_reason") }} is {{ c("stop") }} (the model finished or hit a stop sequence), {{ c("length") }} (max tokens or context window reached) or {{ c("tool_calls") }}. The request id is also returned in the {{ c("x-request-id") }} header, and appears in your <a href="/logs" class="link">logs</a>.</p>
     </section>
 
@@ -120,7 +120,7 @@ for chunk in stream:
     if chunk.choices and chunk.choices[0].delta.content:
         print(chunk.choices[0].delta.content, end="", flush=True)
     if chunk.usage:  # last chunk, with include_usage
-        print("\\n", chunk.usage)') }}
+        print("\\n", chunk.usage)', lang="python") }}
       <p>If generation fails after the stream has started, a chunk with an {{ c("error") }} object is sent instead of more tokens (the SDKs raise it as an exception).</p>
     </section>
 
@@ -147,7 +147,7 @@ if message.tool_calls:
         messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
     response = client.chat.completions.create(model="' ~ model_id ~ '", messages=messages, tools=tools)
 
-print(response.choices[0].message.content)  # "The answer is 405."') }}
+print(response.choices[0].message.content)  # "The answer is 405."', lang="python") }}
       <p>When streaming, tool calls arrive at the end, one chunk per call with its complete arguments. The playground and chat app run this loop for you on the server.</p>
     </section>
 
@@ -159,13 +159,13 @@ print(response.choices[0].message.content)  # "The answer is 405."') }}
     <section class="space-y-4">
       {{ h2("models", "Models") }}
       <p>{{ c("GET /v1/models") }} lists the models currently served; {{ c("GET /v1/models/{id}") }} returns one. Besides OpenAI's fields, each model includes its description, context window and pricing. See <a href="/models" class="link">Models & pricing</a>.</p>
-      {{ code_block("doc-models", 'curl ' ~ base ~ '/models -H "Authorization: Bearer $MINILAB_API_KEY"') }}
+      {{ code_block("doc-models", 'curl ' ~ base ~ '/models -H "Authorization: Bearer $MINILAB_API_KEY"', lang="bash") }}
     </section>
 
     <section class="space-y-4">
       {{ h2("errors", "Errors") }}
       <p>Errors use OpenAI's shape, so the SDKs raise the matching exception:</p>
-      {{ code_block("doc-error", '{"error": {"message": "You exceeded your current quota...", "type": "insufficient_quota", "param": null, "code": "insufficient_quota"}}') }}
+      {{ code_block("doc-error", '{"error": {"message": "You exceeded your current quota...", "type": "insufficient_quota", "param": null, "code": "insufficient_quota"}}', lang="json") }}
       <div class="panel overflow-x-auto">
         <table class="data-table">
           <thead><tr><th>Status</th><th>Code</th><th>What happened</th></tr></thead>
@@ -198,7 +198,7 @@ x-ratelimit-remaining-requests: ' ~ (settings.default_rpm - 1) ~ '
 x-ratelimit-reset-requests: 1s
 x-ratelimit-limit-tokens: ' ~ settings.default_tpm ~ '
 x-ratelimit-remaining-tokens: ' ~ (settings.default_tpm - 256) ~ '
-x-ratelimit-reset-tokens: 384ms') }}
+x-ratelimit-reset-tokens: 384ms', lang="headers") }}
       <p>Over the limit you get {{ c("429 rate_limit_exceeded") }}. The SDKs retry these automatically with backoff.</p>
     </section>
 

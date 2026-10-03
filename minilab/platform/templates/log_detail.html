@@ -33,11 +33,11 @@
 <div class="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
   <section class="min-w-0" aria-labelledby="req-h">
     <h2 id="req-h" class="mb-3 font-semibold">Request body</h2>
-    {% if r.request_body %}{{ code_block("req-body", r.request_body|pretty_json) }}{% else %}<p class="text-sm text-muted">Not recorded.</p>{% endif %}
+    {% if r.request_body %}{{ code_block("req-body", r.request_body|pretty_json, lang="json") }}{% else %}<p class="text-sm text-muted">Not recorded.</p>{% endif %}
   </section>
   <section class="min-w-0" aria-labelledby="res-h">
     <h2 id="res-h" class="mb-3 font-semibold">Response body</h2>
-    {% if r.response_body %}{{ code_block("res-body", r.response_body|pretty_json) }}{% else %}<p class="text-sm text-muted">Not recorded.</p>{% endif %}
+    {% if r.response_body %}{{ code_block("res-body", r.response_body|pretty_json, lang="json") }}{% else %}<p class="text-sm text-muted">Not recorded.</p>{% endif %}
   </section>
 </div>
 <p class="mt-3 text-xs text-muted">Bodies are truncated to 8,000 characters in the logs.</p>

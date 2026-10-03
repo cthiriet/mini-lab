@@ -196,6 +196,8 @@
     $("pg-code-python").textContent =
       `import os\nfrom openai import OpenAI\n\nclient = OpenAI(base_url="${apiUrl}/v1", api_key=os.environ["MINILAB_API_KEY"])\n\n` +
       `response = client.chat.completions.create(\n${args.join("\n")}\n)\nprint(response.choices[0].message)`;
+    window.highlight($("pg-code-curl"));
+    window.highlight($("pg-code-python"));
     $("pg-code-dialog").showModal();
   });
 
