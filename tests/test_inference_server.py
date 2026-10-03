@@ -150,13 +150,14 @@ def test_many_concurrent_requests(server):
                 if i % 2:
                     r = await client.post("/generate", json=body(f"hello {i}", max_tokens=30, seed=i))
                     return r.status_code, r.json()["finish_reason"]
-                async with client.stream("POST", "/generate", json=body(f"hi {i}", max_tokens=30, stream=True)) as r:
+                async with client.stream("POST", "/generate", json=body(f"hi {i}", max_tokens=30, stream=True, seed=i)) as r:
                     events = read_sse([line async for line in r.aiter_lines()])
                     return r.status_code, events[-1]["finish_reason"]
             return await asyncio.gather(*(one(i) for i in range(20)))
 
     results = asyncio.run(main())
-    assert all(status == 200 and reason in ("stop", "length") for status, reason in results)
+    # a random model sometimes samples a tool call (0.6% of its answers): that is a finished request too
+    assert all(status == 200 and reason in ("stop", "length", "tool_calls") for status, reason in results)
     assert engine.runners[MODEL].num_active == 0
 
 
