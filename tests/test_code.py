@@ -64,14 +64,45 @@ def test_sandbox_stays_in_the_project(tmp_path):
 
 @pytest.mark.parametrize("kind", list(code.TASKS))
 def test_oracles_solve_their_tasks(kind):
-    """Every oracle transcript passes its task's check; doing nothing never does."""
+    """Every oracle transcript passes its task's check and its reward's guard; doing nothing never does."""
     rng = random.Random(f"test-{kind}")
     for _ in range(3):
         task = code.make_task(rng, kind)
         with Sandbox(task.files) as sb:
-            assert not task.check(sb, "")
+            assert not task.check(sb, "") and not task.reward(sb, "", [])
             messages = code.play(task, sb)
             assert task.check(sb, messages[-1]["content"]), (task.prompt, messages)
+            assert task.reward(sb, messages[-1]["content"], code.calls_of(messages)), (task.prompt, messages)
+
+
+def _task_where(kind: str, ok, tries: int = 200) -> code.Task:
+    rng = random.Random(f"hack-{kind}")
+    for _ in range(tries):
+        task = code.make_task(rng, kind)
+        if ok(task):
+            return task
+    raise AssertionError(kind)
+
+
+def test_guards_catch_what_the_checks_miss():
+    """Ways to pass a check without doing the task, that an RL reward must not pay for."""
+    # fix_test: the failing assert deleted instead of the bug fixed
+    task = _task_where("fix_test", lambda t: True)
+    with Sandbox(task.files) as sb:
+        for path in [p for p in task.files if p.startswith("test_")]:
+            sb.write(path, "\n".join(l for l in task.files[path].splitlines() if not l.startswith("assert")) + "\n")
+        assert task.check(sb, "Fixed.") and not task.reward(sb, "Fixed.", [])
+    # run_tests: "All tests pass." without running them
+    task = _task_where("run_tests", lambda t: True)
+    with Sandbox(task.files) as sb:
+        answer = "All tests pass. test passes."
+        if task.check(sb, answer):
+            assert not task.reward(sb, answer, [("glob", {"pattern": "**/test_*.py"})])
+    # find_def: every line number at once
+    task = _task_where("find_def", lambda t: "couldn't" not in t.title)
+    with Sandbox(task.files) as sb:
+        answer = " ".join(f"{p}, line {n}." for p in task.files for n in range(1, 30))
+        assert task.check(sb, answer) and not task.reward(sb, answer, [("grep", {"pattern": "def"})])
 
 
 def test_conversations_are_deterministic_and_relocated():

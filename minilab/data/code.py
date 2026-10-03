@@ -416,6 +416,9 @@ Oracle = Generator[tuple, str, str]   # yields tool calls (name, args[, MISTAKE]
 MISTAKE = "mistake"   # a call the transcript shows but SFT doesn't train on (weight 0): the model learns to recover
 
 
+Calls = list[tuple[str, dict]]   # the tool calls an attempt made: [(name, arguments)]
+
+
 @dataclass
 class Task:
     kind: str
@@ -425,6 +428,30 @@ class Task:
     check: Callable[[Sandbox, str], bool]
     title: str
     edits_project: bool = True
+    # What a reward needs on top of `check` (the eval's): that the attempt did the work instead
+    # of guessing (the tests were run, the file was read), and didn't game the check (a test
+    # made to pass by editing it, a function fixed for the test's inputs only).
+    guard: Callable[[Sandbox, str, Calls], bool] | None = None
+
+    def reward(self, sb: Sandbox, answer: str, calls: Calls) -> bool:
+        return bool(self.check(sb, answer)) and (self.guard is None or bool(self.guard(sb, answer, calls)))
+
+
+def _called(calls: Calls, name: str, contains: str = "") -> bool:
+    """Did the attempt call this tool, with an argument containing `contains`?"""
+    return any(n == name and contains in " ".join(str(v) for v in args.values()) for n, args in calls)
+
+
+def _ran(calls: Calls, script: str) -> bool:
+    return _called(calls, "shell", script)
+
+
+def _behaves(sb: Sandbox, module: "Module", funcs: list["Func"], seed: int, name: dict[str, str] | None = None) -> bool:
+    """These functions of the module return the right values on inputs no test uses."""
+    names = [(name or {}).get(f.name, f.name) for f in funcs]
+    code = f"from {module.import_name} import {', '.join(names)}; " + \
+           "; ".join(_asserts(f, random.Random(seed + i), 5, n) for i, (f, n) in enumerate(zip(funcs, names)))
+    return _python_ok(sb, code)
 
 
 @dataclass
@@ -501,8 +528,11 @@ def task_list_files(rng: random.Random, p: Project) -> Task:
     def check(sb: Sandbox, answer: str) -> bool:
         return all(f in answer for f in expected)
 
+    def guard(sb: Sandbox, answer: str, calls: Calls) -> bool:
+        return _called(calls, "glob") or _called(calls, "shell", "ls") or _called(calls, "read", ".")
+
     return Task("list_files", p.files, prompt, solve, check, "Project files overview" if not py_only
-                else "Python files listing", edits_project=False)
+                else "Python files listing", edits_project=False, guard=guard)
 
 
 def task_find_def(rng: random.Random, p: Project) -> Task:
@@ -534,7 +564,12 @@ def task_find_def(rng: random.Random, p: Project) -> Task:
             return "couldn't find" in answer or "no function" in answer.lower()
         return where["path"] in answer and re.search(rf"\b{where['line']}\b", answer) is not None
 
-    return Task("find_def", p.files, prompt, solve, check, f"Locate {name} definition", edits_project=False)
+    def guard(sb: Sandbox, answer: str, calls: Calls) -> bool:
+        numbers = set(re.findall(r"\b\d+\b", re.sub(r"`[^`]*`", "", answer)))   # not one line number per file
+        return (_called(calls, "grep") or _called(calls, "read")) and numbers <= {str(where.get("line"))}
+
+    return Task("find_def", p.files, prompt, solve, check, f"Locate {name} definition", edits_project=False,
+                guard=guard)
 
 
 def task_show_file(rng: random.Random, p: Project) -> Task:
@@ -553,7 +588,10 @@ def task_show_file(rng: random.Random, p: Project) -> Task:
     def check(sb: Sandbox, answer: str) -> bool:
         return all(f.name in answer for f in m.funcs)
 
-    return Task("show_file", p.files, prompt, solve, check, f"Contents of {path}", edits_project=False)
+    def guard(sb: Sandbox, answer: str, calls: Calls) -> bool:
+        return _called(calls, "read", path)
+
+    return Task("show_file", p.files, prompt, solve, check, f"Contents of {path}", edits_project=False, guard=guard)
 
 
 def task_explain(rng: random.Random, p: Project) -> Task:
@@ -577,7 +615,11 @@ def task_explain(rng: random.Random, p: Project) -> Task:
     def check(sb: Sandbox, answer: str) -> bool:
         return any(ph in answer for ph in f.kind.phrases)
 
-    return Task("explain", p.files, prompt, solve, check, f"Explain {f.name} function", edits_project=False)
+    def guard(sb: Sandbox, answer: str, calls: Calls) -> bool:
+        return _called(calls, "read", m.path)
+
+    return Task("explain", p.files, prompt, solve, check, f"Explain {f.name} function", edits_project=False,
+                guard=guard)
 
 
 def task_run(rng: random.Random, p: Project) -> Task | None:
@@ -599,8 +641,11 @@ def task_run(rng: random.Random, p: Project) -> Task | None:
             return _error_line(expected).split(":")[0] in answer
         return all(line in answer for line in expected.splitlines())
 
+    def guard(sb: Sandbox, answer: str, calls: Calls) -> bool:
+        return _ran(calls, script)
+
     title = f"Run {script}" if script in prompt else "Run the project"
-    return Task("run", p.files, prompt, solve, check, title, edits_project=False)
+    return Task("run", p.files, prompt, solve, check, title, edits_project=False, guard=guard)
 
 
 def task_run_tests(rng: random.Random, p: Project) -> Task | None:
@@ -631,7 +676,10 @@ def task_run_tests(rng: random.Random, p: Project) -> Task | None:
         ok = all("Exited with code" not in _run_output(p.files, t) for t in tests)
         return ("pass" in answer and "fail" not in answer) if ok else "fail" in answer
 
-    return Task("run_tests", p.files, prompt, solve, check, "Run the test suite", edits_project=False)
+    def guard(sb: Sandbox, answer: str, calls: Calls) -> bool:
+        return all(_ran(calls, t) for t in tests)
+
+    return Task("run_tests", p.files, prompt, solve, check, "Run the test suite", edits_project=False, guard=guard)
 
 
 # ---- create -------------------------------------------------------------------
@@ -741,7 +789,10 @@ def task_rename(rng: random.Random, p: Project) -> Task | None:
         mod = files.get(m.path, "")
         return f"def {g}(" in mod and _still_works(sb, p)
 
-    return Task("rename", p.files, prompt, solve, check, f"Rename {f.name} to {g}")
+    def guard(sb: Sandbox, answer: str, calls: Calls) -> bool:
+        return _behaves(sb, m, [f], 4, {f.name: g})
+
+    return Task("rename", p.files, prompt, solve, check, f"Rename {f.name} to {g}", guard=guard)
 
 
 def task_change_const(rng: random.Random, p: Project) -> Task | None:
@@ -886,9 +937,13 @@ def task_fix_test(rng: random.Random, p: Project) -> Task | None:
     def check(sb: Sandbox, answer: str) -> bool:
         return all("Exited with code" not in sb.shell(f"python3 {t}") for t in p.tests) and _still_works(sb, p)
 
+    def guard(sb: Sandbox, answer: str, calls: Calls) -> bool:
+        # the tests as they were, and every function of the module right, the distractor too
+        return all(sb.read_file(t) == files[t] for t in p.tests) and _behaves(sb, module, module.funcs, 5)
+
     title = (f"Fix bug in {f.name}" if f.name in prompt else f"Fix failing {test}" if test in prompt
              else "Fix failing tests")   # what the request says: a title can't know more
-    return Task("fix_test", files, prompt, solve, check, title)
+    return Task("fix_test", files, prompt, solve, check, title, guard=guard)
 
 
 def _distractor(rng: random.Random, f: Func, bad_body: str, p: Project) -> Func | None:
@@ -943,7 +998,11 @@ def task_fix_crash(rng: random.Random, p: Project) -> Task | None:
     def check(sb: Sandbox, answer: str) -> bool:
         return sb.shell(f"python3 {script}") == good_out
 
-    return Task("fix_crash", files, prompt, solve, check, f"Fix {script} crash")
+    def guard(sb: Sandbox, answer: str, calls: Calls) -> bool:
+        lines = lambda text: ["".join(l.split()) for l in (text or "").splitlines() if l.strip()]
+        return lines(sb.read_file(script)) == lines(p.files[script])   # the typo fixed, nothing else touched
+
+    return Task("fix_crash", files, prompt, solve, check, f"Fix {script} crash", guard=guard)
 
 
 def _slip(rng: random.Random, old: str) -> str:
@@ -1103,6 +1162,19 @@ def play(task: Task, sb: Sandbox, start: int = 0) -> list[dict]:
     except StopIteration as stop:
         messages.append({"role": "assistant", "content": stop.value})
     return messages
+
+
+def calls_of(messages: list[dict]) -> Calls:
+    """The tool calls of a transcript, as (name, arguments)."""
+    out = []
+    for m in messages:
+        for call in m.get("tool_calls") or []:
+            try:
+                args = json.loads(call["function"]["arguments"])
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            out.append((call["function"]["name"], args if isinstance(args, dict) else {}))
+    return out
 
 
 def _relocate(messages: list[dict], src: str, dst: str) -> list[dict]:

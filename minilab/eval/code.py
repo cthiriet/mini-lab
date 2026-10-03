@@ -51,16 +51,20 @@ class Episode:
     transcript: list[str] = field(default_factory=list)
 
 
-def _generate(model: GPT, tok: Tokenizer, prompts: list[list[int]], max_new: int, batch: int) -> list[list[int]]:
+def _generate(model: GPT, tok: Tokenizer, prompts: list[list[int]], max_new: int, batch: int,
+              temperature: float = 0.0, generator: torch.Generator | None = None) -> list[list[int]]:
     end = tok.special("<|assistant_end|>")
     out = []
     for i in range(0, len(prompts), batch):
-        out += model.generate(prompts[i:i + batch], max_new, temperature=0.0, stop_ids={end})
+        out += model.generate(prompts[i:i + batch], max_new, temperature=temperature, stop_ids={end},
+                              generator=generator)
     return out
 
 
-def play(model: GPT, tok: Tokenizer, episodes: list[Episode], max_steps: int, max_new: int, batch: int) -> None:
-    """Advance every episode in lockstep: one model turn each, then run the tool calls."""
+def play(model: GPT, tok: Tokenizer, episodes: list[Episode], max_steps: int, max_new: int, batch: int,
+         temperature: float = 0.0, generator: torch.Generator | None = None) -> None:
+    """Advance every episode in lockstep: one model turn each, then run the tool calls. Greedy by
+    default (the eval); sampled with a temperature (RL's attempts)."""
     budget = model.config.block_size - max_new
     for _ in range(max_steps + 1):
         active = [e for e in episodes if not e.done]
@@ -77,7 +81,7 @@ def play(model: GPT, tok: Tokenizer, episodes: list[Episode], max_steps: int, ma
                 continue
             prompts.append(ids)
             ready.append(e)
-        for e, out in zip(ready, _generate(model, tok, prompts, max_new, batch)):
+        for e, out in zip(ready, _generate(model, tok, prompts, max_new, batch, temperature, generator)):
             parsed = parse_completion(tok, out)
             if not parsed.tool_calls or e.sb is None:
                 e.answer, e.done = parsed.content, True
