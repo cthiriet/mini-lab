@@ -1,4 +1,4 @@
-"""mini-code's eval: coding tasks on fresh projects, played end to end like opencode would.
+"""The coding eval: tasks on fresh projects, played end to end like opencode would.
 
 For every task kind (data/code.py), `n_per_kind` new tasks. The model gets opencode's messages
 (system prompt, tools, the request), its tool calls run in a sandbox, their results go back,
@@ -27,11 +27,13 @@ from dataclasses import dataclass, field
 import torch
 
 from minilab.data import code
+from minilab.data.conversations import NAME
 from minilab.data.sandbox import CODE_TOOLS, OPENCODE_TOOLS, TOOL_SCHEMAS, Container, DockerSandbox
 from minilab.eval.tasks import bits_per_char
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
 from minilab.tokenizer.chat import coerce_arguments, parse_completion, render_prompt
+from minilab.train.pretrain import sample_story
 
 EVAL_SEED = "code-eval"
 INVALID = ('{"error":{"type":"tool.execution","message":"Invalid arguments',
@@ -143,12 +145,12 @@ def _task_episodes(container: Container, kinds: list[str], n: int) -> list[Episo
     return episodes
 
 
-def _chat_episodes(n: int, name: str = "mini-code") -> tuple[list[Episode], list[tuple[str, str]]]:
+def _chat_episodes(n: int) -> tuple[list[Episode], list[tuple[str, str]]]:
     """Small talk (no tool may be called) and opencode's title requests."""
     rng = random.Random(f"{EVAL_SEED}-chat")
     episodes, kinds = [], []
     for _ in range(n):
-        ck, prompt, _ = code.chat_turn(rng, name)
+        ck, prompt, _ = code.chat_turn(rng)
         episodes.append(Episode(None, None, [code.system_message("/home/user/project", rng),
                                              {"role": "user", "content": prompt}], OPENCODE_TOOLS))
         kinds.append(("chat", ck))
@@ -160,13 +162,13 @@ def _chat_episodes(n: int, name: str = "mini-code") -> tuple[list[Episode], list
     return episodes, kinds
 
 
-def _chat_ok(kind: tuple[str, str], e: Episode, name: str = "mini-code") -> bool:
+def _chat_ok(kind: tuple[str, str], e: Episode) -> bool:
     answer = (e.answer or "").strip()
     if e.calls or not answer:
         return False
     if kind[0] == "title":
         return "\n" not in answer and len(answer) <= 50
-    return {"identity": f"I'm {name}," in answer, "out_of_scope": "can't" in answer}.get(kind[1], True)
+    return {"identity": f"I'm {NAME}," in answer, "out_of_scope": "can't" in answer}.get(kind[1], True)
 
 
 def _mean(values) -> float | None:
@@ -175,18 +177,16 @@ def _mean(values) -> float | None:
 
 
 def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
-    """mini-code's eval; for mini-4 (`world = "unified"`), the coding half of it, with the
-    [code_eval] section."""
-    ec = cfg["code_eval"] if cfg["data"].get("world") == "unified" else cfg["eval"]
-    name = code.agent_name(cfg)
+    """The coding eval, with the [code_eval] section of the config."""
+    ec = cfg["code_eval"]
     t0 = time.time()
     loss, ppl = perplexity(model, tok, ec.get("ppl_docs", 400))
     bpc = bits_per_char(tok, held_out_documents(ec.get("ppl_docs", 400)), loss)
-    result = {"stage": stage, "world": "code", "mode": "chat" if stage != "pretrain" else "completion",
+    result = {"stage": stage, "mode": "chat" if stage != "pretrain" else "completion",
               "val_loss": round(loss, 4), "val_ppl": round(ppl, 3), "val_bpc": round(bpc, 4)}
     if stage == "pretrain":  # a base model has no chat format: only its Python
         device = model.wte.weight.device.type
-        result["samples"] = [{"prompt": "def add(a, b):", "response": sample(model, tok, "def add(a, b):", device)}]
+        result["samples"] = [{"prompt": "def add(a, b):", "response": sample_story(model, tok, device, "def add(a, b):")}]
         result["eval_seconds"] = round(time.time() - t0, 1)
         return result
 
@@ -202,7 +202,7 @@ def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
             except Exception:  # a check on a project the model mangled
                 oks.append(False)
             e.sb.close()
-    chats, chat_kinds = _chat_episodes(ec.get("n_chat", 30), name)
+    chats, chat_kinds = _chat_episodes(ec.get("n_chat", 30))
     play(model, tok, chats, 1, 128, batch)
 
     by_kind = {k: _mean(ok for e, ok in zip(episodes, oks) if e.task.kind == k) for k in kinds}
@@ -212,29 +212,14 @@ def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
     calls = sum(e.calls for e in episodes)
     result["valid_calls"] = sum(e.valid for e in episodes) / calls if calls else None
     result["steps"] = round(calls / len(episodes), 2)
-    result["chat"] = _mean(_chat_ok(k, e, name) for k, e in zip(chat_kinds, chats) if k[0] == "chat")
-    result["title"] = _mean(_chat_ok(k, e, name) for k, e in zip(chat_kinds, chats) if k[0] == "title")
+    result["chat"] = _mean(_chat_ok(k, e) for k, e in zip(chat_kinds, chats) if k[0] == "chat")
+    result["title"] = _mean(_chat_ok(k, e) for k, e in zip(chat_kinds, chats) if k[0] == "title")
     result["failures"] = {k: [{"prompt": e.task.prompt, "transcript": e.transcript}
                               for e, ok in zip(episodes, oks) if e.task.kind == k and not ok][:2] for k in kinds}
     result["samples"] = [{"prompt": e.task.prompt, "response": "\n".join(e.transcript)}
                          for e in episodes[::max(1, len(episodes) // 6)]][:6]
     result["eval_seconds"] = round(time.time() - t0, 1)
     return result
-
-
-def sample(model: GPT, tok: Tokenizer, prompt: str, device: str, n: int = 80) -> str:
-    gen = torch.Generator(device=device).manual_seed(0)
-    ids = [tok.bos_id, *tok.encode(prompt)]
-    out = model.generate([ids], n, temperature=0.8, top_k=50, stop_ids={tok.bos_id}, generator=gen)[0]
-    return prompt + tok.decode(t for t in out if t != tok.bos_id)
-
-
-# Columns of the eval table: (label, key in eval.json)
-TABLE = [("agent", "agent"), ("explore", "families.explore"), ("create", "families.create"),
-         ("modify", "families.modify"), ("repair", "families.repair"), ("valid calls", "valid_calls"),
-         ("chat", "chat"), ("title", "title")]
-TABLE_FOOTNOTE = ("agent = coding tasks done end to end (mean over 13 kinds, see eval.json), valid calls = tool calls "
-                  "opencode accepts, chat = small talk without tools, title = opencode's title requests.")
 
 
 def get(result: dict, path: str):
@@ -246,7 +231,7 @@ def get(result: dict, path: str):
 def main() -> None:
     """Play one request on a project directory, in the Docker sandbox, and print the transcript.
 
-        uv run python -m minilab.eval.code runs/code/sft examples/opencode/project "Run the tests and fix any bug"
+        uv run python -m minilab.eval.code models/prelude-1 examples/opencode/project "Run the tests and fix any bug"
 
     The project is copied into the container: the directory itself is never modified."""
     import argparse
@@ -254,7 +239,7 @@ def main() -> None:
 
     from minilab.checkpoint import load_checkpoint
     from minilab.train.trainer import DEVICES, resolve_device
-    p = argparse.ArgumentParser(description="Play a request with mini-code, tools in a Docker sandbox.")
+    p = argparse.ArgumentParser(description="Play a coding request, tools in a Docker sandbox.")
     p.add_argument("model", help="a checkpoint or release directory")
     p.add_argument("project", help="a directory of small text files (copied into the sandbox)")
     p.add_argument("prompt", nargs="+")

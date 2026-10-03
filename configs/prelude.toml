@@ -1,13 +1,12 @@
-# mini-4: one model for everything mini and mini-code do. Stories and addition (mini-3.2's
-# recipe), and a coding agent for opencode (mini-code-1's world), in a single 5.8M-parameter GPT
-# with a 1,024-token context.
+# prelude: one 5.8M-parameter GPT with a 1,024-token context that tells short stories, adds
+# numbers (step by step or with a calculator) and, in opencode, is a coding agent for tiny
+# Python projects. ~1h35 on an Apple M5 Pro (MPS), Docker needed for the coding eval.
 #
-#   bash speedrun.sh unified
+#   bash speedrun.sh
 seed = 0
 optimizer = "muon"          # the hidden matrices on Muon, embedding and norms on AdamW (train/trainer.py)
 
-[data]
-world = "unified"           # TinyStories + arithmetic, and minilab/data/code.py
+[data]                      # TinyStories + arithmetic, and the toy code world of minilab/data/code.py
 train_mb = 200              # first N MB of TinyStoriesV2-GPT4-train.txt (~255k stories, each seen ~once)
 val_mb = 4                  # first N MB of the validation file (held out)
 digits = [1, 2, 3, 4, 5]    # operand lengths in the pretraining worksheets (and RL)
@@ -19,27 +18,27 @@ vocab_size = 4096
 sample_stories = 8000
 code_sample = 2000          # agent transcripts, and as many Python documents
 
-[model]                     # 5.8M parameters, mini-3.2's
-block_size = 1024           # mini-code's: opencode's requests, cut down by the chat template
+[model]                     # 5.8M parameters: the compute-optimal size for this budget (docs/training.md)
+block_size = 1024           # opencode's requests, cut down by the chat template
 n_layer = 6
 n_head = 4
 n_embd = 256
 
-[pretrain]                  # mini-3.2's 57M tokens of stories and worksheets, plus ~25M of Python (mini-code-1's)
+[pretrain]                  # 57M tokens of stories and worksheets, and ~25M of Python
 steps = 5000
 batch_size = 16             # 16 x 1,024 tokens a step
 lr = 3e-3
 warmup = 100
 weight_decay = 0.1
 arith_frac = 0.25           # probability that the next document is an arithmetic worksheet
-code_frac = 0.4             # probability that the next document is Python: 30% of the tokens (~25M, mini-code-1's)
+code_frac = 0.4             # probability that the next document is Python: 30% of the tokens
 eval_every = 250
 log_every = 25
 val_batches = 10
 
-[midtrain]                  # mini-3.2's: 4.9M tokens of single-turn chats, packed, loss on every token
+[midtrain]                  # 4.9M tokens of single-turn chats, packed, loss on every token
 steps = 600
-batch_size = 8              # 8 x 1,024 tokens: mini-3.2's 32 x 256
+batch_size = 8              # 8 x 1,024 tokens
 lr = 1e-3
 warmup = 30
 weight_decay = 0.1
@@ -50,8 +49,8 @@ mix = { arithmetic = 0.6, story = 0.2, greeting = 0.2 }
 eval_every = 200
 log_every = 25
 
-[sft]                       # mini-3.2's chat conversations and mini-code-1's agent transcripts, one row each
-size = 16000                # chat conversations (twice mini-3.2's set: 1.4 epochs)
+[sft]                       # chat conversations and agent transcripts, one row each
+size = 16000                # chat conversations (1.4 epochs)
 mix = { plain = 0.13, instruction = 0.33, followup = 0.12, new_question = 0.12, switch = 0.08, mixed = 0.1, refusal = 0.08, identity = 0.04 }
 digits = [1, 2, 3]
 tool_frac = 0.3
@@ -60,7 +59,7 @@ code_mix = { list_files = 0.04, find_def = 0.04, show_file = 0.04, explain = 0.0
 code_frac = 0.5             # share of rows that are agent transcripts: 3,500 x 32 rows = 28,000 chats + 56,000 transcripts
                             # (at 0.89, the chats' val loss rose from step 250 on: the chat skills were being forgotten)
 text_frac = 0.25            # share of rows that are pretraining documents, loss on every token (as in midtraining): without
-                            # them, SFT took the stories from 0.59 to 1.00 bits per character, 0.74 with 10% (mini-3.2: 0.64)
+                            # them, SFT took the stories from 0.59 to 1.00 bits per character, 0.74 with 10%
 steps = 3500
 batch_size = 32
 lr = 1e-3
@@ -70,7 +69,7 @@ eval_every = 250
 log_every = 25
 val_batches = 10
 
-[rl_math]                   # the math specialist, mini-3.2's
+[rl_math]                   # the math specialist: additions and the calculator only
 steps = 330
 prompts_per_step = 16
 group_size = 8
@@ -83,7 +82,7 @@ lr = 1e-4
 warmup = 10
 log_every = 5
 
-[distill]                   # mini-3.2's, plus one turn of an agent transcript in 1 problem of 6 (teacher: the SFT model)
+[distill]                   # one turn of an agent transcript in 1 problem of 6 (teacher: the SFT model)
 steps = 300
 prompts_per_step = 32
 digits = [1, 2, 3, 4, 5]
@@ -97,7 +96,7 @@ lr = 1e-4
 warmup = 10
 log_every = 5
 
-[eval]                      # mini-3.2's
+[eval]                      # stories, addition, instructions, whole chats
 n_per_digit = 100
 n_sampled = 100
 n_tool = 50
@@ -106,7 +105,7 @@ n_chat = 200
 max_new_tokens = 200
 ppl_batches = 8
 
-[code_eval]                 # mini-code-1's, in a Docker sandbox
+[code_eval]                 # coding tasks played end to end, in a Docker sandbox
 n_per_kind = 50
 n_chat = 30
 max_steps = 8
@@ -115,9 +114,6 @@ batch = 32
 ppl_docs = 400
 
 [release]
-family = "mini"
-gate_families = ["mini", "mini-code"]   # it replaces both: no regression against mini-3.2 nor mini-code-1
 description = "short stories, addition (step-by-step reasoning or calculator tool), and in opencode a coding agent for small Python projects."
-truncation = "auto"         # the server fits long agent requests into the 1,024-token context
 temperature = 0.0           # when a request sets none: opencode never does, and can't be told to (agent and model
                             # options don't reach the request); the chat app sends its own

@@ -76,8 +76,8 @@ router = APIRouter()
 
 
 def _model_json(m: ModelInfo) -> dict:
-    """An OpenAI model object, plus mini-lab extras (family, description, context window, pricing)."""
-    return {"id": m.id, "object": "model", "created": m.created, "owned_by": "mini-lab", "family": m.family,
+    """An OpenAI model object, plus mini-lab extras (description, context window, pricing)."""
+    return {"id": m.id, "object": "model", "created": m.created, "owned_by": "mini-lab",
             "description": m.description, "context_length": m.context_length, "pricing": asdict(m.pricing)}
 
 

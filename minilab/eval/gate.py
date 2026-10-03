@@ -4,15 +4,10 @@ Both models are evaluated with the same eval code and config: the baseline's own
 may predate a check, or measure it on other prompts. Every metric is compared, and a drop
 counts as a regression beyond the noise of its sample: two more failures than before, and at
 least 2 points (a check of 30 prompts may lose 6.7 points, one of 100 prompts 2); perplexity
-may rise by 2% (measured in bits per character, which also compares models whose tokenizers
-differ). A regression blocks the release unless it is waived with a reason, which the release
-records.
+may rise by 2% (measured in bits per character: every run trains its own tokenizer). A
+regression blocks the release unless it is waived with a reason, which the release records.
 
-mini-4 (`world = "unified"`) replaces two models: it is compared with the newest release of each
-family it covers (`[release] gate_families`), mini-3.2 on stories and math, mini-code-1 on code.
-Each baseline gets the whole eval: what it can't do scores 0 and can't be a regression.
-
-    uv run python -m minilab.eval.gate models/mini-3.2 --baseline models/mini-3.1 --config configs/small.toml
+    uv run python -m minilab.eval.gate runs/prelude/distill --baseline models/prelude-1 --config configs/prelude.toml
 """
 
 from __future__ import annotations
@@ -45,12 +40,10 @@ class Change:
 
 
 def metrics(result: dict, cfg: dict) -> dict[str, tuple[float, int, bool]]:
-    """The eval's numbers as {name: (value, prompts, higher is better)}; prompts 0 = perplexity."""
-    if result.get("world") == "code":
-        return code_metrics(result, cfg["eval"])
+    """The eval's numbers as {name: (value, prompts, higher is better)}; prompts 0 = bits per character."""
     ec, digits = cfg["eval"], cfg["data"]["digits"]
     n_instr = ec.get("n_instr", 30)
-    out = {"bpc": (result["val_bpc"], 0, False)} if "val_bpc" in result else {"ppl": (result["val_ppl"], 0, False)}
+    out = {"bpc": (result["val_bpc"], 0, False)}
     out |= {f"{n}d": (result["arithmetic"][str(n)], ec["n_per_digit"], True) for n in digits}
     candidates = {
         f"{max(digits)}d@T=1": ("arithmetic_sampled", ec["n_sampled"]),
@@ -64,15 +57,15 @@ def metrics(result: dict, cfg: dict) -> dict[str, tuple[float, int, bool]]:
     for kind, value in result.get("instructions", {}).items():
         if value is not None:  # over-refusal is measured on every in-scope prompt: the 2-point floor
             out[kind] = (value, 100, False) if kind == "over_refusal" else (value, n_instr, True)
-    if "code" in result:  # mini-4: the coding half, "code bpc" and "code chat" apart from the stories' and chats'
-        out |= {(f"code {k}" if k in ("bpc", "ppl", "chat") else k): v
+    if "code" in result:  # the coding agent: "code bpc" and "code chat" apart from the stories' and chats'
+        out |= {(f"code {k}" if k in ("bpc", "chat") else k): v
                 for k, v in code_metrics(result["code"], cfg["code_eval"]).items()}
     return out
 
 
 def code_metrics(result: dict, ec: dict) -> dict[str, tuple[float, int, bool]]:
-    """mini-code: every task kind, small talk and titles (see eval/code.py); ec: its eval section."""
-    out = {"bpc": (result["val_bpc"], 0, False)} if "val_bpc" in result else {"ppl": (result["val_ppl"], 0, False)}
+    """The coding eval: every task kind, small talk and titles (see eval/code.py); ec: [code_eval]."""
+    out = {"bpc": (result["val_bpc"], 0, False)}
     out |= {kind: (v, ec["n_per_kind"], True) for kind, v in result.get("tasks", {}).items() if v is not None}
     out |= {k: (result[k], ec.get("n_chat", 30), True) for k in ("chat", "title") if result.get(k) is not None}
     if result.get("valid_calls") is not None:
@@ -93,10 +86,9 @@ def compare(new: dict, old: dict, cfg: dict) -> list[Change]:
     return changes
 
 
-def newest_release(models_dir: Path, exclude: str, family: str = "mini") -> Path | None:
-    """The most recent release of the same family (mini, mini-code) other than `exclude` (the one
-    being released)."""
-    return next((m.path for m in list_models(models_dir) if m.id != exclude and m.family == family), None)
+def newest_release(models_dir: Path, exclude: str) -> Path | None:
+    """The most recent release other than `exclude` (the one being released)."""
+    return next((m.path for m in list_models(models_dir) if m.id != exclude), None)
 
 
 def check(new_result: dict, baseline: Path, cfg: dict, device: str, waivers: dict[str, str],
@@ -115,30 +107,14 @@ def check(new_result: dict, baseline: Path, cfg: dict, device: str, waivers: dic
 
 
 def _fmt(metric: str, value: float) -> str:
-    name = metric.split(" (vs ")[0].removeprefix("code ")
-    return f"{value:.3f}" if name == "bpc" else f"{value:.2f}" if name == "ppl" else f"{100 * value:.0f}%"
-
-
-def check_all(new_result: dict, baselines: list[Path], cfg: dict, device: str, waivers: dict[str, str],
-              stage: str = "distill") -> dict:
-    """check() against several baselines (mini-4 against mini-3.2 and mini-code-1): it passes if
-    every one passes, and a regression says which baseline it is against."""
-    results = [check(new_result, b, cfg, device, waivers, stage) for b in baselines]
-    if len(results) == 1:
-        return results[0]
-    return {"baseline": ", ".join(r["baseline"] for r in results), "passed": all(r["passed"] for r in results),
-            "regressions": [{**c, "metric": f"{c['metric']} (vs {r['baseline']})"} for r in results
-                            for c in r["regressions"]],
-            "waived": {k: v for r in results for k, v in r["waived"].items()},
-            "changes": [{**c, "baseline": r["baseline"]} for r in results for c in r["changes"]],
-            "baseline_eval": {r["baseline"]: r["baseline_eval"] for r in results}}
+    return f"{value:.3f}" if metric.removeprefix("code ") == "bpc" else f"{100 * value:.0f}%"
 
 
 def report(result: dict) -> str:
     """A few lines for the terminal: the verdict, then every regression."""
     lines = [f"release gate vs {result['baseline']}: " + ("passed" if result["passed"] else "BLOCKED")]
     for c in result["regressions"]:
-        waived = result["waived"].get(c["metric"].split(" (vs ")[0])
+        waived = result["waived"].get(c["metric"])
         lines.append(f"  {c['metric']}: {_fmt(c['metric'], c['old'])} -> {_fmt(c['metric'], c['new'])}"
                      + (f"  (waived: {waived})" if waived else "  REGRESSION"))
     if not result["regressions"]:
@@ -160,8 +136,8 @@ def parse_waivers(items: list[str]) -> dict[str, str]:
 def main() -> None:
     p = argparse.ArgumentParser(description="Compare a model with a baseline release, both evaluated now.")
     p.add_argument("model", help="the candidate: a release or checkpoint directory")
-    p.add_argument("--baseline", required=True, help="the release to beat, e.g. models/mini-3")
-    p.add_argument("--config", default="configs/small.toml", help="the eval settings (the [eval] and [data] sections)")
+    p.add_argument("--baseline", required=True, help="the release to beat, e.g. models/prelude-1")
+    p.add_argument("--config", default="configs/prelude.toml", help="the eval settings ([data], [eval], [code_eval])")
     p.add_argument("--device", default="auto", choices=DEVICES)
     p.add_argument("--allow", action="append", default=[], metavar="METRIC=REASON")
     args = p.parse_args()

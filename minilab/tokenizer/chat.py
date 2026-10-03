@@ -6,17 +6,15 @@ A rendered conversation looks like this (one line per turn for readability):
     <|system_start|>tools: calculator<|system_end|>            # only if tools are enabled
     <|system_start|>You are a helpful assistant.<|system_end|>  # optional system message
     <|user_start|>What is 347 + 58?<|user_end|>
-    <|assistant_start|><|tool_call_start|>{"name": "calculator", "arguments": {"expression": "347 + 58"}}<|tool_call_end|><|assistant_end|>
+    <|assistant_start|><|tool_call_start|>calculator<|arg|>expression=347 + 58<|tool_call_end|><|assistant_end|>
     <|tool_start|>405<|tool_end|>
-    <|assistant_start|><|think_start|>...scratchpad...<|think_end|>347 + 58 = 405<|assistant_end|>
+    <|assistant_start|>The answer is 405.<|assistant_end|>
 
-Messages use the OpenAI format. Assistant messages may carry a "reasoning" key
-(our extension) that is rendered inside <|think_start|>...<|think_end|>.
+Messages use the OpenAI format. Assistant messages may carry a "reasoning" key (our
+extension) that is rendered inside <|think_start|>...<|think_end|>: the scratchpad.
 
-The tokenizer says which template its model was trained with (`tok.chat_template`), like a
-Hugging Face tokenizer config. mini-code's "code" template differs in four ways, all so that a
-coding agent's requests (opencode sends ~20k characters of system prompt and ~14k of tool
-schemas) fit a model with a 1,024-token context:
+The same template serves the chat app and coding agents such as opencode, which send ~20k
+characters of system prompt and ~14k of tool schemas to a model with a 1,024-token context:
 
 - tool calls carry their arguments raw, not as JSON, so code needs no escaping:
       <|tool_call_start|>edit<|arg|>path=calc.py<|arg|>oldString=    return a - b<|arg|>newString=...<|tool_call_end|>
@@ -77,22 +75,17 @@ def _call_arguments(call: dict) -> tuple[str, dict | str]:
     return fn["name"], args
 
 
-def _tool_call_json(call: dict) -> str:
-    name, args = _call_arguments(call)
-    return json.dumps({"name": name, "arguments": args})
-
-
 def _tool_call_ids(tok: Tokenizer, call: dict) -> list[int]:
-    """The "code" template: name<|arg|>key=value<|arg|>key=value, values raw."""
+    """name<|arg|>key=value<|arg|>key=value, values raw."""
     name, args = _call_arguments(call)
     ids = tok.encode(name)
     for key, value in (args.items() if isinstance(args, dict) else []):
         text = value if isinstance(value, str) else json.dumps(value)
-        ids += [tok.special(ARG), *tok.encode(f"{key}={text}")]
+        ids += [tok.special(ARG), *tok.encode(f"{key}={shorten(text, MAX_TEXT_CHARS)}")]
     return ids
 
 
-# ---- the "code" template: what a coding agent's messages become -------------------------
+# ---- what an agent harness's messages become -----------------------------------------------
 
 def first_sentence(text: str) -> str:
     line = text.strip().split("\n", 1)[0]
@@ -125,8 +118,9 @@ def shorten(text: str, max_chars: int) -> str:
     return text[:max_chars].rsplit("\n", 1)[0] + "\n[... truncated]"
 
 
-def code_messages(messages: list[dict]) -> list[dict]:
-    """The messages as the "code" template shows them (see the module docstring)."""
+def prepare_messages(messages: list[dict]) -> list[dict]:
+    """The messages as the model sees them: system prompts cut, paths relative, long texts
+    shortened (see the module docstring)."""
     cwd = working_directory(messages)
 
     def rel(text: str) -> str:
@@ -176,8 +170,7 @@ def _render_message(tok: Tokenizer, msg: dict) -> tuple[list[int], list[int]]:
             body += [S("<|think_start|>"), *tok.encode(msg["reasoning"]), S("<|think_end|>")]
         body += tok.encode(text)
         for call in msg.get("tool_calls") or []:
-            inner = _tool_call_ids(tok, call) if tok.chat_template == "code" else tok.encode(_tool_call_json(call))
-            body += [S("<|tool_call_start|>"), *inner, S("<|tool_call_end|>")]
+            body += [S("<|tool_call_start|>"), *_tool_call_ids(tok, call), S("<|tool_call_end|>")]
         body.append(S("<|assistant_end|>"))
         train = msg.get("weight", 1) != 0  # OpenAI's fine-tuning format: weight 0 = context, not a target
         return [S("<|assistant_start|>"), *body], [0] + [int(train)] * len(body)
@@ -194,38 +187,37 @@ def render_conversation(
     Returns (ids, mask) where mask[i] == 1 for tokens the model should learn to
     produce (assistant turns, including their <|assistant_end|>), 0 otherwise.
     """
-    if tok.chat_template == "code":
-        messages = code_messages(messages)
     ids = _render_header(tok, tools)
     mask = [0] * len(ids)
-    for msg in messages:
+    for msg in prepare_messages(messages):
         i, m = _render_message(tok, msg)
         ids += i
         mask += m
     return ids, mask
 
 
+def prompt_budget(context_length: int, max_tokens: int | None) -> int:
+    """How many tokens a prompt may take: the rest of the context is room for the answer,
+    max_tokens or a quarter of the context, at most half."""
+    return context_length - min(max_tokens or context_length // 4, context_length // 2)
+
+
 def render_prompt(tok: Tokenizer, messages: list[dict], tools=None, budget: int | None = None) -> list[int]:
     """Render messages for inference: the result ends with <|assistant_start|>.
 
-    With a budget (the "code" template's context management), the prompt is at most `budget`
-    tokens: see fit_messages()."""
-    if budget is not None and tok.chat_template == "code":
-        messages = fit_messages(tok, code_messages(messages), tools, budget - 1)
-        return _render_raw(tok, messages, tools) + [tok.special("<|assistant_start|>")]
-    ids, _ = render_conversation(tok, messages, tools)
-    return ids + [tok.special("<|assistant_start|>")]
-
-
-def _render_raw(tok: Tokenizer, messages: list[dict], tools) -> list[int]:
+    With a budget (the server's context management), the prompt is at most `budget` tokens:
+    see fit_messages()."""
+    messages = prepare_messages(messages)
+    if budget is not None:
+        messages = fit_messages(tok, messages, tools, budget - 1)
     ids = _render_header(tok, tools)
     for msg in messages:
         ids += _render_message(tok, msg)[0]
-    return ids
+    return ids + [tok.special("<|assistant_start|>")]
 
 
 def fit_messages(tok: Tokenizer, messages: list[dict], tools, budget: int) -> list[dict]:
-    """The messages whose rendering fits in `budget` tokens, already in the "code" template's form.
+    """The messages whose rendering fits in `budget` tokens, already prepared (prepare_messages).
 
     Kept, in this order: the system messages and the current request (the last user message and
     everything after it: the tool calls made for it so far). Then earlier turns, newest first, a
@@ -282,7 +274,7 @@ class ParsedCompletion:
 def parse_completion(tok: Tokenizer, ids: list[int]) -> ParsedCompletion:
     """Parse generated assistant tokens (everything after <|assistant_start|>)."""
     S = tok.special
-    arg = tok.special_tokens.get(ARG)
+    arg = tok.special(ARG)
     out = ParsedCompletion()
     content: list[int] = []
     reasoning: list[int] | None = None
@@ -318,36 +310,30 @@ def parse_completion(tok: Tokenizer, ids: list[int]) -> ParsedCompletion:
 
 
 def _parse_tool_call(tok: Tokenizer, ids: list[int]) -> dict:
-    arg = tok.special_tokens.get(ARG)
-    if arg is not None and tok.chat_template == "code":
-        parts, cur = [], []
-        for t in ids:
-            if t == arg:
-                parts.append(cur)
-                cur = []
-            else:
-                cur.append(t)
-        parts.append(cur)
-        name = tok.decode(parts[0]).strip()
-        args = {}
-        for p in parts[1:]:
-            key, sep, value = tok.decode(p).partition("=")
-            if not sep or not key.strip().isidentifier():
-                return {"name": "invalid", "arguments": json.dumps({"raw": tok.decode(ids)})}
-            args[key.strip()] = value
-        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", name):
-            return {"name": "invalid", "arguments": json.dumps({"raw": tok.decode(ids)})}
-        return {"name": name, "arguments": json.dumps(args)}
-    text = tok.decode(ids)
-    try:
-        data = json.loads(text)
-        return {"name": str(data["name"]), "arguments": json.dumps(data.get("arguments", {}))}
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return {"name": "invalid", "arguments": json.dumps({"raw": text})}
+    arg = tok.special(ARG)
+    parts, cur = [], []
+    for t in ids:
+        if t == arg:
+            parts.append(cur)
+            cur = []
+        else:
+            cur.append(t)
+    parts.append(cur)
+    name = tok.decode(parts[0]).strip()
+    invalid = {"name": "invalid", "arguments": json.dumps({"raw": tok.decode(ids)})}
+    args = {}
+    for p in parts[1:]:
+        key, sep, value = tok.decode(p).partition("=")
+        if not sep or not key.strip().isidentifier():
+            return invalid
+        args[key.strip()] = value
+    if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", name):
+        return invalid
+    return {"name": name, "arguments": json.dumps(args)}
 
 
 def coerce_arguments(arguments: str, schema: dict | None) -> str:
-    """The "code" template writes every argument as text: give numbers and booleans their JSON
+    """The template writes every argument as text: give numbers and booleans their JSON
     type again, following the tool's JSON schema (`parameters`). Anything else is left as is."""
     props = (schema or {}).get("properties") or {}
     try:
@@ -371,32 +357,3 @@ def coerce_arguments(arguments: str, schema: dict | None) -> str:
             except ValueError:
                 pass
     return json.dumps(args)
-
-
-# ---- history trimming (the chat app, and the eval's real-chat check) ----------
-
-def estimate_tokens(text: str) -> int:
-    """~4 characters per token, except digits: the tokenizer always splits them, one token
-    each. (Counting them as ~4 per token kept 7 turns of additions, 171 real tokens, and
-    left too little room for a 5-digit scratchpad.)"""
-    digits = sum(c.isdigit() for c in text)
-    return digits + (len(text) - digits) // 4
-
-
-def recent_turns(messages: list[dict], context_length: int) -> list[dict]:
-    """The most recent turns whose prompt leaves about half the context for the answer.
-
-    The model's context is tiny (a few hundred tokens): after a long story, the whole
-    conversation would still *fit*, but leave no room to reply. So, like a short memory,
-    we keep only the latest turns (a few template tokens per message), always starting at
-    a user message."""
-    budget, used, start = context_length // 2, 0, len(messages)
-    for i in range(len(messages) - 1, -1, -1):
-        used += estimate_tokens(messages[i].get("content") or "") + 4
-        if used > budget and start < len(messages):
-            break
-        start = i
-    kept = messages[start:]
-    while len(kept) > 1 and kept[0]["role"] != "user":
-        kept = kept[1:]
-    return kept

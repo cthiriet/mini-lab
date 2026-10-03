@@ -26,7 +26,7 @@ from typing import Iterator
 
 from minilab.data import arithmetic
 
-NAME = "mini"
+NAME = "prelude"
 # (user messages, assistant replies): any user message can get any reply of its group.
 GREETINGS = [
     (["Hi", "Hi!", "Hello", "Hello!", "Hey", "hey there", "Good morning!"],

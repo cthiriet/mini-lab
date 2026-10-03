@@ -1,4 +1,4 @@
-# opencode 2, a demo project and Python, for trying mini-code (see README.md). What the model
+# opencode 2, a demo project and Python, for trying prelude as a coding agent (see README.md). What the model
 # runs stays in this container: docker-compose.yml gives it no route to the internet.
 FROM python:3.13-slim
 ARG TARGETARCH

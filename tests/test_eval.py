@@ -26,7 +26,9 @@ digits = [1, 2]
 heldout_digits = [3]
 [pretrain]
 arith_frac = 0.3
-[rl]
+[sft]
+size = 10
+[rl_math]
 digits = [2]
 [eval]
 n_per_digit = 3
@@ -36,6 +38,8 @@ n_instr = 2
 n_chat = 3
 max_new_tokens = 16
 ppl_batches = 1
+[release]
+description = "a test."
 """
 
 
@@ -103,11 +107,11 @@ def test_release_and_model_card(model_and_tok, tmp_path: Path):
     run.mkdir(parents=True)
     (run / "config.toml").write_text(CONFIG)
     cfg = tomllib.loads(CONFIG)
-    for stage in ("pretrain", "rl"):
+    for stage in ("pretrain", "rl_math"):
         save_stage(run, stage, model, tok, {"steps": 1, "tokens": 64, "wall_clock_s": 1.0}, cfg, "cpu")
         (run / stage / "eval.json").write_text(json.dumps(eval_run.evaluate(model, tok, cfg, stage)))
 
-    out = release(run, "rl", "mini-test", tmp_path / "models")
+    out = release(run, "rl_math", "mini-test", tmp_path / "models")
     info = load_model_info(out)
     assert info.id == "mini-test" and info.context_length == 64
     assert info.pricing.input_per_1m == 10.0 and info.pricing.output_per_1m == 50.0
@@ -115,7 +119,7 @@ def test_release_and_model_card(model_and_tok, tmp_path: Path):
     assert card.startswith("# mini-test") and "pretrain (base)" in card
     assert (out / "eval.json").exists()
     loaded, _, meta = load_checkpoint(out)
-    assert meta["stage"] == "rl" and loaded.num_params() == model.num_params()
+    assert meta["stage"] == "rl_math" and loaded.num_params() == model.num_params()
 
 
 def test_chat_scripts():
@@ -142,15 +146,15 @@ def test_eval_chat_plays_every_turn_until_one_fails(model_and_tok):
 
 def test_gate_compare():
     cfg = {"data": {"digits": [1, 2]}, "eval": {"n_per_digit": 100, "n_sampled": 100, "n_tool": 50, "n_instr": 30, "n_chat": 60}}
-    old = {"val_ppl": 6.0, "arithmetic": {"1": 1.0, "2": 0.9}, "chat": 0.8, "instructions": {"sure": 1.0, "over_refusal": 0.0}}
+    old = {"val_bpc": 0.6, "arithmetic": {"1": 1.0, "2": 0.9}, "chat": 0.8, "instructions": {"sure": 1.0, "over_refusal": 0.0}}
     same = gate.compare(old, old, cfg)
-    assert {c.metric for c in same} == {"ppl", "1d", "2d", "chat", "sure", "over_refusal"} and not any(c.regressed for c in same)
-    worse = {"val_ppl": 6.2, "arithmetic": {"1": 0.99, "2": 0.85}, "chat": 0.7,
+    assert {c.metric for c in same} == {"bpc", "1d", "2d", "chat", "sure", "over_refusal"} and not any(c.regressed for c in same)
+    worse = {"val_bpc": 0.62, "arithmetic": {"1": 0.99, "2": 0.85}, "chat": 0.7,
              "instructions": {"sure": 0.87, "over_refusal": 0.05}}
     regressed = {c.metric for c in gate.compare(worse, old, cfg) if c.regressed}
-    # 1d: -1 point on 100 prompts is noise; ppl +3.3%, 2d -5 points, "sure" -4 prompts out of 30: not any more
-    assert regressed == {"ppl", "2d", "chat", "sure", "over_refusal"}
-    assert not any(c.regressed for c in gate.compare({**old, "val_ppl": 6.1}, old, cfg))  # +1.7%
+    # 1d: -1 point on 100 prompts is noise; bpc +3.3%, 2d -5 points, "sure" -4 prompts out of 30: not any more
+    assert regressed == {"bpc", "2d", "chat", "sure", "over_refusal"}
+    assert not any(c.regressed for c in gate.compare({**old, "val_bpc": 0.61}, old, cfg))  # +1.7%
     before_chat = {k: v for k, v in old.items() if k != "chat"}
     assert "chat" not in {c.metric for c in gate.compare(worse, before_chat, cfg)}  # a new check can't regress
     assert gate.parse_waivers(["sure=one greedy prompt"]) == {"sure": "one greedy prompt"}
@@ -164,11 +168,11 @@ def test_gate_blocks_regressions_unless_waived(model_and_tok, tmp_path: Path):
     run.mkdir(parents=True)
     (run / "config.toml").write_text(CONFIG)
     cfg = tomllib.loads(CONFIG)
-    save_stage(run, "rl", model, tok, {"steps": 1, "tokens": 64, "wall_clock_s": 1.0}, cfg, "cpu")
-    result = eval_run.evaluate(model, tok, cfg, "rl")
-    (run / "rl" / "eval.json").write_text(json.dumps(result))
+    save_stage(run, "rl_math", model, tok, {"steps": 1, "tokens": 64, "wall_clock_s": 1.0}, cfg, "cpu")
+    result = eval_run.evaluate(model, tok, cfg, "rl_math")
+    (run / "rl_math" / "eval.json").write_text(json.dumps(result))
     models = tmp_path / "models"
-    baseline = release(run, "rl", "mini-a", models)
+    baseline = release(run, "rl_math", "mini-a", models)
     assert gate.newest_release(models, exclude="mini-b") == baseline and gate.newest_release(models, exclude="mini-a") is None
 
     same = gate.check(result, baseline, cfg, "cpu", {})
@@ -179,6 +183,6 @@ def test_gate_blocks_regressions_unless_waived(model_and_tok, tmp_path: Path):
     assert "BLOCKED" in gate.report(blocked)
     waived = gate.check(worse, baseline, cfg, "cpu", {"bpc": "a test"})
     assert waived["passed"] and waived["waived"] == {"bpc": "a test"}
-    out = release(run, "rl", "mini-b", models, waived)
+    out = release(run, "rl_math", "mini-b", models, waived)
     assert json.loads((out / "gate.json").read_text())["waived"] == {"bpc": "a test"}
     assert "## Release gate" in (out / "MODEL_CARD.md").read_text()

@@ -5,10 +5,10 @@ from minilab.platform.markdown import render_markdown
 
 def test_renders_the_model_card_subset():
     html = render_markdown(
-        "# mini-1\n\nIntro with `code`, **bold** and *italic*.\n\n## Model\n\n"
+        "# prelude-1\n\nIntro with `code`, **bold** and *italic*.\n\n## Model\n\n"
         "| stage | steps |\n|---|---:|\n| pretrain | 3,500 |\n\n- one\n- two\n\n"
         "```\nraw  text\n```\n\n> **Hi!**\n>\n> Hello!\n> How are you?\n", skip_title=True)
-    assert "<h1>" not in html and "mini-1" not in html  # the page already shows the title
+    assert "<h1>" not in html and "prelude-1" not in html  # the page already shows the title
     assert "<code>code</code>" in html and "<strong>bold</strong>" in html and "<em>italic</em>" in html
     assert "<h3>Model</h3>" in html
     assert '<th style="text-align:right">steps</th>' in html and "<td style=\"text-align:left\">pretrain</td>" in html

@@ -1,4 +1,4 @@
-"""mini-code's toy world: tiny Python projects, coding tasks on them, and the agent transcripts
+"""The toy code world: tiny Python projects, coding tasks on them, and the agent transcripts
 that solve them.
 
 A *project* is a few small files: modules of little functions (`add`, `greet`, `reverse`...),
@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Generator, Iterator
 
+from minilab.data.conversations import NAME
 from minilab.data.sandbox import OPENCODE_TOOLS, Sandbox
 
 # ---------------------------------------------------------------------------
@@ -171,7 +172,7 @@ KIND = {k.key: k for k in KINDS}
 NAMES = ["Ada", "Bob", "Sam", "Mia", "Leo", "Zoe", "Max", "Eva", "Tom", "Lia", "Ben", "Amy", "Kai", "Noa"]
 WORDS = ["cat", "hello", "apple", "sun", "python", "robot", "tree", "moon", "code", "banana", "river", "star",
          "house", "music", "lemon", "tiger", "cloud", "pizza"]
-MESSAGES = ["Hello, world!", "Hi there!", "Good morning", "I love Python", "Hello from mini-code", "Welcome!",
+MESSAGES = ["Hello, world!", "Hi there!", "Good morning", "I love Python", "Hello from prelude", "Welcome!",
             "Have a nice day", "Goodbye!", "Let's code", "It works!"]
 
 # Identifiers used inside bodies: a function can't be named like one of them.
@@ -993,15 +994,14 @@ OUT_OF_SCOPE = ["Write me a poem.", "What's the weather today?", "Tell me a joke
                 "What time is it?", "Write a Rust program."]
 
 
-def chat_turn(rng: random.Random, name: str = "mini-code") -> tuple[str, str, str]:
-    """(kind, prompt, answer) of a message that needs no tool. `name`: who the model says it is
-    (mini-4, which also tells stories and adds numbers, is "mini" here too)."""
+def chat_turn(rng: random.Random) -> tuple[str, str, str]:
+    """(kind, prompt, answer) of a message that needs no tool."""
     r = rng.random()
     if r < 0.25:
         return "greeting", rng.choice(GREETINGS), rng.choice(["Hi!", "Hello!", "Hey!"]) + " " + \
             rng.choice(["What should we do in this project?", CAPABILITIES, "How can I help with your code?"])
     if r < 0.45:
-        return "identity", rng.choice(IDENTITY), (f"I'm {name}, a tiny language model trained from scratch on a "
+        return "identity", rng.choice(IDENTITY), (f"I'm {NAME}, a tiny language model trained from scratch on a "
                                                   "laptop. " + CAPABILITIES)
     if r < 0.6:
         return "abilities", rng.choice(ABILITIES), CAPABILITIES + " Try \"Run the tests\" or \"Rename add to plus\"."
@@ -1114,7 +1114,7 @@ CHAT_TITLES = {"greeting": "Greeting", "identity": "Assistant identity question"
                "thanks": "Thanks", "out_of_scope": "Off-topic request"}
 
 
-def conversation(rng: random.Random, kind: str, name: str = "mini-code") -> dict:
+def conversation(rng: random.Random, kind: str) -> dict:
     """One training conversation of the given kind, in OpenAI's message format.
 
     kind: a task kind, "chat", "title" (opencode's request for a session title), or "session":
@@ -1123,7 +1123,7 @@ def conversation(rng: random.Random, kind: str, name: str = "mini-code") -> dict
     root = rng.choice(FAKE_ROOTS)
     if kind == "title":
         if rng.random() < 0.15:
-            ck, prompt, _ = chat_turn(rng, name)
+            ck, prompt, _ = chat_turn(rng)
             title = CHAT_TITLES[ck]
         else:
             task = make_task(rng, rng.choice(list(TASKS)))
@@ -1132,7 +1132,7 @@ def conversation(rng: random.Random, kind: str, name: str = "mini-code") -> dict
                 "messages": [{"role": "system", "content": TITLE_SYSTEM}, {"role": "user", "content": prompt},
                              {"role": "assistant", "content": title}]}
     if kind == "chat":
-        _, prompt, answer = chat_turn(rng, name)
+        _, prompt, answer = chat_turn(rng)
         return {"kind": "chat", "tools": tool_list(rng),
                 "messages": [system_message(root, rng), {"role": "user", "content": noisy(rng, prompt, chat=True)},
                              {"role": "assistant", "content": answer}]}
@@ -1143,7 +1143,7 @@ def conversation(rng: random.Random, kind: str, name: str = "mini-code") -> dict
         with Sandbox(task.files) as sb:
             messages.append({"role": "user", "content": noisy(rng, task.prompt)})
             messages += play(task, sb, start=len(messages))
-            _maybe_small_talk(rng, messages, name)
+            _maybe_small_talk(rng, messages)
             messages = _relocate(messages, str(sb.root), root)
         return {"kind": kind, "tools": tool_list(rng), "messages": messages}
 
@@ -1165,7 +1165,7 @@ def conversation(rng: random.Random, kind: str, name: str = "mini-code") -> dict
                     break
             messages.append({"role": "user", "content": noisy(rng, task.prompt)})
             messages += play(task, sb, start=len(messages))
-        _maybe_small_talk(rng, messages, name)
+        _maybe_small_talk(rng, messages)
         messages = _relocate(messages, str(sb.root), root)
     return {"kind": kind, "tools": tool_list(rng), "messages": messages}
 
@@ -1186,22 +1186,15 @@ def _follow_up(rng: random.Random, p: Project) -> Task | None:
     return None
 
 
-def _maybe_small_talk(rng: random.Random, messages: list[dict], name: str) -> None:
+def _maybe_small_talk(rng: random.Random, messages: list[dict]) -> None:
     if rng.random() < 0.05:
-        _, prompt, answer = chat_turn(rng, name)
+        _, prompt, answer = chat_turn(rng)
         messages += [{"role": "user", "content": noisy(rng, prompt, chat=True)}, {"role": "assistant", "content": answer}]
-
-
-def iter_conversations(seed: int, mix: dict[str, float]) -> Iterator[dict]:
-    rng = random.Random(seed)
-    kinds, weights = zip(*mix.items())
-    while True:
-        yield conversation(rng, rng.choices(kinds, weights)[0])
 
 
 def turn_problem(rng: random.Random, conv: dict) -> dict:
     """A transcript cut before one of its trained assistant turns (a tool call, or the answer): the
-    prompt of one turn of the agent, for mini-4's distillation (the student writes the turn, its
+    prompt of one turn of the agent, for distillation (the student writes the turn, its
     teacher grades every token)."""
     turns = [i for i, m in enumerate(conv["messages"]) if m["role"] == "assistant" and m.get("weight", 1) != 0]
     i = rng.choice(turns)
@@ -1288,26 +1281,24 @@ def data_dir() -> Path:
     return Path(os.environ.get("MINILAB_DATA_DIR", "data")) / "code"
 
 
-def _chunk(job: tuple[int, int, dict, str]) -> list[dict]:
-    seed, n, mix, name = job
+def _chunk(job: tuple[int, int, dict]) -> list[dict]:
+    seed, n, mix = job
     rng = random.Random(seed)
     kinds, weights = zip(*mix.items())
-    return [conversation(rng, rng.choices(kinds, weights)[0], name) for _ in range(n)]
+    return [conversation(rng, rng.choices(kinds, weights)[0]) for _ in range(n)]
 
 
-def conversations(n: int, seed: int, mix: dict[str, float], workers: int | None = None,
-                  name: str = "mini-code") -> list[dict]:
+def conversations(n: int, seed: int, mix: dict[str, float], workers: int | None = None) -> list[dict]:
     """n conversations drawn from `mix` ({kind: weight}), generated in parallel (every
-    transcript runs its tools for real) and cached: the same arguments give the same set.
-    `name`: who the model says it is (see chat_turn)."""
-    key_parts = [DATA_VERSION, n, seed, sorted(mix.items())] + ([name] if name != "mini-code" else [])
+    transcript runs its tools for real) and cached: the same arguments give the same set."""
+    key_parts = [DATA_VERSION, n, seed, sorted(mix.items()), NAME]  # the model says its name
     key = hashlib.sha1(json.dumps(key_parts).encode()).hexdigest()[:10]
     path = data_dir() / f"conversations-{n}-{seed}-{key}.jsonl.gz"
     if path.exists():
         with gzip.open(path, "rt") as f:
             return [json.loads(line) for line in f]
     t0 = time.time()
-    jobs = [(seed * 1_000_003 + i, min(CHUNK, n - i * CHUNK), mix, name) for i in range((n + CHUNK - 1) // CHUNK)]
+    jobs = [(seed * 1_000_003 + i, min(CHUNK, n - i * CHUNK), mix) for i in range((n + CHUNK - 1) // CHUNK)]
     workers = workers or max(1, min(len(jobs), (os.cpu_count() or 2) - 2))
     with multiprocessing.get_context("spawn").Pool(workers) as pool:
         convs = [c for chunk in pool.imap(_chunk, jobs) for c in chunk]
@@ -1328,26 +1319,17 @@ def pretrain_documents(seed: int) -> Iterator[str]:
         yield pretrain_document(rng)
 
 
-def agent_name(cfg: dict) -> str:
-    """Who the model says it is in opencode: mini-code, or mini for mini-4 (`world = "unified"`: one
-    model for stories, addition and code)."""
-    return "mini" if cfg["data"].get("world") == "unified" else "mini-code"
-
-
 def sft_set(cfg: dict, seed: int, size: int | None = None) -> list[dict]:
-    """The config's agent transcripts: [sft] size and mix for mini-code, code_size and code_mix for
-    mini-4 (whose size and mix are the chat conversations')."""
+    """The config's agent transcripts ([sft] code_size and code_mix)."""
     sc = cfg["sft"]
-    unified = cfg["data"].get("world") == "unified"
-    n = size or (sc["code_size"] if unified else sc["size"])
-    return conversations(n, seed, sc["code_mix"] if unified else sc["mix"], name=agent_name(cfg))
+    return conversations(size or sc["code_size"], seed, sc["code_mix"])
 
 
 def main() -> None:
-    """The data step of the code speedrun: build (or find) the SFT set of the config."""
+    """The data step of the speedrun: build (or find) the SFT set of agent transcripts."""
     import argparse
     import tomllib
-    p = argparse.ArgumentParser(description="Generate mini-code's SFT conversations (cached under data/code/).")
+    p = argparse.ArgumentParser(description="Generate the SFT set of agent transcripts (cached under data/code/).")
     p.add_argument("--config", required=True)
     args = p.parse_args()
     cfg = tomllib.loads(Path(args.config).read_text())

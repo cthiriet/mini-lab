@@ -1,5 +1,5 @@
 # The three mini-lab services. Train or download a model into ./models first:
-#   bash speedrun.sh small        (or: uv run python -m minilab.testing models)
+#   bash speedrun.sh              (or: uv run python -m minilab.testing models)
 #   echo "MINILAB_INTERNAL_TOKEN=$(openssl rand -hex 32)" >> .env
 #   docker compose up --build
 x-common: &common

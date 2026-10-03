@@ -1,6 +1,6 @@
 """Release a trained checkpoint as a servable model.
 
-    uv run python -m minilab.release --run runs/small --stage distill --id mini-3.2
+    uv run python -m minilab.release --run runs/prelude --stage distill --id prelude-1
 
 Copies the checkpoint to models/<id>/ (or $MINILAB_MODELS_DIR/<id>/) and adds
 release.json (id, pricing, context length -- what the API serves and bills),
@@ -45,13 +45,10 @@ def release(run: Path, stage: str, model_id: str, models_dir: Path, gate_result:
     write_release(out, ModelInfo(
         id=model_id,
         created=int(time.time()),
-        description=f"{params / 1e6:.1f}M-parameter GPT trained from scratch on a laptop: "
-                    + rc.get("description", "short stories and addition (step-by-step reasoning or calculator tool)."),
+        description=f"{params / 1e6:.1f}M-parameter GPT trained from scratch on a laptop: " + rc["description"],
         context_length=ckpt["model"]["block_size"],
         pricing=PRICING,
         source_run=str(run),
-        family=rc.get("family", "mini"),
-        truncation=rc.get("truncation", "disabled"),
         default_temperature=rc.get("temperature", 1.0),
     ))
     card = model_card(Path(run), stage, model_id)
@@ -68,7 +65,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Release a checkpoint to the models directory.")
     p.add_argument("--run", required=True)
     p.add_argument("--stage", default="distill", choices=STAGES)
-    p.add_argument("--id", required=True, help="model id, e.g. mini-3.2 (see the releases in docs/training.md)")
+    p.add_argument("--id", required=True, help="model id, e.g. prelude-1 (see docs/history.md)")
     p.add_argument("--models-dir", default=get_settings().models_dir)
     p.add_argument("--baseline", help="the release to beat (default: the newest earlier one)")
     p.add_argument("--allow", action="append", default=[], metavar="METRIC=REASON",
@@ -78,17 +75,14 @@ def main() -> None:
     args = p.parse_args()
     run, models_dir = Path(args.run), Path(args.models_dir)
     gate_result = None
-    rc = tomllib.loads((run / "config.toml").read_text()).get("release", {})
-    families = rc.get("gate_families") or [rc.get("family", "mini")]  # mini-4: mini and mini-code
-    baselines = [Path(args.baseline)] if args.baseline else \
-        [b for f in families if (b := gate.newest_release(models_dir, exclude=args.id, family=f))]
-    if args.no_gate or not baselines:
+    baseline = Path(args.baseline) if args.baseline else gate.newest_release(models_dir, exclude=args.id)
+    if args.no_gate or not baseline:
         print("release gate: " + ("skipped" if args.no_gate else "no earlier release to compare with"))
     else:
         cfg = tomllib.loads((run / "config.toml").read_text())
         new = json.loads((run / args.stage / "eval.json").read_text())
-        gate_result = gate.check_all(new, baselines, cfg, resolve_device(args.device, generation=True),
-                                     gate.parse_waivers(args.allow), args.stage)
+        gate_result = gate.check(new, baseline, cfg, resolve_device(args.device, generation=True),
+                                 gate.parse_waivers(args.allow), args.stage)
         print(gate.report(gate_result))
         if not gate_result["passed"]:
             sys.exit("not released: fix the regressions, or ship anyway with --allow METRIC=REASON")

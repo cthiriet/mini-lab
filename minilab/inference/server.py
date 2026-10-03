@@ -26,7 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from minilab.inference.engine import Engine, EngineError, SamplingParams
 from minilab.obs.metrics import CONTENT_TYPE, Counter, render
 from minilab.settings import get_settings
-from minilab.tokenizer.chat import PromptTooLong, render_prompt
+from minilab.tokenizer.chat import PromptTooLong, prompt_budget, render_prompt
 
 REQUESTS = Counter("minilab_inference_requests_total", "Generate requests by final HTTP status", ["model", "status"])
 
@@ -107,7 +107,6 @@ def create_app(engine: Engine | None = None) -> FastAPI:
         try:
             if runner is None:
                 raise ApiError(404, "model_not_found", f"The model '{body.model}' does not exist or is not loaded.")
-            _check_prompt_size(runner, body)
             # BPE encoding is pure Python: keep it off the event loop.
             prompt = await asyncio.to_thread(_render, runner, body)
             params = SamplingParams(
@@ -143,28 +142,10 @@ def create_app(engine: Engine | None = None) -> FastAPI:
     return app
 
 
-def _check_prompt_size(runner, body: GenerateRequest) -> None:
-    """Reject prompts that can't fit before tokenizing them: BPE encoding is pure Python and
-    a huge prompt would hold the GIL for seconds. Every token is at most `longest` bytes, so a
-    prompt of more than context * longest bytes needs more tokens than the context holds.
-    A model with truncation "auto" fits any prompt itself, cutting long messages before encoding."""
-    if runner.info.truncation == "auto":
-        return
-    longest = max(len(b) for b in runner.tokenizer.vocab.values())
-    size = sum(len(json.dumps(m.get("content") or "")) + len(json.dumps(m.get("tool_calls") or "")) for m in body.messages)
-    if size > runner.info.context_length * longest:
-        raise ApiError(400, "context_length_exceeded",
-                       f"This model's maximum context length is {runner.info.context_length} tokens, "
-                       "and your messages are far longer.")
-
-
 def _render(runner, body: GenerateRequest) -> list[int]:
-    """The prompt's tokens. With truncation "auto" (mini-code), the prompt leaves room for
-    max_tokens (at most half the context), dropping old turns if needed: see tokenizer/chat.py."""
-    budget = None
-    if runner.info.truncation == "auto":
-        n = runner.n_ctx
-        budget = n - min(body.max_tokens or n // 4, n // 2)
+    """The prompt's tokens. It leaves room for max_tokens (at most half the context), dropping
+    old turns if needed: see tokenizer/chat.py."""
+    budget = prompt_budget(runner.n_ctx, body.max_tokens)
     try:
         return render_prompt(runner.tokenizer, body.messages, body.tools, budget=budget)
     except PromptTooLong as e:

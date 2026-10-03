@@ -20,6 +20,9 @@ from pathlib import Path
 from typing import Iterable
 
 SPLIT_PATTERN = r"""'(?:s|t|re|ve|m|ll|d)| ?[A-Za-z]+|\d| ?[^\sA-Za-z\d]+|\s+(?!\S)|\s+"""
+# Longer chunks are cut: BPE on one chunk is quadratic in its length, and a request made of
+# 8,000-letter "words" took 30 s a megabyte to encode (1.6 s cut at 32). No real word is this long.
+MAX_CHUNK = 32
 
 # Special tokens delimit documents and chat turns. They are never produced by
 # encoding plain text (unless allow_special=True), so user content can't forge them.
@@ -37,10 +40,12 @@ SPECIAL_TOKENS = [
     "<|tool_call_end|>",
     "<|tool_start|>",
     "<|tool_end|>",
+    "<|arg|>",  # separates the arguments of a tool call, so code goes in raw instead of escaped JSON
 ]
-# mini-code's chat template (tokenizer/chat.py) needs one more: it separates the arguments of a
-# tool call, so that code goes in raw instead of escaped inside JSON.
-CODE_SPECIAL_TOKENS = [*SPECIAL_TOKENS, "<|arg|>"]
+
+
+def split_chunks(pattern: re.Pattern, text: str) -> list[str]:
+    return [c[i:i + MAX_CHUNK] for c in pattern.findall(text) for i in range(0, len(c), MAX_CHUNK)]
 
 
 def _merge(ids: list[int], pair: tuple[int, int], new_id: int) -> list[int]:
@@ -56,10 +61,8 @@ def _merge(ids: list[int], pair: tuple[int, int], new_id: int) -> list[int]:
 
 
 class Tokenizer:
-    def __init__(self, merges: list[tuple[int, int]], special_tokens: list[str] = SPECIAL_TOKENS,
-                 chat_template: str = "default"):
+    def __init__(self, merges: list[tuple[int, int]], special_tokens: list[str] = SPECIAL_TOKENS):
         self.pattern = re.compile(SPLIT_PATTERN)
-        self.chat_template = chat_template  # "default" (mini), or "code" (mini-code): see tokenizer/chat.py
         self.merges = {tuple(p): 256 + i for i, p in enumerate(merges)}
         self.vocab = {i: bytes([i]) for i in range(256)}
         for (a, b), idx in self.merges.items():
@@ -73,16 +76,14 @@ class Tokenizer:
     # ---- training -----------------------------------------------------------
 
     @classmethod
-    def train(cls, texts: Iterable[str], vocab_size: int, verbose: bool = False,
-              chat_template: str = "default") -> "Tokenizer":
+    def train(cls, texts: Iterable[str], vocab_size: int, verbose: bool = False) -> "Tokenizer":
         """Learn merges on chunk frequencies (fast: each unique chunk is processed once)."""
-        special_tokens = CODE_SPECIAL_TOKENS if chat_template == "code" else SPECIAL_TOKENS
-        n_merges = vocab_size - 256 - len(special_tokens)
-        assert n_merges >= 0, f"vocab_size must be >= {256 + len(special_tokens)}"
+        n_merges = vocab_size - 256 - len(SPECIAL_TOKENS)
+        assert n_merges >= 0, f"vocab_size must be >= {256 + len(SPECIAL_TOKENS)}"
         pattern = re.compile(SPLIT_PATTERN)
         chunk_counts: Counter[str] = Counter()
         for text in texts:
-            chunk_counts.update(pattern.findall(text))
+            chunk_counts.update(split_chunks(pattern, text))
         words = [list(w.encode("utf-8")) for w in chunk_counts]
         freqs = list(chunk_counts.values())
 
@@ -117,7 +118,7 @@ class Tokenizer:
             where.pop(best, None)
             if verbose and (m + 1) % 500 == 0:
                 print(f"  merge {m + 1}/{n_merges}: {best} -> {new_id} (count {pair_counts.get(best, 0)})")
-        return cls(merges, special_tokens, chat_template)
+        return cls(merges)
 
     # ---- encode / decode ----------------------------------------------------
 
@@ -146,13 +147,13 @@ class Tokenizer:
             if pair not in self.merges:
                 break
             ids = _merge(ids, pair, self.merges[pair])
-        if len(self._cache) < 500_000 and len(chunk) <= 64:
+        if len(self._cache) < 500_000:
             self._cache[chunk] = ids
         return ids
 
     def _encode_ordinary(self, text: str) -> list[int]:
         out: list[int] = []
-        for chunk in self.pattern.findall(text):
+        for chunk in split_chunks(self.pattern, text):
             out.extend(self._encode_chunk(chunk))
         return out
 
@@ -186,11 +187,10 @@ class Tokenizer:
             "pattern": SPLIT_PATTERN,
             "merges": merges,
             "special_tokens": list(self.special_tokens),
-            "chat_template": self.chat_template,
         }
         Path(path).write_text(json.dumps(data))
 
     @classmethod
     def load(cls, path: str | Path) -> "Tokenizer":
         data = json.loads(Path(path).read_text())
-        return cls([tuple(m) for m in data["merges"]], data["special_tokens"], data.get("chat_template", "default"))
+        return cls([tuple(m) for m in data["merges"]], data["special_tokens"])

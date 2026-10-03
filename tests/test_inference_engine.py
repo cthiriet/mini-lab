@@ -142,7 +142,7 @@ def test_parser_reasoning_and_tool_calls(release):
     _, _, tok = release
     S = tok.special
     ids = [S("<|think_start|>"), *tok.encode("let me think"), S("<|think_end|>"), *tok.encode("Sure."),
-           S("<|tool_call_start|>"), *tok.encode('{"name": "calculator", "arguments": {"expression": "2+2"}}'),
+           S("<|tool_call_start|>"), *tok.encode("calculator"), S("<|arg|>"), *tok.encode("expression=2+2"),
            S("<|tool_call_end|>"), S("<|assistant_end|>")]
     parser = StreamParser(tok)
     content, reasoning, deltas = feed_all(parser, ids)
@@ -343,9 +343,9 @@ class ScriptedModel(GPT):
 def test_finish_reasons_with_scripted_model(release, make_runner):
     _, model, tok = release
     S = tok.special
-    call = '{"name": "calculator", "arguments": {"expression": "2 + 2"}}'
+    call = [*tok.encode("calculator"), S("<|arg|>"), *tok.encode("expression=2 + 2")]
     tool_script = [S("<|think_start|>"), *tok.encode("need math"), S("<|think_end|>"), *tok.encode("Let me check."),
-                   S("<|tool_call_start|>"), *tok.encode(call), S("<|tool_call_end|>"), S("<|assistant_end|>")]
+                   S("<|tool_call_start|>"), *call, S("<|tool_call_end|>"), S("<|assistant_end|>")]
     answer_script = [*tok.encode("4"), S("<|assistant_end|>")]
     endless_script = tok.encode("a")
 

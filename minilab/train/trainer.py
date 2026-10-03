@@ -34,9 +34,8 @@ from minilab.checkpoint import save_checkpoint
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
 
-# The speedrun runs pretrain, midtrain, sft, rl_math, distill. "rl" is the single-RL-run
-# recipe that mini-1 was trained with, kept for comparison.
-STAGES = ["pretrain", "midtrain", "sft", "rl", "rl_math", "distill"]
+# What the speedrun runs, in order (minilab.train.<stage>).
+STAGES = ["pretrain", "midtrain", "sft", "rl_math", "distill"]
 DEVICES = ["auto", "cpu", "mps", "cuda"]
 
 
@@ -44,7 +43,7 @@ DEVICES = ["auto", "cpu", "mps", "cuda"]
 
 def parse_args(description: str, generation: bool = False, **extra: dict) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=description)
-    p.add_argument("--run", required=True, help="run directory, e.g. runs/small")
+    p.add_argument("--run", required=True, help="run directory, e.g. runs/prelude")
     p.add_argument("--config", help="TOML config (default: <run>/config.toml)")
     p.add_argument("--device", default="auto", choices=DEVICES, help="auto: cuda, else mps, else cpu")
     for name, kwargs in extra.items():

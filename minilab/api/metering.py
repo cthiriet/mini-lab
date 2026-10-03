@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
@@ -48,14 +48,6 @@ LATENCY = Histogram("minilab_api_request_duration_seconds", "Chat completion lat
 TTFT = Histogram("minilab_api_ttft_seconds", "Time to first token (streaming)", ["model"], buckets=_SECONDS)
 
 
-def model_info_from_json(data: dict) -> ModelInfo:
-    """A ModelInfo from ModelInfo.to_json() (what inference's GET /models returns), ignoring extra keys."""
-    known = {f.name for f in fields(ModelInfo)} - {"path"}
-    kwargs = {k: v for k, v in data.items() if k in known}
-    kwargs["pricing"] = Pricing(**(data.get("pricing") or {}))
-    return ModelInfo(**kwargs)
-
-
 class ModelCatalog:
     """Model metadata (pricing, context length).
 
@@ -79,7 +71,7 @@ class ModelCatalog:
 
     async def served(self, inference: InferenceClient) -> list[ModelInfo]:
         """The models the inference server has loaded right now."""
-        return [self.release(d["id"]) or model_info_from_json(d) for d in await inference.list_models()]
+        return [self.release(d["id"]) or ModelInfo.from_json(d) for d in await inference.list_models()]
 
     async def resolve(self, model_id: str, inference: InferenceClient) -> ModelInfo:
         info = self.release(model_id)

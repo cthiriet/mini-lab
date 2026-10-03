@@ -185,7 +185,7 @@ def new_completion_id() -> str:
 
 def tool_calls_json(calls: list[dict], tools: list[Tool] | None = None) -> list[dict]:
     """Inference returns [{"name", "arguments"}]; clients need an id to send each result back.
-    A model that writes every argument as text (mini-code) gets them typed with the request's
+    The model writes every argument as text: they get typed with the request's
     JSON schemas: "true" becomes true where the schema says boolean."""
     schemas = {t.function.name: t.function.parameters for t in tools or []}
     return [{"id": f"call_{secrets.token_hex(12)}", "type": "function",

@@ -56,9 +56,9 @@ def test_usage_debits_org_and_key_atomically():
     user, org, project = make_org()
     row, secret = db.create_api_key(org["id"], project["id"], "ci", user["id"])
     db.record_request(id="chatcmpl-1", org_id=org["id"], project_id=project["id"], api_key_id=row["id"],
-                      model="mini-1", status_code=200, prompt_tokens=100, completion_tokens=50,
+                      model="prelude-1", status_code=200, prompt_tokens=100, completion_tokens=50,
                       cost_micros=125, latency_ms=200, ttft_ms=20)
-    db.record_request(id="chatcmpl-2", org_id=org["id"], model="mini-1", status_code=500, error="boom")
+    db.record_request(id="chatcmpl-2", org_id=org["id"], model="prelude-1", status_code=500, error="boom")
     assert db.get_balance_micros(org["id"]) == 1_000_000 - 125
     assert db.lookup_api_key(secret)["spend_micros"] == 125
     assert [r["id"] for r in db.list_requests(org["id"])] == ["chatcmpl-2", "chatcmpl-1"]

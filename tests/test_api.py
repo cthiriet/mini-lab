@@ -40,7 +40,7 @@ from minilab.registry import ModelInfo, Pricing, write_release
 from minilab.settings import get_settings
 
 MODEL = "mini-test"
-CODE_MODEL = "mini-code-test"   # like mini-code: truncation "auto", greedy by default
+CODE_MODEL = "mini-test-greedy"  # greedy by default, like prelude (opencode sends no temperature)
 PRICING = Pricing(input_per_1m=100.0, output_per_1m=300.0)  # pricey, so costs are well above 0 micros
 TOKEN = "test-internal-token"
 _used_ports: set[int] = set()
@@ -162,8 +162,8 @@ def make_stub_inference() -> FastAPI:
     return app
 
 
-CODE_INFO = ModelInfo(id=CODE_MODEL, created=1_700_000_001, context_length=1024, pricing=PRICING, family="mini-code",
-                      truncation="auto", default_temperature=0.0)
+CODE_INFO = ModelInfo(id=CODE_MODEL, created=1_700_000_001, context_length=1024, pricing=PRICING,
+                      default_temperature=0.0)
 
 
 # ---- fixtures ------------------------------------------------------------------
@@ -333,8 +333,8 @@ def test_tool_call_round_trip(env):
 
 
 def test_coding_agent_model(env):
-    """mini-code: a coding agent's long prompt goes through (the model fits it to its context), the
-    model's default temperature applies, and arguments come back typed by the request's schemas."""
+    """A coding agent's long prompt goes through (the server fits it to the context), the model's
+    default temperature applies, and arguments come back typed by the request's schemas."""
     t = new_org()
     c = client(env, t.secret)
     tools = [{"type": "function", "function": {"name": "edit", "parameters": {"type": "object", "properties": {
@@ -350,8 +350,6 @@ def test_coding_agent_model(env):
         assert json.loads(call.function.arguments) == {"path": "calc.py", "oldString": "a - b", "newString": "a + b",
                                                        "replaceAll": True}
         assert env.stub.state.payloads[-1]["temperature"] == 0.0
-    with pytest.raises(openai.BadRequestError, match="context length"):  # a chat model gets no such help
-        c.chat.completions.create(model=MODEL, messages=messages)
 
 
 def test_streamed_tool_calls(env):
@@ -648,7 +646,7 @@ def test_models(env):
     c = client(env, t.secret)
     model, code_model = c.models.list().data   # newest first
     assert (model.id, model.object, model.owned_by) == (MODEL, "model", "mini-lab")
-    assert (code_model.id, code_model.model_extra["family"]) == (CODE_MODEL, "mini-code")
+    assert code_model.id == CODE_MODEL
     assert model.model_extra["pricing"] == {"input_per_1m": 100.0, "output_per_1m": 300.0}
     assert model.model_extra["context_length"] == 256
     assert c.models.retrieve(MODEL).id == MODEL
@@ -746,11 +744,8 @@ def test_rejected_requests_still_count_against_rpm(env):
     assert len(logged(t.org["id"])) == 2
 
 
-def test_oversized_prompts_are_rejected_at_the_gateway(env):
+def test_oversized_bodies_are_rejected_at_the_gateway(env):
     t = new_org()
-    with pytest.raises(openai.BadRequestError) as e:
-        ask(env, t.secret, "x" * 200_000)
-    assert e.value.code == "context_length_exceeded"
     r = httpx.post(f"{env.url}/v1/chat/completions", headers={"Authorization": f"Bearer {t.secret}"},
                    content=b"{" + b" " * 2_000_000 + b"}", timeout=30)
     assert r.status_code == 413

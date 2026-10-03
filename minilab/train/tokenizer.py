@@ -1,19 +1,15 @@
 """Step 0: train the BPE tokenizer on a sample of the pretraining mix.
 
-    uv run python -m minilab.train.tokenizer --config configs/small.toml --run runs/small
+    uv run python -m minilab.train.tokenizer --config configs/prelude.toml --run runs/prelude
 
-The sample contains stories, arithmetic worksheets and the text of a few chat
-conversations, so common words, chat phrases, " +", " =" and the JSON of
-tool calls all get their own tokens. Also copies the config into the run directory.
-
-For mini-code (`[data] world = "code"`): pretraining documents and SFT conversations of the
-toy code world, and the "code" chat template (see tokenizer/chat.py). For mini-4 (`world =
-"unified"`): both samples, and the "code" template for everything (the calculator's calls too).
+The sample contains stories, arithmetic worksheets, the text of a few chat conversations,
+agent transcripts and Python documents, so common words, chat phrases, " +", " =", tool
+names and Python keywords all get their own tokens. Also copies the config into the run
+directory.
 """
 
 from __future__ import annotations
 
-import json
 import random
 import shutil
 import time
@@ -37,9 +33,6 @@ def main() -> None:
 
     d, tc = cfg["data"], cfg["tokenizer"]
     rng = random.Random(cfg.get("seed", 0))
-    if d.get("world") == "code":
-        return train_code(cfg, run, rng)
-    unified = d.get("world") == "unified"
     stories = load_stories("train", d["train_mb"])
     sample = rng.sample(stories, min(len(stories), tc["sample_stories"]))
     n_other = len(sample) // 5
@@ -48,43 +41,21 @@ def main() -> None:
     sft_mix = {"plain": 1.0, "instruction": 1.0, "followup": 1.0, "refusal": 1.0, "identity": 1.0}
     for _ in range(n_other):
         conv = sft_conversation(rng, sft_mix, d["digits"], pool, tool_frac=0.5)
-        if unified:  # tool calls as the "code" template writes them: calculator<|arg|>expression=...
-            sample += code.text_of(conv) + ["calculator"]
-            continue
-        for m in conv["messages"]:
-            sample.append(m.get("content") or "")
-            for call in m.get("tool_calls") or []:  # the JSON the chat template renders
-                fn = call["function"]
-                sample.append(json.dumps({"name": fn["name"], "arguments": json.loads(fn["arguments"])}))
-    if unified:  # the code world: agent transcripts and Python documents
-        n_code = tc["code_sample"]
-        convs = code.sft_set(cfg, cfg.get("seed", 0) + 2)
-        sample += [t for c in rng.sample(convs, min(n_code, len(convs))) for t in code.text_of(c)]
-        docs = code.pretrain_documents(cfg.get("seed", 0) + 1)
-        sample += [next(docs) for _ in range(n_code)]
+        sample += code.text_of(conv) + ["calculator"]  # tool calls as the template writes them: calculator<|arg|>...
+    # the code world: agent transcripts and Python documents
+    n_code = tc["code_sample"]
+    convs = code.sft_set(cfg, cfg.get("seed", 0) + 2)
+    sample += [t for c in rng.sample(convs, min(n_code, len(convs))) for t in code.text_of(c)]
+    docs = code.pretrain_documents(cfg.get("seed", 0) + 1)
+    sample += [next(docs) for _ in range(n_code)]
 
     t0 = time.time()
-    tok = Tokenizer.train(sample, tc["vocab_size"], chat_template="code" if unified else "default")
+    tok = Tokenizer.train(sample, tc["vocab_size"])
     tok.save(run / "tokenizer.json")
     val = load_stories("val", d["val_mb"])[:500]
     chars_per_token = sum(map(len, val)) / sum(len(tok.encode(s)) for s in val)
     print(f"tokenizer: vocab_size {tok.vocab_size} ({len(tok.merges)} merges) in {time.time() - t0:.1f}s, "
           f"{chars_per_token:.2f} chars/token on held-out stories -> {run / 'tokenizer.json'}")
-
-
-def train_code(cfg: dict, run: Path, rng: random.Random) -> None:
-    tc, n = cfg["tokenizer"], cfg["tokenizer"]["sample"]
-    convs = code.conversations(cfg["sft"]["size"], cfg.get("seed", 0) + 2, cfg["sft"]["mix"])
-    docs = code.pretrain_documents(cfg.get("seed", 0) + 1)
-    sample = [t for c in rng.sample(convs, min(n, len(convs))) for t in code.text_of(c)]
-    sample += [next(docs) for _ in range(n)]
-    t0 = time.time()
-    tok = Tokenizer.train(sample, tc["vocab_size"], chat_template="code")
-    tok.save(run / "tokenizer.json")
-    held_out = [next(docs) for _ in range(500)]
-    chars_per_token = sum(map(len, held_out)) / sum(len(tok.encode(s)) for s in held_out)
-    print(f"tokenizer: vocab_size {tok.vocab_size} ({len(tok.merges)} merges) in {time.time() - t0:.1f}s, "
-          f"{chars_per_token:.2f} chars/token on held-out Python documents -> {run / 'tokenizer.json'}")
 
 
 if __name__ == "__main__":

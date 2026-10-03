@@ -1,8 +1,8 @@
 """Training report: one self-contained HTML page with the curves and evals of a run.
 
-    uv run python -m minilab.report runs/small            # -> runs/small/report.html
+    uv run python -m minilab.report runs/prelude          # -> runs/prelude/report.html
     uv run python -m minilab.report runs/exp7 runs/exp8   # compare runs -> runs/compare.html
-    uv run python -m minilab.report runs/small --open     # and open it in the browser
+    uv run python -m minilab.report runs/prelude --open   # and open it in the browser
 
 It reads what the training stages already write (runs/<run>/<stage>/log.jsonl,
 config.json and eval.json). No dependencies and no network: the data is embedded
@@ -17,7 +17,7 @@ import json
 import webbrowser
 from pathlib import Path
 
-STAGES = ["pretrain", "midtrain", "sft", "rl", "rl_math", "distill"]  # as minilab.train.trainer.STAGES
+STAGES = ["pretrain", "midtrain", "sft", "rl_math", "distill"]  # as minilab.train.trainer.STAGES
 META_KEYS = ["steps", "tokens", "tokens_total", "wall_clock_s", "params", "device", "hardware", "final_loss", "val_loss"]
 
 # Rows of the "stage progression" table: (path in eval.json, label, kind).
@@ -31,7 +31,6 @@ EVAL_ROWS = [
     ("arithmetic.5", "Addition, 5 digits", "pct"),
     ("arithmetic.6", "Addition, 6 digits (never trained on)", "pct"),
     ("arithmetic_sampled", "Addition, sampled at T=1", "pct"),
-    ("direct", "Addition, answer only (no scratchpad)", "pct"),
     ("tool_call", "Calls the calculator correctly", "pct"),
     ("tool_answer", "Correct answer with the calculator", "pct"),
     ("story_topic", "Story on the requested topic", "pct"),
@@ -46,9 +45,10 @@ EVAL_ROWS = [
     ("instructions.refusal", "· refuses out-of-scope questions", "pct"),
     ("instructions.identity", "· knows who it is", "pct"),
     ("instructions.over_refusal", "· answers in-scope requests (no over-refusal)", "inv"),
+    ("chat", "Whole conversations right (3-5 turns)", "pct"),
     ("format", "Ends its turn properly", "pct"),
 ]
-# mini-code's eval (eval/code.py)
+# The coding eval (eval/code.py), under "code" in eval.json
 CODE_EVAL_ROWS = [
     ("val_ppl", "Python perplexity (lower is better)", "num"),
     ("agent", "Coding tasks done, all 13 kinds", "pct"),
@@ -108,11 +108,7 @@ def progression_table(run: dict) -> str:
     stages = [s for s in STAGES if s in run["stages"]]
     evals = {s: run["stages"][s]["eval"] for s in stages}
     rows = []
-    worlds = {evals[s].get("world") for s in stages}
-    rows_spec = CODE_EVAL_ROWS if "code" in worlds else EVAL_ROWS
-    if "unified" in worlds:  # mini-4: mini's rows, then mini-code's (under "code" in eval.json)
-        rows_spec = EVAL_ROWS + [(f"code.{path}", label, kind) for path, label, kind in CODE_EVAL_ROWS]
-    for path, label, kind in rows_spec:
+    for path, label, kind in EVAL_ROWS + [(f"code.{path}", label, kind) for path, label, kind in CODE_EVAL_ROWS]:
         values = {s: _get(evals[s], path) for s in stages}
         if all(v is None for v in values.values()):
             continue
@@ -208,7 +204,7 @@ def render(runs: list[dict]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build an HTML training report for one or more runs.")
-    parser.add_argument("runs", nargs="+", type=Path, help="run directories, e.g. runs/small")
+    parser.add_argument("runs", nargs="+", type=Path, help="run directories, e.g. runs/prelude")
     parser.add_argument("-o", "--out", type=Path, help="output file (default: <run>/report.html or runs/compare.html)")
     parser.add_argument("--open", action="store_true", help="open the report in the browser")
     args = parser.parse_args()

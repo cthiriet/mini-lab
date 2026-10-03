@@ -1,5 +1,5 @@
-"""A sandbox with opencode's coding tools, for generating mini-code's training data and for
-evaluating it.
+"""A sandbox with opencode's coding tools, for generating the coding agent's training data and
+for evaluating it.
 
 Each tool takes the arguments of opencode's own tool (v2: `read`, `write`, `edit`, `glob`,
 `grep`, `shell`) and returns *exactly* the text opencode sends back to the model, so a model
@@ -37,7 +37,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-# opencode v2's tools, in the order it lists them in every request. mini-code only ever calls
+# opencode v2's tools, in the order it lists them in every request. The model only ever calls
 # the first six; the others are there because opencode always offers them.
 OPENCODE_TOOLS = ["edit", "glob", "grep", "question", "read", "shell", "skill", "subagent", "webfetch",
                   "websearch", "write", "execute"]

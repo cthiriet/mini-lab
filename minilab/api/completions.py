@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from minilab.api.auth import authenticate, check_quota
 from minilab.api.errors import APIError, invalid_request
 from minilab.api.metering import Meter
-from minilab.api.ratelimit import estimate_prompt_tokens, prompt_chars
+from minilab.api.ratelimit import estimate_prompt_tokens
 from minilab.api.schemas import (ChatCompletionRequest, cached_tokens, chunk_json, completion_json, finish_reason,
                                  new_completion_id, parse_chat_request, to_inference, tool_calls_json,
                                  usage_chunk_json, usage_json)
@@ -29,9 +29,6 @@ from minilab.api.upstream import stream_events
 router = APIRouter()
 
 MAX_BODY_BYTES = 1_000_000
-# No token of our BPE tokenizers is anywhere near this long, so a prompt with more characters
-# than context_length * MAX_CHARS_PER_TOKEN can't fit: reject it before inference tokenizes it.
-MAX_CHARS_PER_TOKEN = 32
 
 
 async def _json_body(request: Request) -> dict:
@@ -68,10 +65,6 @@ async def chat_completions(request: Request):
         check_quota(caller, s.settings.platform_url)
 
         payload = to_inference(req, model.default_temperature)
-        # A model with truncation "auto" (mini-code) fits long prompts itself, cutting what it can't show.
-        if model.truncation != "auto" and prompt_chars(payload["messages"]) > model.context_length * MAX_CHARS_PER_TOKEN:
-            raise APIError(400, f"This model's maximum context length is {model.context_length} tokens, "
-                                "and your messages are far longer.", code="context_length_exceeded", param="messages")
         prompt_estimate = estimate_prompt_tokens(payload["messages"])
         # prompt + completion can never exceed the context window, whatever max_tokens says.
         estimate = min(model.context_length, prompt_estimate + (payload["max_tokens"] or model.context_length))

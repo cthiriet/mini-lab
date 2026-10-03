@@ -3,12 +3,11 @@ TinyStories stories, with arithmetic worksheets (equations, word problems and wo
 column additions) mixed in. This is where almost all of the compute goes: the model
 learns English, what a story looks like, and the mechanics of addition.
 
-    uv run python -m minilab.train.pretrain --run runs/small
+Python documents are mixed in too (`code_frac`): the files of small projects with what their
+scripts print, functions with what they do in English, and bugs with their fixes (data/code.py).
+No chat and no tools yet.
 
-For mini-code (`[data] world = "code"`), the documents are Python instead: the files of small
-projects with what their scripts print, functions with what they do in English, and bugs with
-their fixes (data/code.py). No chat and no tools yet. For mini-4 (`world = "unified"`), both:
-stories and worksheets, with Python documents mixed in (`code_frac`).
+    uv run python -m minilab.train.pretrain --run runs/prelude
 """
 
 from __future__ import annotations
@@ -45,27 +44,16 @@ def main() -> None:
     print(f"model: {model.num_params() / 1e6:.2f}M parameters, config {model.config}")
 
     T, B = model.config.block_size, sc["batch_size"]
-    if d.get("world") == "code":
-        docs = ([tok.bos_id, *tok.encode(doc)] for doc in code.pretrain_documents(seed + 1))
-        batches = packed_batches(docs, B, T)
-        held_out = ([tok.bos_id, *tok.encode(doc)] for doc in code.pretrain_documents(10_000_019))
-        val_batches = list(itertools.islice(packed_batches(held_out, B, T), sc.get("val_batches", 10)))
-        prompt = "def add(a, b):"
-    else:
-        stories = load_stories("train", d["train_mb"])
-        code_frac = sc.get("code_frac", 0.0)
-        batches = packed_batches(pretrain_documents(tok, stories, d["digits"], sc["arith_frac"], seed, code_frac), B, T)
-        val_batches = story_batches(tok, load_stories("val", d["val_mb"]), B, T, sc.get("val_batches", 10))
-        prompt = "Once upon a time"
-    code_val = []
-    if d.get("world") == "unified":  # held-out Python too
-        held_out = ([tok.bos_id, *tok.encode(doc)] for doc in code.pretrain_documents(10_000_019))
-        code_val = list(itertools.islice(packed_batches(held_out, B, T), sc.get("val_batches", 10)))
+    stories = load_stories("train", d["train_mb"])
+    docs = pretrain_documents(tok, stories, d["digits"], sc["arith_frac"], seed, sc["code_frac"])
+    batches = packed_batches(docs, B, T)
+    val_batches = story_batches(tok, load_stories("val", d["val_mb"]), B, T, sc.get("val_batches", 10))
+    held_out = ([tok.bos_id, *tok.encode(doc)] for doc in code.pretrain_documents(10_000_019))
+    code_val = list(itertools.islice(packed_batches(held_out, B, T), sc.get("val_batches", 10)))
 
     def val_fn() -> dict:
-        extra = {"code_val_loss": evaluate_loss(model, code_val, device)} if code_val else {}
-        return {"val_loss": evaluate_loss(model, val_batches, device), **extra,
-                "sample": sample_story(model, tok, device, prompt)}
+        return {"val_loss": evaluate_loss(model, val_batches, device), "code_val_loss": evaluate_loss(model, code_val, device),
+                "sample": sample_story(model, tok, device)}
 
     log = Logger(run / "pretrain" / "log.jsonl")
     stats = train_loop(model, batches, sc, log, device, val_fn, cfg.get("optimizer", "adamw"))

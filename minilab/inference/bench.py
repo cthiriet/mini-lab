@@ -1,7 +1,7 @@
 """Throughput benchmark of the engine: 1 vs N concurrent requests.
 
     uv run python -m minilab.inference.bench                                   # tiny random model
-    uv run python -m minilab.inference.bench --models-dir models --model mini-3.2
+    uv run python -m minilab.inference.bench --models-dir models --model prelude-1
     uv run python -m minilab.inference.bench --models-dir models --chats 32    # prefix cache on vs off
 
 Sends the same --requests requests at each concurrency level, keeping C of them
@@ -24,7 +24,7 @@ from minilab.checkpoint import load_checkpoint
 from minilab.inference.engine import ModelRunner, SamplingParams
 from minilab.registry import get_model, list_models
 from minilab.testing import make_random_release
-from minilab.tokenizer.chat import recent_turns, render_prompt
+from minilab.tokenizer.chat import prompt_budget, render_prompt
 
 CHAT_REQUESTS = ["What is 347 + 58?", "Tell me a story about a dog.", "And add 25 to that?", "Who are you?",
                  "What is 4521 + 380?", "Hi!", "Can you write Python code?", "Tell me a story about a cat."]
@@ -55,8 +55,8 @@ async def run_level(runner: ModelRunner, prompts: list[list[int]], concurrency: 
 
 async def run_chats(runner: ModelRunner, n_chats: int, turns: int, concurrency: int, max_tokens: int) -> dict:
     """n_chats chats of `turns` requests, `concurrency` chats at a time. Every turn sends the
-    history back as the chat app does: the earlier answers, no scratchpads, trimmed to the
-    recent turns. Greedy, so both runs see the same chats."""
+    history back as the chat app does: the earlier answers, no scratchpads, fitted to the
+    context like the server fits it. Greedy, so both runs see the same chats."""
     tok, todo = runner.tokenizer, list(range(n_chats))
     prompt_tokens = cached = 0
     ttft: list[float] = []  # time to first token, turns 2+
@@ -66,7 +66,7 @@ async def run_chats(runner: ModelRunner, n_chats: int, turns: int, concurrency: 
         history: list[dict] = []
         for t in range(turns):
             history.append({"role": "user", "content": CHAT_REQUESTS[(c + 3 * t) % len(CHAT_REQUESTS)]})
-            prompt = render_prompt(tok, recent_turns(history, runner.n_ctx))
+            prompt = render_prompt(tok, history, budget=prompt_budget(runner.n_ctx, max_tokens))
             t0 = time.perf_counter()
             req = runner.submit(prompt, SamplingParams(max_tokens=max_tokens, temperature=0), stream=True)
             first = None

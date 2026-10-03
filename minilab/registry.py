@@ -8,22 +8,20 @@
 
 release.json:
     {
-      "id": "mini-3.2",
+      "id": "prelude-1",
       "created": 1760000000,              # unix seconds
       "description": "...",
-      "context_length": 256,
+      "context_length": 1024,
       "pricing": {"input_per_1m": 10.0, "output_per_1m": 50.0},   # USD per 1M tokens
-      "source_run": "runs/2026-09-25-small",
-      "family": "mini",                   # "mini" (chat) or "mini-code" (coding agent)
-      "truncation": "disabled",           # "auto": the server drops old turns to fit the context
-      "default_temperature": 1.0          # when a request doesn't set one (OpenAI's default is 1)
+      "source_run": "runs/prelude",
+      "default_temperature": 0.0          # when a request doesn't set one (OpenAI's default is 1)
     }
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 
@@ -42,11 +40,9 @@ class ModelInfo:
     id: str
     created: int
     description: str = ""
-    context_length: int = 256
+    context_length: int = 1024
     pricing: Pricing = field(default_factory=Pricing)
     source_run: str = ""
-    family: str = "mini"
-    truncation: str = "disabled"  # "auto": prompts too long are fitted to the context (the "code" template)
     default_temperature: float = 1.0  # like a Hugging Face generation_config.json: opencode sends none
     path: Path | None = None  # filled in when loaded from disk
 
@@ -55,12 +51,18 @@ class ModelInfo:
         d.pop("path")
         return d
 
+    @classmethod
+    def from_json(cls, data: dict, path: Path | None = None) -> "ModelInfo":
+        """From release.json or to_json(), ignoring keys it doesn't know (older releases have more)."""
+        known = {f.name for f in fields(cls)} - {"path"}
+        kwargs = {k: v for k, v in data.items() if k in known}
+        kwargs["pricing"] = Pricing(**(data.get("pricing") or {}))
+        return cls(**kwargs, path=path)
+
 
 def load_model_info(model_dir: str | Path) -> ModelInfo:
     model_dir = Path(model_dir)
-    data = json.loads((model_dir / "release.json").read_text())
-    data["pricing"] = Pricing(**data.get("pricing", {}))
-    return ModelInfo(**data, path=model_dir)
+    return ModelInfo.from_json(json.loads((model_dir / "release.json").read_text()), model_dir)
 
 
 def list_models(models_dir: str | Path) -> list[ModelInfo]:

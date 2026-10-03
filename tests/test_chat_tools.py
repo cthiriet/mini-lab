@@ -67,16 +67,8 @@ def test_run_tool():
     assert not run_tool("weather", "{}")["ok"]
 
 
-def test_recent_turns_leaves_room_for_the_answer():
-    from minilab.tokenizer.chat import recent_turns
-    story = {"role": "assistant", "content": "Once upon a time " * 40}  # ~170 tokens
-    messages = [{"role": "user", "content": "Tell me a story."}, story, {"role": "user", "content": "What is 347 + 58?"}]
-    assert recent_turns(messages, 256) == messages[-1:]
-    short = [{"role": "user", "content": "Hi!"}, {"role": "assistant", "content": "Hello!"}, {"role": "user", "content": "What is 2 + 2?"}]
-    assert recent_turns(short, 256) == short
-    assert recent_turns([{"role": "user", "content": "x" * 5000}], 256)[0]["content"] == "x" * 5000  # never empty
-    # digits are one token each: 20 turns of 3-digit additions keep far fewer turns than 20
-    additions = [m for i in range(20) for m in ({"role": "user", "content": f"What is {100 + i} + {250 + i}?"},
-                                                 {"role": "assistant", "content": f"The answer is {350 + 2 * i}."})]
-    kept = recent_turns(additions + [{"role": "user", "content": "What is 34521 + 88790?"}], 256)
-    assert sum(m["role"] == "user" for m in kept) <= 6
+def test_prompt_budget_leaves_room_for_the_answer():
+    from minilab.tokenizer.chat import prompt_budget
+    assert prompt_budget(1024, None) == 768   # a quarter of the context for the answer by default
+    assert prompt_budget(1024, 100) == 924
+    assert prompt_budget(1024, 5000) == 512   # never more than half

@@ -21,11 +21,11 @@ def test_report_renders_curves_and_progression(tmp_path):
                  {"step": 50, "val_loss": 4.0, "sample": "Once upon a time <script>alert(1)</script>"}],
                 {"steps": 50, "tokens": 12800, "params": 5_770_496, "wall_clock_s": 12.0, "device": "cpu"},
                 {"val_ppl": 6.1, "arithmetic": {"1": 0.35}})
-    write_stage(run, "rl", [{"step": 5, "reward": 0.6, "completion_len": 60}], {"steps": 5},
+    write_stage(run, "rl_math", [{"step": 5, "reward": 0.6, "completion_len": 60}], {"steps": 5},
                 {"arithmetic": {"1": 1.0}, "instructions": {"over_refusal": 0.1}, "in_distribution": 1.0,
                  "samples": [{"prompt": "Hi!", "response": "Hello!", "tool_calls": []}]})
     data = load_run(run)
-    assert list(data["stages"]) == ["pretrain", "rl"]
+    assert list(data["stages"]) == ["pretrain", "rl_math"]
     assert data["stages"]["pretrain"]["val"][0]["val_loss"] == 4.0
 
     page = render([data])

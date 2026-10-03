@@ -9,19 +9,15 @@
         "apiKey": "{file:/run/minilab/key}"
       },
       "models": {
-        "mini-4": {
-          "name": "mini-4",
-          "limit": { "context": 200000, "output": 384 }
-        },
-        "mini-code-1": {
-          "name": "mini-code-1",
+        "prelude-1": {
+          "name": "prelude-1",
           "limit": { "context": 200000, "output": 384 }
         }
       }
     }
   },
-  "model": "minilab/mini-4",
-  "small_model": "minilab/mini-4",
+  "model": "minilab/prelude-1",
+  "small_model": "minilab/prelude-1",
   "autoupdate": false,
   "share": "disabled"
 }

@@ -10,7 +10,7 @@ from minilab.data.loader import packed_batches, pretrain_documents
 from minilab.model.gpt import GPT, GPTConfig
 from minilab.tokenizer.bpe import Tokenizer
 from minilab.train.distill import distill_step
-from minilab.train.rl import reward, rl_step, sample_problem
+from minilab.train.rl_math import reward, rl_step, sample_problem
 from minilab.train.trainer import Logger, evaluate_loss, lr_at, make_optimizer, save_stage, train_loop
 
 
@@ -85,7 +85,7 @@ def test_reward(tok):
     assert reward(tok, [*tok.encode("3+4=7"), S("<|think_end|>"), *tok.encode("7"), end],
                   number_only) == 0.0  # but not a scratchpad passed off as the answer
 
-    call = [S("<|tool_call_start|>"), *tok.encode('{"name": "calculator", "arguments": {"expression": "3 + 4"}}'),
+    call = [S("<|tool_call_start|>"), *tok.encode("calculator"), S("<|arg|>"), *tok.encode("expression=3 + 4"),
             S("<|tool_call_end|>"), end]
     tool = {**add, "kind": "tool", "tools": ["calculator"]}
     assert reward(tok, call, tool) == 1.0

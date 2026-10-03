@@ -1,6 +1,8 @@
-"""Stage 4: reinforcement learning on arithmetic, a minimal GRPO.
+"""Stage 4: the math specialist, trained by reinforcement learning (a minimal GRPO).
 
-SFT imitates perfect demonstrations; RL lets the model practice. Each step:
+SFT imitates perfect demonstrations; RL lets the model practice. The specialist only
+practices additions (and the calculator); distillation then merges it with the SFT model
+(minilab.train.distill). Each step:
 
 1. sample a batch of problems (mostly additions), and a *group* of completions per
    problem with model.generate at temperature 1 (the model's own attempts);
@@ -14,14 +16,14 @@ SFT imitates perfect demonstrations; RL lets the model practice. Each step:
 
 Like nanochat's simplified GRPO: fully on-policy (one update per batch of samples),
 so there is no ratio clipping, and no KL penalty to a reference model. What keeps
-the model from drifting is the problem mix: the skills we care about are in it (see
+the specialist's math skills from drifting is the problem mix: they are all in it (see
 sample_problem), so as soon as one degrades it fails and gets a signal.
 
 What RL teaches here: chat data only demonstrates 1-3 digit additions, pretraining
 text has worked examples up to 5 digits. Asked for 4 digits, the SFT model copies the
 numbers wrong -- but not always. RL finds and reinforces those lucky attempts.
 
-    uv run python -m minilab.train.rl --run runs/small
+    uv run python -m minilab.train.rl_math --run runs/prelude
 """
 
 from __future__ import annotations
@@ -52,9 +54,9 @@ def sample_problem(rng: random.Random, sc: dict, code_pool: list[dict] | None = 
     """A problem of a kind drawn from the config's mix, from the eval's own generators
     (minilab.eval.tasks.make_problem). "add" covers every length seen in pretraining:
     the lengths SFT demonstrated carry no signal, the longer ones are where RL learns.
-    The other kinds (calculator, system prompts, follow-ups, refusals) keep those
-    skills from drifting: as soon as one degrades, it fails and gets a signal.
-    "code" (mini-4's distillation only): one turn of an agent transcript from `code_pool`."""
+    The other kinds (calculator, follow-ups, word problems) keep those skills from drifting:
+    as soon as one degrades, it fails and gets a signal. "code" (distillation only): one turn
+    of an agent transcript from `code_pool`."""
     kind = rng.choices(list(sc["mix"]), weights=list(sc["mix"].values()))[0]
     if kind == "code":
         return code.turn_problem(rng, rng.choice(code_pool))
@@ -110,20 +112,18 @@ def rl_step(model: GPT, tok: Tokenizer, opt: torch.optim.Optimizer, problems: li
 
 
 def main() -> None:
-    args = parse_args("Stage 4: GRPO-style reinforcement learning on addition.", generation=True,
-                      stage={"default": "rl", "help": "config section and output stage, e.g. rl_math for "
-                             "the math specialist of the distillation recipe (see minilab.train.distill)"})
+    args = parse_args("Stage 4: the math specialist, GRPO-style reinforcement learning on addition.", generation=True)
     cfg = load_config(args)
     run, device, seed = Path(args.run), args.device, cfg.get("seed", 0)
     setup(seed, device)
-    sc = cfg[args.stage]
+    sc = cfg["rl_math"]
     model, tok, prev = load_checkpoint(run / "sft", device=device)
     rng = random.Random(seed + 3)
     gen = torch.Generator(device=device).manual_seed(seed + 3)
     opt = make_optimizer(model, sc["lr"], sc.get("weight_decay", 0.0), cfg.get("optimizer", "adamw"))
     steps = sc["steps"]
 
-    log = Logger(run / args.stage / "log.jsonl")
+    log = Logger(run / "rl_math" / "log.jsonl")
     t0, tokens = time.time(), 0
     for step in range(steps):
         lr = lr_at(step, steps, sc["lr"], sc.get("warmup", 0), sc.get("min_lr_frac", 0.1))
@@ -137,7 +137,7 @@ def main() -> None:
             log.log(step=step + 1, **stats, lr=lr, elapsed=round(time.time() - t0, 1))
 
     stats = {"steps": steps, "tokens": tokens, "wall_clock_s": round(time.time() - t0, 1)}
-    save_stage(run, args.stage, model, tok, stats, cfg, device, prev)
+    save_stage(run, "rl_math", model, tok, stats, cfg, device, prev)
 
 
 if __name__ == "__main__":

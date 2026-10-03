@@ -38,7 +38,7 @@ from minilab.data.conversations import (GREETINGS, IDENTITY, INSTRUCTIONS, NAME,
 from minilab.data.loader import story_batches
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
-from minilab.tokenizer.chat import ARG, parse_completion, recent_turns, render_prompt
+from minilab.tokenizer.chat import ARG, parse_completion, prompt_budget, render_prompt
 from minilab.train.trainer import evaluate_loss
 
 EVAL_SEED = 1234
@@ -393,19 +393,21 @@ def _turn_problem(turn: dict, messages: list[dict], tools: list[str] | None) -> 
 
 def eval_chat(model: GPT, tok: Tokenizer, scripts: list[dict]) -> list[dict]:
     """Play each script turn by turn, as the chat app does: the history it sends back (each
-    earlier answer, without the scratchpad or the calculator round trip), trimmed by the
-    same recent_turns; a calculator call is run and its result sent back for the answer.
+    earlier answer, without the scratchpad or the calculator round trip), fitted to the context
+    like the server fits it; a calculator call is run and its result sent back for the answer.
     Greedy, and a conversation stops at its first wrong answer."""
     stop = {tok.special("<|assistant_end|>")}
     n_ctx = model.config.block_size
+    budget = prompt_budget(n_ctx, None)  # the chat app sets no max_tokens
     history: list[list[dict]] = [[] for _ in scripts]
     failed: list[str | None] = [None] * len(scripts)
     for t in range(max(len(s["turns"]) for s in scripts)):
         live = [i for i, s in enumerate(scripts) if failed[i] is None and t < len(s["turns"])]
-        prompts = {i: recent_turns(history[i] + [user(scripts[i]["turns"][t]["request"])], n_ctx) for i in live}
+        prompts = {i: history[i] + [user(scripts[i]["turns"][t]["request"])] for i in live}
         rounds = [(i, prompts[i]) for i in live]
         while rounds:  # the answer, or a calculator call and then the answer
-            outs = generate(model, [render_prompt(tok, m, scripts[i]["tools"]) for i, m in rounds], n_ctx, stop)
+            outs = generate(model, [render_prompt(tok, m, scripts[i]["tools"], budget=budget) for i, m in rounds],
+                            n_ctx, stop)
             next_rounds = []
             for (i, messages), out in zip(rounds, outs):
                 turn, tools = scripts[i]["turns"][t], scripts[i]["tools"]
@@ -433,7 +435,7 @@ def perplexity(model: GPT, tok: Tokenizer, stories: list[str], n_batches: int = 
 
 def bits_per_char(tok: Tokenizer, texts: list[str], loss: float) -> float:
     """A loss per token in bits per character of these texts: unlike perplexity, it compares
-    models whose tokenizers differ (mini-4's against mini-3.2's or mini-code-1's)."""
+    models whose tokenizers differ (every run trains its own)."""
     chars = sum(map(len, texts))
     tokens = sum(len(tok.encode(t)) + 1 for t in texts)  # + <|bos|>
     return loss / math.log(2) * tokens / chars

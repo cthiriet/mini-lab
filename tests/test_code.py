@@ -1,4 +1,4 @@
-"""mini-code: the sandbox's tools, the toy code world, and the "code" chat template."""
+"""The coding agent: the sandbox's tools, the toy code world, and what the chat template does for agents."""
 
 import json
 import random
@@ -8,7 +8,7 @@ import pytest
 from minilab.data import code
 from minilab.data.sandbox import OPENCODE_TOOLS, TOOL_SCHEMAS, Sandbox
 from minilab.tokenizer.bpe import Tokenizer
-from minilab.tokenizer.chat import (PromptTooLong, code_messages, coerce_arguments, fit_messages, parse_completion,
+from minilab.tokenizer.chat import (PromptTooLong, coerce_arguments, fit_messages, parse_completion, prepare_messages,
                                     render_conversation, render_prompt)
 
 
@@ -17,7 +17,7 @@ def tok():
     rng = random.Random(0)
     convs = [code.conversation(rng, k) for k in list(code.TASKS) + ["chat", "title", "session"] for _ in range(3)]
     texts = [t for c in convs for t in code.text_of(c)] + [code.pretrain_document(rng) for _ in range(50)]
-    return Tokenizer.train(texts, 700, chat_template="code")
+    return Tokenizer.train(texts, 700)
 
 
 # ---- the sandbox: opencode 2.0.20's exact tool results ---------------------------------
@@ -83,9 +83,9 @@ def test_conversations_are_deterministic_and_relocated():
     assert a["tools"] == OPENCODE_TOOLS or set(OPENCODE_TOOLS) <= set(a["tools"])
 
 
-# ---- the "code" chat template ------------------------------------------------------
+# ---- the chat template, for agents ---------------------------------------------------
 
-def test_code_template_round_trip(tok):
+def test_tool_calls_round_trip(tok):
     call = {"id": "c1", "type": "function", "function": {"name": "edit", "arguments": json.dumps(
         {"path": "calc.py", "oldString": '    return "a" - b', "newString": "    return a + b\n", "replaceAll": True})}}
     ids, mask = render_conversation(tok, [{"role": "user", "content": "fix"},
@@ -100,10 +100,10 @@ def test_code_template_round_trip(tok):
     assert '\\"' not in tok.decode(ids)  # code goes in raw: no JSON escaping
 
 
-def test_code_template_trims_what_the_model_cant_use():
+def test_prepare_messages_trims_what_the_model_cant_use():
     system = ("You are an AI agent running in OpenCode, a coding agent harness. Help the user.\n" + "rules " * 5000
               + "\n<env>\n  Working directory: /Users/me/proj\n</env>")
-    out = code_messages([{"role": "system", "content": system},
+    out = prepare_messages([{"role": "system", "content": system},
                          {"role": "user", "content": "Read /Users/me/proj/calc.py"},
                          {"role": "tool", "content": "/Users/me/proj/src/a.py\n/Users/me/proj/b.py"},
                          {"role": "tool", "content": '{"error":{"type":"tool.execution","message":"File not found: x.py"},'
@@ -126,7 +126,7 @@ def test_fit_messages_keeps_the_current_request(tok):
     last_user = [m for m in history if m["role"] == "user"][-1]["content"]
     assert tok.encode(last_user)[:5] == ids[ids.index(tok.special("<|user_start|>")) + 1:][:5] or \
         last_user in tok.decode(ids)
-    kept = fit_messages(tok, code_messages([system, *history]), OPENCODE_TOOLS, budget)
+    kept = fit_messages(tok, prepare_messages([system, *history]), OPENCODE_TOOLS, budget)
     assert kept[0]["role"] == "system" and kept[1]["role"] == "user"   # whole turns only
     with pytest.raises(PromptTooLong):
         render_prompt(tok, [system, {"role": "user", "content": "word " * 2000}], OPENCODE_TOOLS, budget=200)
@@ -140,10 +140,9 @@ def test_coerce_arguments():
     assert coerce_arguments('{"offset": "five"}', schema) == '{"offset": "five"}'
 
 
-def test_tokenizer_keeps_its_template(tok, tmp_path):
+def test_tokenizer_save_and_load(tok, tmp_path):
     tok.save(tmp_path / "tok.json")
     loaded = Tokenizer.load(tmp_path / "tok.json")
-    assert loaded.chat_template == "code" and "<|arg|>" in loaded.special_tokens
-    default = Tokenizer.train(["hello world"] * 10, 300)
-    default.save(tmp_path / "default.json")
-    assert Tokenizer.load(tmp_path / "default.json").chat_template == "default"
+    assert loaded.special_tokens == tok.special_tokens and "<|arg|>" in loaded.special_tokens
+    text = code.pretrain_document(random.Random(5))
+    assert loaded.encode(text) == tok.encode(text)

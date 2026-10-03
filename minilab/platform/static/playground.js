@@ -183,8 +183,9 @@
 
   $("pg-code").addEventListener("click", () => {
     const req = buildRequest();
-    const body = { model: req.model, messages: req.messages.length ? req.messages : [{ role: "user", content: "Hello!" }] };
-    if (req.temperature !== 1) body.temperature = req.temperature;
+    // Always the temperature: without one, the API uses the model's default, not the playground's.
+    const body = { model: req.model, messages: req.messages.length ? req.messages : [{ role: "user", content: "Hello!" }],
+                   temperature: req.temperature };
     if (req.max_tokens) body.max_tokens = req.max_tokens;
     if (req.calculator) body.tools = [JSON.parse(document.getElementById("calculator-tool").textContent)];
     const apiUrl = form.dataset.apiUrl;

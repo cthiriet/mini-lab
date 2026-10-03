@@ -1,12 +1,11 @@
-"""Stage 5, the 2026 recipe: on-policy distillation from specialists (instead of `rl`).
+"""Stage 5: on-policy distillation from specialists.
 
 One RL run on every skill at once has to keep the skills it isn't practicing from
-drifting: rl.py does it by putting them all in the problem mix. Labs now split the
-work instead (DeepSeek-V4, Kimi K3, Nemotron 3): specialists are trained by RL, each
+drifting, by putting them all in its problem mix. Labs now split the work instead (DeepSeek-V4, Kimi K3, Nemotron 3): specialists are trained by RL, each
 on its own domain and with nothing to hold it elsewhere, and then one student learns
 from all of them, each on its own domain. Here there are two teachers:
 
-- the math specialist (the `rl_math` stage: rl.py on additions and the calculator only);
+- the math specialist (the `rl_math` stage: RL on additions and the calculator only);
 - the SFT model, for everything else (system prompts, follow-ups, refusals...): it
   already does them right.
 
@@ -20,12 +19,12 @@ The student starts from the SFT model. Each step:
    the answer's positions. Every token gets a grade, where RL gives one reward per
    answer.
 
-    uv run python -m minilab.train.rl --run runs/small --stage rl_math
-    uv run python -m minilab.train.distill --run runs/small
+The mix also has "code" problems, one turn of an agent transcript each (a tool call or the
+answer, with the earlier calls and results as context), whose teacher is the SFT model.
+Without them, the coding agent would drift like any skill left out.
 
-mini-4 (`world = "unified"`) also codes: its mix has "code" problems, one turn of an agent
-transcript each (a tool call or the answer, with the earlier calls and results as context), whose
-teacher is the SFT model. Without them, the coding agent would drift like any skill left out.
+    uv run python -m minilab.train.rl_math --run runs/prelude
+    uv run python -m minilab.train.distill --run runs/prelude
 """
 
 from __future__ import annotations
@@ -43,7 +42,7 @@ from minilab.eval.tasks import grade
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
 from minilab.tokenizer.chat import PromptTooLong, render_prompt
-from minilab.train.rl import sample_problem
+from minilab.train.rl_math import sample_problem
 from minilab.train.trainer import Logger, load_config, lr_at, make_optimizer, parse_args, save_stage, setup
 
 
@@ -55,7 +54,7 @@ def distill_step(student: GPT, teachers: list[GPT], tok: Tokenizer, opt: torch.o
     stop = {tok.special("<|assistant_end|>")}
 
     # 1) the student's own answers (an agent's long transcript is fitted like the server fits it)
-    budget = student.config.block_size - max_new_tokens if tok.chat_template == "code" else None
+    budget = student.config.block_size - max_new_tokens
     rendered = []
     for p, t in problems:
         try:
@@ -114,7 +113,7 @@ def main() -> None:
     teacher_of = {kind: names.index(name) for kind, name in sc["teachers"].items()}
     print("teachers: " + ", ".join(f"{k} -> {v}" for k, v in sc["teachers"].items()) + ", everything else -> sft")
 
-    # mini-4: agent transcripts to cut into one-turn problems, apart from the SFT set's
+    # agent transcripts to cut into one-turn problems, apart from the SFT set's
     code_pool = code.sft_set(cfg, seed + 5, size=sc["code_pool"]) if "code" in sc["mix"] else None
     rng = random.Random(seed + 5)
     gen = torch.Generator(device=device).manual_seed(seed + 5)

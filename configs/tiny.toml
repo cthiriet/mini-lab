@@ -1,62 +1,70 @@
-# CI smoke test: the whole pipeline (download -> release) in ~1 minute on a CPU.
+# Smoke test of the recipe (configs/prelude.toml): every stage, both evals, in a few minutes.
 # The model is far too small and trained far too briefly to be any good.
+#
+#   bash speedrun.sh tiny
 seed = 0
-optimizer = "muon"          # the hidden matrices on Muon, embedding and norms on AdamW (train/trainer.py)
+optimizer = "muon"
 
 [data]
-train_mb = 1                # first N MB of TinyStoriesV2-GPT4-train.txt
-val_mb = 0.5                # first N MB of the validation file (held out)
-digits = [1, 2, 3]          # operand lengths in the pretraining worksheets (and RL)
-heldout_digits = [4]        # never trained on: length generalization
-story_max_chars = 700       # stories told in chat must fit the context
+train_mb = 1
+val_mb = 0.5
+digits = [1, 2, 3]
+heldout_digits = [4]
+story_max_chars = 700
 
 [tokenizer]
-vocab_size = 512
+vocab_size = 768
 sample_stories = 1000
+code_sample = 200
 
 [model]
-block_size = 256
+block_size = 512            # enough for the coding tasks cut down by the chat template; untrained models ramble to the end
 n_layer = 2
 n_head = 2
 n_embd = 96
 
 [pretrain]
-steps = 150
-batch_size = 16
+steps = 60
+batch_size = 4
 lr = 3e-3
 warmup = 10
 weight_decay = 0.1
-arith_frac = 0.3            # probability that the next document is an arithmetic worksheet
-eval_every = 50
+arith_frac = 0.3
+code_frac = 0.3
+eval_every = 30
 val_batches = 2
 
 [midtrain]
-steps = 100
-batch_size = 16
+steps = 40
+batch_size = 4
 lr = 2e-3
 warmup = 5
 weight_decay = 0.1
 digits = [1, 2]
-text_frac = 0.2             # share of pretraining documents, against forgetting
-tool_frac = 0.3             # share of conversations with the calculator enabled
+text_frac = 0.2
+tool_frac = 0.3
 mix = { arithmetic = 0.6, story = 0.2, greeting = 0.2 }
-eval_every = 50
+eval_every = 20
 val_batches = 2
 
 [sft]
-size = 500
-steps = 60
-batch_size = 16
-lr = 1e-3
-warmup = 5
+size = 300
+mix = { plain = 0.13, instruction = 0.33, followup = 0.12, new_question = 0.12, switch = 0.08, mixed = 0.1, refusal = 0.08, identity = 0.04 }
 digits = [1, 2]
 tool_frac = 0.3
-mix = { plain = 0.13, instruction = 0.33, followup = 0.12, new_question = 0.12, switch = 0.08, mixed = 0.1, refusal = 0.08, identity = 0.04 }
-eval_every = 30
+code_size = 500
+code_mix = { list_files = 0.04, find_def = 0.04, show_file = 0.04, explain = 0.05, run = 0.06, run_tests = 0.05, create_func = 0.09, create_script = 0.04, rename = 0.07, change_const = 0.06, add_func = 0.08, fix_test = 0.13, fix_crash = 0.08, session = 0.10, chat = 0.04, title = 0.03 }
+code_frac = 0.4
+text_frac = 0.1
+steps = 40
+batch_size = 8
+lr = 1e-3
+warmup = 5
+eval_every = 20
 val_batches = 2
 
 [rl_math]
-steps = 5
+steps = 3
 prompts_per_step = 4
 group_size = 4
 digits = [1, 2, 3]
@@ -68,34 +76,34 @@ lr = 1e-4
 warmup = 0
 
 [distill]
-steps = 5
+steps = 3
 prompts_per_step = 8
 digits = [1, 2, 3]
 chat_digits = [1, 2]
-mix = { add = 0.45, tool = 0.15, number_only = 0.15, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05, story = 0.05, long_followup = 0.05, switch = 0.05, mixed = 0.05, word = 0.05 }
-teachers = { add = "rl_math", tool = "rl_math", long_followup = "rl_math", new_question = "rl_math" }
-max_new_tokens = 96
-temperature = 1.0
-lr = 1e-4
-warmup = 0
-
-[rl]
-steps = 5
-prompts_per_step = 4
-group_size = 4
-digits = [1, 2, 3]
-chat_digits = [1, 2]
-mix = { add = 0.45, tool = 0.15, number_only = 0.15, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05 }
+mix = { add = 0.45, tool = 0.15, number_only = 0.15, refusal = 0.05, story = 0.05, code = 0.3 }
+teachers = { add = "rl_math", tool = "rl_math" }
+code_pool = 100
 max_new_tokens = 96
 temperature = 1.0
 lr = 1e-4
 warmup = 0
 
 [eval]
-n_per_digit = 8
-n_sampled = 8
-n_tool = 4
-n_instr = 4
+n_per_digit = 4
+n_sampled = 4
+n_tool = 2
+n_instr = 2
 n_chat = 4
-max_new_tokens = 128
+max_new_tokens = 96
 ppl_batches = 2
+
+[code_eval]
+n_per_kind = 2
+n_chat = 4
+max_steps = 3
+max_new_tokens = 96
+batch = 16
+ppl_docs = 200
+
+[release]
+description = "smoke test of the recipe."

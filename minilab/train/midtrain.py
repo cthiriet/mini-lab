@@ -8,7 +8,7 @@ still plain language modeling, just on a new kind of document, and a lot of it. 
 documents are rendered conversations; a fraction (text_frac) is pretraining text so
 the model does not forget how to write stories.
 
-    uv run python -m minilab.train.midtrain --run runs/small
+    uv run python -m minilab.train.midtrain --run runs/prelude
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def main() -> None:
         rng = random.Random(seed)
         convs = midtrain_stream(seed, sc, d["digits"], pool)
         text = pretrain_documents(tok, stories, d["digits"], cfg["pretrain"]["arith_frac"], seed,
-                                  cfg["pretrain"].get("code_frac", 0.0))  # mini-4: Python too
+                                  cfg["pretrain"]["code_frac"])
         while True:
             if rng.random() < text_frac:
                 yield next(text)

@@ -18,12 +18,8 @@ jobs:
         run: uv sync --frozen
       - name: Unit and integration tests
         run: uv run pytest -q
-      - name: Tiny speedrun (data -> tokenizer -> pretrain -> midtrain -> sft -> rl_math -> distill -> eval -> release)
+      - name: Tiny speedrun (data -> tokenizer -> pretrain -> midtrain -> sft -> rl_math -> distill -> eval -> release; the coding eval in a Docker sandbox)
         run: bash speedrun.sh tiny
-        env:
-          DEVICE: cpu
-      - name: Tiny mini-4 speedrun (stories, addition and code in one model; the coding eval in a Docker sandbox)
-        run: bash speedrun.sh unified-tiny
         env:
           DEVICE: cpu
       - name: Upload the training report
@@ -34,8 +30,6 @@ jobs:
           path: |
             runs/tiny/report.html
             runs/tiny/*/eval.json
-            runs/unified-tiny/report.html
-            runs/unified-tiny/*/eval.json
           if-no-files-found: ignore
 
   docker:

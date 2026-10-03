@@ -7,7 +7,7 @@ if [ -f .env ]; then set -a; . ./.env; set +a; fi
 MODELS_DIR="${MINILAB_MODELS_DIR:-models}"
 if ! ls "$MODELS_DIR"/*/release.json >/dev/null 2>&1; then
   echo "No released model in $MODELS_DIR/." >&2
-  echo "Train one with 'bash speedrun.sh small', or create a random one with 'uv run python -m minilab.testing $MODELS_DIR'." >&2
+  echo "Train one with 'bash speedrun.sh', or create a random one with 'uv run python -m minilab.testing $MODELS_DIR'." >&2
   exit 1
 fi
 trap 'kill 0' EXIT

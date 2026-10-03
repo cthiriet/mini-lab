@@ -30,7 +30,7 @@ def pretrain_documents(tok: Tokenizer, stories: list[str], digits: list[int], ar
                        seed: int, code_frac: float = 0.0) -> Iterator[list[int]]:
     """Endless stream of tokenized documents: shuffled stories (one epoch after the
     other) with arithmetic worksheets mixed in, each document with probability arith_frac,
-    and for mini-4 Python documents of the code world (data/code.py) with probability code_frac."""
+    and Python documents of the code world (data/code.py) with probability code_frac."""
     rng = random.Random(seed)
     python = code.pretrain_documents(seed + 1) if code_frac else None
     order = list(range(len(stories)))
@@ -78,7 +78,7 @@ def chat_batch(tok: Tokenizer, conversations: list[dict], block_size: int) -> Ba
     trained on every token."""
     rows = []
     for conv in conversations:
-        if "ids" in conv:  # a pretraining document (mini-4's SFT replays some): loss on every token
+        if "ids" in conv:  # a pretraining document (SFT replays some): loss on every token
             ids = conv["ids"][:block_size + 1]
             rows.append((ids[:-1], ids[1:]))
             continue

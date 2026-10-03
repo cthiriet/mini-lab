@@ -8,16 +8,12 @@ fixed for the run) seen for a few epochs, rather than a stream. Each row is one
 conversation starting at position 0, padded, exactly like at inference, and the loss
 is only on the assistant's tokens. Lower learning rate, few steps.
 
-    uv run python -m minilab.train.sft --run runs/small
+Each row is drawn from the chat set, from the agent transcripts (`code_frac` of the rows:
+opencode's requests, tool calls played for real in a sandbox, and the answers, generated once
+and cached in data/code/), or from the pretraining documents (`text_frac`): without them, this
+long SFT made the model forget plain text (stories 0.59 -> 1.00 bits per character).
 
-For mini-code (`[data] world = "code"`), SFT starts from pretraining (there is no midtraining)
-and the conversations are agent transcripts: opencode's requests, tool calls played for real
-in a sandbox, and the answers (data/code.py). They are generated once and cached in data/code/.
-
-For mini-4 (`world = "unified"`), SFT starts from midtraining and draws each row from mini's chat
-set, from the agent transcripts (`code_frac` of the rows), or from the pretraining documents
-(`text_frac`): its SFT is ten times longer than mini's, and without them the model forgot plain
-text (story perplexity 4.9 -> 14.7).
+    uv run python -m minilab.train.sft --run runs/prelude
 """
 
 from __future__ import annotations
@@ -38,39 +34,26 @@ def main() -> None:
     run, device, seed = Path(args.run), args.device, cfg.get("seed", 0)
     setup(seed, device)
     d, sc = cfg["data"], cfg["sft"]
-    if d.get("world") == "code":
-        model, tok, prev = load_checkpoint(run / "pretrain", device=device)
-        T, B = model.config.block_size, sc["batch_size"]
-        train = code.conversations(sc["size"], seed + 2, sc["mix"])
-        val = code.conversations(B * sc.get("val_batches", 10), seed + 1002, sc["mix"])
-    else:
-        model, tok, prev = load_checkpoint(run / "midtrain", device=device)
-        stories = load_stories("train", d["train_mb"])
-        pool = StoryPool(stories, d.get("story_max_chars", 700))
-        T, B = model.config.block_size, sc["batch_size"]
-        train = sft_dataset(seed + 2, sc["size"], sc, d["digits"], pool)
-        val = sft_dataset(seed + 1002, B * sc.get("val_batches", 10), sc, d["digits"], pool)
+    model, tok, prev = load_checkpoint(run / "midtrain", device=device)
+    stories = load_stories("train", d["train_mb"])
+    pool = StoryPool(stories, d.get("story_max_chars", 700))
+    T, B = model.config.block_size, sc["batch_size"]
+    train = sft_dataset(seed + 2, sc["size"], sc, d["digits"], pool)
+    val = sft_dataset(seed + 1002, B * sc.get("val_batches", 10), sc, d["digits"], pool)
     val_batches = [chat_batch(tok, val[i:i + B], T) for i in range(0, len(val), B)]
-    rows = epochs(train, seed + 2)
-    code_val = []
-    if d.get("world") == "unified":
-        agent = code.sft_set(cfg, seed + 2)
-        f, t = sc["code_frac"], sc.get("text_frac", 0.0)
-        pc = cfg["pretrain"]
-        text = ({"ids": ids} for ids in pretrain_documents(tok, stories, d["digits"], pc["arith_frac"], seed + 5,
-                                                          pc.get("code_frac", 0.0)))
-        rows = mixture([rows, epochs(agent, seed + 3), text], [1 - f - t, f, t], seed + 4)
-        code_set = code.sft_set(cfg, seed + 1002, size=B * sc.get("val_batches", 10))
-        code_val = [chat_batch(tok, code_set[i:i + B], T) for i in range(0, len(code_set), B)]
-        print(f"SFT set: {len(train)} chat conversations ({sc['steps'] * B * (1 - f - t) / len(train):.1f} epochs), "
-              f"{len(agent)} agent transcripts ({sc['steps'] * B * f / len(agent):.1f} epochs), "
-              f"{t:.0%} pretraining documents")
-    else:
-        print(f"SFT set: {len(train)} conversations, {sc['steps'] * B / len(train):.1f} epochs")
+    agent = code.sft_set(cfg, seed + 2)
+    code_set = code.sft_set(cfg, seed + 1002, size=B * sc.get("val_batches", 10))
+    code_val = [chat_batch(tok, code_set[i:i + B], T) for i in range(0, len(code_set), B)]
+    f, t = sc["code_frac"], sc["text_frac"]
+    pc = cfg["pretrain"]
+    text = ({"ids": ids} for ids in pretrain_documents(tok, stories, d["digits"], pc["arith_frac"], seed + 5, pc["code_frac"]))
+    rows = mixture([epochs(train, seed + 2), epochs(agent, seed + 3), text], [1 - f - t, f, t], seed + 4)
+    print(f"SFT set: {len(train)} chat conversations ({sc['steps'] * B * (1 - f - t) / len(train):.1f} epochs), "
+          f"{len(agent)} agent transcripts ({sc['steps'] * B * f / len(agent):.1f} epochs), "
+          f"{t:.0%} pretraining documents")
 
     def val_fn() -> dict:
-        extra = {"code_val_loss": evaluate_loss(model, code_val, device)} if code_val else {}
-        return {"val_loss": evaluate_loss(model, val_batches, device), **extra}
+        return {"val_loss": evaluate_loss(model, val_batches, device), "code_val_loss": evaluate_loss(model, code_val, device)}
 
     log = Logger(run / "sft" / "log.jsonl")
     stats = train_loop(model, chat_batches(tok, rows, B, T), sc, log, device, val_fn, cfg.get("optimizer", "adamw"))
