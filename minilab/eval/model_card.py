@@ -33,7 +33,8 @@ def _duration(seconds: float) -> str:
     return f"{seconds:.0f} s" if seconds < 60 else f"{seconds / 60:.1f} min"
 
 
-STAGE_NAMES = {"sft": "SFT", "rl": "RL", "rl_math": "RL math specialist", "distill": "distillation"}
+STAGE_NAMES = {"sft": "SFT", "rl": "RL", "rl_math": "RL math specialist", "rl_code": "RL code specialist",
+               "distill": "distillation"}
 
 
 def model_card(run: Path, stage: str, model_id: str | None = None) -> str:

@@ -49,6 +49,7 @@ class Episode:
     valid: int = 0
     done: bool = False
     transcript: list[str] = field(default_factory=list)
+    turns: list[tuple[list[int], list[int]]] = field(default_factory=list)   # (prompt ids, generated ids): RL's tokens
 
 
 def _generate(model: GPT, tok: Tokenizer, prompts: list[list[int]], max_new: int, batch: int,
@@ -81,7 +82,8 @@ def play(model: GPT, tok: Tokenizer, episodes: list[Episode], max_steps: int, ma
                 continue
             prompts.append(ids)
             ready.append(e)
-        for e, out in zip(ready, _generate(model, tok, prompts, max_new, batch, temperature, generator)):
+        for e, ids, out in zip(ready, prompts, _generate(model, tok, prompts, max_new, batch, temperature, generator)):
+            e.turns.append((ids, out))
             parsed = parse_completion(tok, out)
             if not parsed.tool_calls or e.sb is None:
                 e.answer, e.done = parsed.content, True

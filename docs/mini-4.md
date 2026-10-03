@@ -112,14 +112,48 @@ do scores 0 and can't be a regression. Perplexities are compared in bits per cha
 the three models have different tokenizers (mini-code-1's 1.654 bits per character of Python is
 its own SFT forgetting plain text, as mini-4's first SFT did).
 
-## Not done yet: RL on code
+## RL on code: tried, not adopted
 
-The math has a specialist trained by RL; the coding agent is still SFT only, kept as it is by
-distillation. A code specialist would practice the tasks end to end in the Docker sandbox, with
-the task's check as its reward. Two things first: checks that can't be gamed (a test made to
-pass by deleting its `assert` passes `fix_test`'s check today), and a harder eval than the 98%
-the SFT already reaches (distractors in every module, sessions of 3-4 requests), so that its gain
-shows.
+The math has a specialist trained by RL; the coding agent is SFT only. Branch `rl-code` tried
+a code specialist (`train/rl_code.py`): GRPO where an attempt is a whole episode, every tool call
+played in the Docker sandbox, 16 tasks x 8 attempts a step at temperature 1, weighted to the hard
+tasks, a third after earlier requests of the session.
+
+**The reward first.** An RL reward must pay for the task done, not for passing the check: each
+task got a guard (`Task.guard`, `Task.reward`): the tests left as they were, every function of a
+fixed module right on inputs no test uses, the answer grounded in a tool call (the tests were
+run, the file was read). Without them, deleting the failing `assert` passed `fix_test`, and "All
+tests pass." without running them passed `run_tests` on most projects. Over 3,300 sampled
+attempts, two passed a check without doing the task (a test file said to pass, never run), and
+the guards caught both.
+
+**Then the headroom** (`scripts/rl_code/probe.py`, `probe_hard.py`: greedy, and 8 attempts at
+T=1, on the SFT model). RL can only make the model do by default what some of its attempts
+already do:
+
+| | greedy | T=1 | pass@8 | groups with right and wrong attempts |
+|---|---:|---:|---:|---:|
+| the 13 task kinds (208 tasks) | 98% | 94% | 98% | 21% |
+| hard requests (fix_test with a distractor, fix_crash, add_func, rename, change_const), alone | 92% | 90% | 97% | 32% |
+| the same after 3 requests the model made itself | 92% | 85% | 93% | 35% |
+
+A real signal (a third of the groups), and a close ceiling: pass@8 is 5 points above greedy.
+
+**The pilot**: 150 steps from the SFT model, lr 5e-5, 2h07 on MPS. Same seeds before and after:
+
+| | SFT | RL code specialist |
+|---|---:|---:|
+| the 13 task kinds, greedy / T=1 | 98% / 94% | 99% / 95% |
+| hard requests, greedy (120) | 92% | 92.5% |
+| add_func, greedy / T=1 (24 / 192) | 79% / 73% | 83% / 79% |
+| coding eval (650 tasks) | 98.0% | 98.0% |
+| whole chats, stories on topic | 68% / 98% | 66% / 93% |
+
+Nothing beyond the noise of these samples (±8 points on 24 tasks), its training reward flat
+(0.905 over the first 25 steps, 0.910 over the last 25), and nothing to distill into mini-4. The
+SFT already does the coding tasks of this world; what it gets wrong, its own attempts rarely get
+right either. RL would need tasks the model can only *sometimes* solve: a harder world (bigger
+projects, two bugs, requests that combine), not more steps.
 
 ## Limitations
 

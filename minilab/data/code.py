@@ -876,8 +876,9 @@ def task_add_func(rng: random.Random, p: Project) -> Task | None:
 
 # ---- repair -------------------------------------------------------------------
 
-def task_fix_test(rng: random.Random, p: Project) -> Task | None:
-    """A function has a bug that its test catches: run the test, find the function, fix it."""
+def task_fix_test(rng: random.Random, p: Project, distractor_frac: float = 0.5) -> Task | None:
+    """A function has a bug that its test catches: run the test, find the function, fix it. In
+    `distractor_frac` of the modules, a function whose right code looks like one of the bugs."""
     if not p.tests:
         return None
     test = rng.choice(list(p.tests))
@@ -888,7 +889,7 @@ def task_fix_test(rng: random.Random, p: Project) -> Task | None:
         return None
     bad_body, good_part = bug
     module = Module(m.path, list(m.funcs))
-    distractor = _distractor(rng, f, bad_body, p) if rng.random() < 0.5 else None
+    distractor = _distractor(rng, f, bad_body, p) if rng.random() < distractor_frac else None
     if distractor:
         module.funcs.insert(rng.randint(0, len(module.funcs)), distractor)
     files = dict(p.files)

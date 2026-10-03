@@ -36,7 +36,7 @@ from minilab.tokenizer.bpe import Tokenizer
 
 # The speedrun runs pretrain, midtrain, sft, rl_math, distill. "rl" is the single-RL-run
 # recipe that mini-1 was trained with, kept for comparison.
-STAGES = ["pretrain", "midtrain", "sft", "rl", "rl_math", "distill"]
+STAGES = ["pretrain", "midtrain", "sft", "rl", "rl_math", "rl_code", "distill"]
 DEVICES = ["auto", "cpu", "mps", "cuda"]
 
 

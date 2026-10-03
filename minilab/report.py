@@ -17,7 +17,7 @@ import json
 import webbrowser
 from pathlib import Path
 
-STAGES = ["pretrain", "midtrain", "sft", "rl", "rl_math", "distill"]  # as minilab.train.trainer.STAGES
+STAGES = ["pretrain", "midtrain", "sft", "rl", "rl_math", "rl_code", "distill"]  # as minilab.train.trainer.STAGES
 META_KEYS = ["steps", "tokens", "tokens_total", "wall_clock_s", "params", "device", "hardware", "final_loss", "val_loss"]
 
 # Rows of the "stage progression" table: (path in eval.json, label, kind).
