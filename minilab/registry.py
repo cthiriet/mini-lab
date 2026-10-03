@@ -53,7 +53,7 @@ class ModelInfo:
 
     @classmethod
     def from_json(cls, data: dict, path: Path | None = None) -> "ModelInfo":
-        """From release.json or to_json(), ignoring keys it doesn't know (older releases have more)."""
+        """From release.json or to_json() (what inference's GET /models returns), ignoring unknown keys."""
         known = {f.name for f in fields(cls)} - {"path"}
         kwargs = {k: v for k, v in data.items() if k in known}
         kwargs["pricing"] = Pricing(**(data.get("pricing") or {}))

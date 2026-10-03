@@ -36,10 +36,9 @@ distill          6.18  100%  100%  100%  100%  100%   0%    100%       100%     
 ```
 
 `rl_math` is the math specialist, a teacher that is never released; `distill` is prelude-1.
-It passed the release gate against mini-4 with one waiver, stories on topic 98% → 91%: the
-three greedy phrasings of "a story about a cat" get the same story without a cat (sampled at
-the chat app's temperature, 14 cat stories out of 30 mention a cat; mini-4's: 18). The
-coding tasks are in [opencode.md](opencode.md).
+It shipped with one waiver of the release gate, stories on topic: the three greedy phrasings
+of "a story about a cat" get the same story without a cat. The coding tasks are in
+[opencode.md](opencode.md).
 
 | column | what it measures |
 |---|---|
@@ -313,7 +312,7 @@ and samples).
 
 ## Lessons
 
-What the releases taught us ([history.md](history.md) has the releases themselves):
+What building it taught us:
 
 - **Each stage needs its own job.** In the first design every stage saw the same kinds of
   data, midtraining alone reached 100% on addition, and SFT and RL had nothing left to show.
@@ -351,11 +350,11 @@ What the releases taught us ([history.md](history.md) has the releases themselve
   READMEs and config files in projects.
 - **Test like users do.** Every bug above was found by hand, in the chat app or in opencode.
   The `chat` check plays whole conversations the way the app does, and the release gate
-  blocks any regression against the previous release: replayed on old releases, it would have
-  blocked mini-3 (the "story after an addition" bug). A gate is only as sharp as its samples:
+  blocks any regression against the previous release: replayed on earlier models, it would have
+  caught the "story after an addition" bug before it shipped. A gate is only as sharp as its samples:
   60 conversations moved by ±10 points from luck alone, so the check plays 200.
-- **Specialists and distillation beat one RL run.** mini-1's single RL run on every skill had
-  to keep each skill in its mix as an anchor, and still paid an alignment tax and let stories
+- **Specialists and distillation beat one RL run.** A single RL run on every skill has to keep
+  each skill in its mix as an anchor, and it still paid an alignment tax and let stories
   drift. From the same SFT checkpoints (two seeds): story perplexity 7.37 → 7.13, 5 digits at
   T=1 89-91% → 97-98%, stories on topic 76-87% → 93-96%, with fewer sampled answers.
 - **A long SFT forgets plain text: replay pretraining documents.** 3,500 steps on agent
@@ -389,9 +388,8 @@ What the releases taught us ([history.md](history.md) has the releases themselve
 - **Tried, not adopted.** A 2026-style block (SwiGLU, QK-norm, an attention output gate)
   lowers the loss per step but is 22% slower on MPS, and loses at equal wall-clock. Looped
   transformers (recurrent depth): looping the blocks twice reached 1.724, the same compute
-  spent on more steps 1.632 (branch `looped-transformer`). RL on code, the coding eval as reward, took 98% to 98%: the SFT
-  already solves what its own attempts can (branch `rl-code`); a harder code world would have
-  to come first.
+  spent on more steps 1.632. RL on code, the coding eval as reward, took 98% to 98%: the SFT
+  already solves what its own attempts can; a harder code world would have to come first.
 
 ## Devices
 

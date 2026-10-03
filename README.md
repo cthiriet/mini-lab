@@ -45,7 +45,7 @@ Each stage is evaluated, and the training report shows what it changed (addition
 
 On its own eval, `prelude-1` gets 100% of 1-5 digit additions (greedy and sampled at temperature 1), 99% of the instruction checks, 90% of whole chats and 98% of its coding tasks done end to end, after 70 minutes of training (about 1h30 with the evals).
 
-See [docs/training.md](docs/training.md) for the full results and what we learned along the way (including the reward hacks RL found), [docs/opencode.md](docs/opencode.md) for how ~10,000 tokens of opencode instructions fit a 1,024-token model, and [docs/history.md](docs/history.md) for the releases that led here.
+See [docs/training.md](docs/training.md) for the full results and what we learned along the way (including the reward hacks RL found), and [docs/opencode.md](docs/opencode.md) for how ~10,000 tokens of opencode instructions fit a 1,024-token model.
 
 ## The platform
 

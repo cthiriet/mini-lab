@@ -18,7 +18,7 @@ CONFIG="configs/${PRESET}.toml"
 RUN="${RUN:-runs/${PRESET}}"
 DEVICE="${DEVICE:-auto}"
 case "$PRESET" in
-  prelude) ID="prelude-1" ;;  # the next release: see docs/history.md
+  prelude) ID="prelude-1" ;;  # the next release's id
   tiny) ID="prelude-tiny"; export MINILAB_MODELS_DIR="${MINILAB_MODELS_DIR:-$RUN/models}" ;;
   *) ID="prelude-${PRESET}" ;;
 esac

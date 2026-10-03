@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, fields
+from dataclasses import asdict
 from pathlib import Path
 
 import torch
@@ -30,8 +30,7 @@ def save_checkpoint(path: str | Path, model: GPT, tokenizer: Tokenizer, meta: di
 def load_checkpoint(path: str | Path, device: str = "cpu") -> tuple[GPT, Tokenizer, dict]:
     path = Path(path)
     cfg = json.loads((path / "config.json").read_text())
-    known = {f.name for f in fields(GPTConfig)}  # older checkpoints list options that are gone, at their defaults
-    model = GPT(GPTConfig(**{k: v for k, v in cfg["model"].items() if k in known}))
+    model = GPT(GPTConfig(**cfg["model"]))
     model.load_state_dict(torch.load(path / "model.pt", map_location="cpu", weights_only=True))
     model.to(device).eval()
     return model, Tokenizer.load(path / "tokenizer.json"), cfg.get("meta", {})

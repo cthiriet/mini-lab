@@ -65,7 +65,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Release a checkpoint to the models directory.")
     p.add_argument("--run", required=True)
     p.add_argument("--stage", default="distill", choices=STAGES)
-    p.add_argument("--id", required=True, help="model id, e.g. prelude-1 (see docs/history.md)")
+    p.add_argument("--id", required=True, help="model id, e.g. prelude-1")
     p.add_argument("--models-dir", default=get_settings().models_dir)
     p.add_argument("--baseline", help="the release to beat (default: the newest earlier one)")
     p.add_argument("--allow", action="append", default=[], metavar="METRIC=REASON",

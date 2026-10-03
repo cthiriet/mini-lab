@@ -169,8 +169,8 @@ scratchpad, so the shared prefix ends where the previous answer starts, and the
 answer itself is prefilled again.
 
 `uv run python -m minilab.inference.bench --models-dir models --chats 32` plays chats
-of 4 turns, as the chat app sends them, with the cache on and off. On mini-3.2 (an
-earlier release with a 256-token context), on one CPU thread (like the production server):
+of 4 turns, as the chat app sends them, with the cache on and off. On the same 6 x 256
+model with a 256-token context, on one CPU thread (like the production server):
 
 | 32 chats x 4 turns | prompt tokens prefilled | time to first token, turns 2-4 |
 |---|---:|---:|
