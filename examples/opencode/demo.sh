@@ -3,7 +3,7 @@
 #   no arguments: opencode's TUI (you approve each action); `run --auto "Run the tests"`: one request
 set -euo pipefail
 cd "$(dirname "$0")"
-[ -f ../../models/prelude-1.1/release.json ] || { echo "No model: run 'bash speedrun.sh' first." >&2; exit 1; }
+[ -f ../../models/prelude-1/release.json ] || { echo "No model: run 'bash speedrun.sh' first." >&2; exit 1; }
 export MINILAB_INTERNAL_TOKEN="${MINILAB_INTERNAL_TOKEN:-$(openssl rand -hex 32)}"
 docker compose build -q
 if [ -t 0 ]; then

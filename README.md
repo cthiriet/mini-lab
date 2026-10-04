@@ -27,7 +27,7 @@ Each part of a real lab has a minimal, readable version here:
 
 No GPU required: the whole training pipeline, from raw text to a released model, runs on a laptop (about 1h30 on an Apple M5 Pro, its GPU through MPS for training).
 
-## The model: `prelude-1.1`
+## The model: `prelude-1`
 
 A 5.8M-parameter GPT with a 1,024-token context. In the chat app it writes short children's stories and adds numbers, either step by step or with a calculator tool. In [opencode](https://opencode.ai) it is a coding agent: given "Run the tests and fix any bug", it globs for the tests, runs them, greps for the failing function, reads it, edits the line, runs the tests again and says what it fixed. It knows which job it is doing from what the client sends, as any assistant model does. It's tiny on purpose: every training stage has an effect you can measure.
 
@@ -43,7 +43,7 @@ Each stage is evaluated, and the training report shows what it changed (addition
 
 <p align="center"><img src="docs/assets/report.png" alt="Training report: per-stage evaluation heatmap" width="800"></p>
 
-On its own eval, `prelude-1.1` gets 100% of 1-5 digit additions (greedy and sampled at temperature 1), 99% of the instruction checks, 96% of whole chats and 98% of its coding tasks done end to end, after 69 minutes of training (about 1h30 with the data and the evals).
+On its own eval, `prelude-1` gets 100% of 1-5 digit additions (greedy and sampled at temperature 1), 99% of the instruction checks, 96% of whole chats and 98% of its coding tasks done end to end, after 69 minutes of training (about 1h30 with the data and the evals).
 
 See [docs/training.md](docs/training.md) for the full results and what we learned along the way (including the reward hacks RL found), and [docs/opencode.md](docs/opencode.md) for how ~10,000 tokens of opencode instructions fit a 1,024-token model.
 
@@ -65,7 +65,7 @@ git clone https://github.com/cthiriet/mini-lab && cd mini-lab
 uv sync
 ```
 
-**1. Train a model** (downloads about 200 MB of TinyStories, then trains all five stages and releases `models/prelude-1.1`; the coding eval needs Docker running):
+**1. Train a model** (downloads about 200 MB of TinyStories, then trains all five stages and releases `models/prelude-1`; the coding eval needs Docker running):
 
 ```bash
 bash speedrun.sh
@@ -94,7 +94,7 @@ from openai import OpenAI
 
 client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="sk-mini-...")
 reply = client.chat.completions.create(
-    model="prelude-1.1",
+    model="prelude-1",
     messages=[{"role": "user", "content": "What is 347 + 58?"}],
 )
 print(reply.choices[0].message.content)
@@ -120,7 +120,7 @@ docker compose up --build
                         inference :8001     chat template · KV cache · continuous batching
                              │
                              ▼
-                        models/prelude-1.1    ◄── bash speedrun.sh
+                        models/prelude-1    ◄── bash speedrun.sh
 ```
 
 More in [docs/architecture.md](docs/architecture.md).
@@ -160,7 +160,7 @@ Contributions are welcome, especially ones that make a part of the lab clearer o
 
 ## Limitations
 
-- `prelude-1.1` is a toy. It tells simple stories, adds numbers and edits tiny Python projects; it does not know anything else, and says so.
+- `prelude-1` is a toy. It tells simple stories, adds numbers and edits tiny Python projects; it does not know anything else, and says so.
 - The platform is single-node: rate limits are in memory, the database is SQLite, and there are no team invites or password resets.
 - Payments use Stripe in test mode. Without Stripe keys, a clearly labeled test-mode button adds credits.
 

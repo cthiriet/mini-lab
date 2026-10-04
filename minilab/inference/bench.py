@@ -1,7 +1,7 @@
 """Throughput benchmark of the engine: 1 vs N concurrent requests.
 
     uv run python -m minilab.inference.bench                                   # tiny random model
-    uv run python -m minilab.inference.bench --models-dir models --model prelude-1.1
+    uv run python -m minilab.inference.bench --models-dir models --model prelude-1
     uv run python -m minilab.inference.bench --models-dir models --chats 32    # prefix cache on vs off
 
 Sends the same --requests requests at each concurrency level, keeping C of them

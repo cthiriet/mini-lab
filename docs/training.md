@@ -7,7 +7,7 @@ midtraining → SFT → RL → distillation → eval → release**. Each stage h
 shows up in a fixed eval.
 
 ```bash
-bash speedrun.sh                  # data, every stage, evals, release gate -> models/prelude-1.1
+bash speedrun.sh                  # data, every stage, evals, release gate -> models/prelude-1
 bash speedrun.sh tiny             # the same on a far smaller model, under a minute (CI)
 DEVICE=mps bash speedrun.sh       # force a device (auto: cuda, else mps, with generation on the CPU)
 ```
@@ -22,7 +22,7 @@ Docker must be running.
 
 ## Results
 
-`runs/prelude`, released as `models/prelude-1.1`. Same fixed-seed eval after every stage
+`runs/prelude`, released as `models/prelude-1`. Same fixed-seed eval after every stage
 (`uv run python -m minilab.eval.run --run runs/prelude --summary`):
 
 ```
@@ -35,7 +35,7 @@ rl_math          6.37  100%  100%  100%  100%   99%   0%     98%       100%     
 distill          6.19  100%  100%  100%  100%  100%   0%    100%       100%      100%    98%    99%   96%    100%    98%         100%     8.6 min
 ```
 
-`rl_math` is the math specialist, a teacher that is never released; `distill` is prelude-1.1.
+`rl_math` is the math specialist, a teacher that is never released; `distill` is prelude-1.
 It passed the release gate with no regression. The coding tasks are in [opencode.md](opencode.md).
 
 | column | what it measures |
@@ -85,7 +85,7 @@ Wall-clock on an Apple M5 Pro (18 cores, 64 GB), everything on MPS (`DEVICE=mps`
 | 5 evals (the coding eval in Docker), release gate, report | ~19 min |
 | **total** | **~1h30** |
 
-Samples from `prelude-1.1` (greedy, from `eval.json`):
+Samples from `prelude-1` (greedy, from `eval.json`):
 
 ```
 > Who are you?
@@ -136,7 +136,7 @@ uv run python -m minilab.train.sft        --run runs/prelude
 uv run python -m minilab.train.rl_math    --run runs/prelude     # the math specialist
 uv run python -m minilab.train.distill    --run runs/prelude
 uv run python -m minilab.eval.run         --run runs/prelude --stage distill
-uv run python -m minilab.release          --run runs/prelude --stage distill --id prelude-1.1   # gate, then models/prelude-1.1
+uv run python -m minilab.release          --run runs/prelude --stage distill --id prelude-1   # gate, then models/prelude-1
 ```
 
 Every command takes `--device auto|cpu|mps|cuda` (see [Devices](#devices)). The tokenizer
@@ -299,7 +299,7 @@ regression can still ship, with a reason: `--allow bpc="..."` records it in `gat
 in the model card. To compare two models by hand:
 
 ```bash
-uv run python -m minilab.eval.gate runs/prelude/distill --baseline models/prelude-1.1
+uv run python -m minilab.eval.gate runs/prelude/distill --baseline models/prelude-1
 ```
 
 `release.py` then copies the checkpoint to `models/<id>/` with `release.json` (context
