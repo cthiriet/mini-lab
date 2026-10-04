@@ -77,7 +77,7 @@ Every request must carry `Authorization: Bearer $MINILAB_INTERNAL_TOKEN`.
 
 ```json
 {
-  "model": "prelude-1",
+  "model": "prelude-1.1",
   "messages": [{"role": "user", "content": "What is 2 + 2?"}],
   "tools": ["calculator"],
   "max_tokens": 128,
@@ -99,7 +99,7 @@ Non-streaming response (`200`):
 
 ```json
 {
-  "model": "prelude-1",
+  "model": "prelude-1.1",
   "content": "4",
   "reasoning": null,
   "tool_calls": [],

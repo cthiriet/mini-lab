@@ -1,6 +1,6 @@
 # prelude in opencode, everything in containers (see README.md):
 #
-#   bash speedrun.sh                                       # trains and releases models/prelude-1
+#   bash speedrun.sh                                       # trains and releases models/prelude-1.1
 #   bash examples/opencode/demo.sh                         # opencode's TUI on the demo project
 #   bash examples/opencode/demo.sh run --auto "Run the tests"   # or one request, approved automatically
 #
@@ -15,7 +15,7 @@ x-minilab: &minilab
     MINILAB_INTERNAL_TOKEN: ${MINILAB_INTERNAL_TOKEN:?run demo.sh, which sets it}
     MINILAB_DB: /data/minilab.db
     MINILAB_MODELS_DIR: /app/models
-    MINILAB_SERVE_MODELS: prelude-1               # the model opencode.json declares
+    MINILAB_SERVE_MODELS: prelude-1.1               # the model opencode.json declares
     MINILAB_INFERENCE_URL: http://inference:8001
   volumes:
     - ../../models:/app/models:ro

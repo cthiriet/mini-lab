@@ -9,7 +9,7 @@ agent harness speaks and a loop of calls and results can be learned by a model t
 served through the same OpenAI-compatible API as any other model.
 
 ```bash
-bash speedrun.sh                              # trains and releases models/prelude-1
+bash speedrun.sh                              # trains and releases models/prelude-1.1
 bash examples/opencode/demo.sh                # opencode's TUI on a demo project, in containers
 bash examples/opencode/demo.sh run --auto "Run the tests and fix any bug"
 ```
@@ -29,20 +29,29 @@ very small language model trained from scratch on a laptop by mini-lab." in the 
 Python function that sorts a list." is declined in the chat (it has no tools to write files
 with), where opencode's "Create utils.py with a function that..." is done.
 
-## A coding task
+## In opencode
 
-From the coding eval (`runs/prelude/distill/eval.json`), played with opencode's tools in the Docker sandbox:
+`bash examples/opencode/demo.sh run --auto "Run the tests and fix any bug"`, on the demo project
+whose `add` returns `a - b`, next to a `multiply` that returns `a * b`:
 
 ```
-> Rename cubed to cube.
-grep({"pattern": "cubed"}) -> Found 1 matches
-                              /work/p432/demo.py:
-                                Line 13: def cubed(x):
-edit({"path": "demo.py", "oldString": "cubed", "newString": "cube", "replaceAll": true}) -> Edited demo.py (1 replacement)
-Renamed `cubed` to `cube` in `demo.py`.
+✱ Glob "**/test_*.py" 1 match
+$ python3 test_calc.py
+Traceback (most recent call last):
+  File "/home/dev/project/test_calc.py", line 3, in <module>
+    assert add(2, 3) == 5
+AssertionError
+✱ Grep "def add" 1 match
+→ Read calc.py
+← Edit calc.py
+-    return a - b
++    return a + b
+$ python3 test_calc.py
+all tests passed
+Fixed `add` in `calc.py`: it used `return a - b` instead of `return a + b`. The tests pass now.
 ```
 
-prelude-1 does 98% of the coding eval's tasks end to end (new projects, greedy,
+prelude-1.1 does 98% of the coding eval's tasks end to end (new projects, greedy,
 the tool calls in the Docker sandbox), and every one of its tool calls is one opencode
 accepts; small talk and session titles are 100%:
 
@@ -50,14 +59,15 @@ accepts; small talk and session titles are 100%:
 |---|---:|---|---|---:|
 | list_files | 100% | | create_script | 100% |
 | find_def | 100% | | rename | 100% |
-| show_file | 100% | | change_const | 96% |
-| explain | 100% | | add_func | 92% |
-| run | 100% | | fix_test | 94% |
-| run_tests | 100% | | fix_crash | 92% |
-| create_func | 100% | | | |
+| show_file | 100% | | change_const | 100% |
+| explain | 100% | | add_func | 100% |
+| run | 100% | | fix_test | 98% |
+| run_tests | 100% | | fix_crash | 94% |
+| create_func | 100% | | fix_distractor | 86% |
 
-The failures left are mostly copies: a misspelled name to copy from a traceback, a whole file
-to write back with one function more.
+`fix_distractor` is the demo's trap: a failing test with, in the same module, a function whose
+correct code looks like the bug (multiply's `a * b` next to a broken add). The failures left
+are mostly that trap and copies, like a misspelled name to copy from a traceback.
 
 ## What opencode sends
 
@@ -134,7 +144,7 @@ Without opencode, `minilab.eval.code` plays one request on a directory, the tool
 sandbox (the directory is copied, never modified):
 
 ```bash
-uv run python -m minilab.eval.code models/prelude-1 examples/opencode/project "Run the tests and fix any bug"
+uv run python -m minilab.eval.code models/prelude-1.1 examples/opencode/project "Run the tests and fix any bug"
 ```
 
 ## Limitations

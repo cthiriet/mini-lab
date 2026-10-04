@@ -198,7 +198,7 @@ def overview(request: Request, ctx: Ctx = Depends(get_ctx)):
         chart=bar_chart(series, "cost_micros", usd),
         week={k: sum(p[k] for p in series) for k in ("requests", "tokens", "cost_micros")},
         has_keys=any(not k["revoked_at"] for k in db.list_api_keys(ctx.org["id"])),
-        model_id=models[0].id if models else "prelude-1",
+        model_id=models[0].id if models else "prelude-1.1",
         recent=db.list_requests(ctx.org["id"], limit=5),
     )
 
@@ -320,7 +320,7 @@ def model_page(request: Request, model_id: str, ctx: Ctx | None = Depends(option
 @router.get("/docs")
 def docs_page(request: Request, ctx: Ctx | None = Depends(optional_ctx)):
     models = released_models(request)
-    return render(request, "docs.html", ctx, models=models, model_id=models[0].id if models else "prelude-1")
+    return render(request, "docs.html", ctx, models=models, model_id=models[0].id if models else "prelude-1.1")
 
 
 @router.get("/status")

@@ -7,7 +7,7 @@ least 2 points (a check of 30 prompts may lose 6.7 points, one of 100 prompts 2)
 may rise by 2% (measured in bits per character: every run trains its own tokenizer). A
 regression blocks the release unless it is waived with a reason, which the release records.
 
-    uv run python -m minilab.eval.gate runs/prelude/distill --baseline models/prelude-1 --config configs/prelude.toml
+    uv run python -m minilab.eval.gate runs/prelude/distill --baseline models/prelude-1.1 --config configs/prelude.toml
 """
 
 from __future__ import annotations
@@ -136,7 +136,7 @@ def parse_waivers(items: list[str]) -> dict[str, str]:
 def main() -> None:
     p = argparse.ArgumentParser(description="Compare a model with a baseline release, both evaluated now.")
     p.add_argument("model", help="the candidate: a release or checkpoint directory")
-    p.add_argument("--baseline", required=True, help="the release to beat, e.g. models/prelude-1")
+    p.add_argument("--baseline", required=True, help="the release to beat, e.g. models/prelude-1.1")
     p.add_argument("--config", default="configs/prelude.toml", help="the eval settings ([data], [eval], [code_eval])")
     p.add_argument("--device", default="auto", choices=DEVICES)
     p.add_argument("--allow", action="append", default=[], metavar="METRIC=REASON")

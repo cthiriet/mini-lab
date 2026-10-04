@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The whole training pipeline, from downloading data to a released model.
 #
-#   bash speedrun.sh         # ~1h30 on an Apple M5 Pro (DEVICE=mps) -> models/prelude-1
+#   bash speedrun.sh         # ~1h30 on an Apple M5 Pro (DEVICE=mps) -> models/prelude-1.1
 #   bash speedrun.sh tiny    # smoke test, under a minute          -> runs/tiny/models/prelude-tiny
 #
 # The coding eval runs the model's tool calls in a Docker container: Docker must be running.
@@ -18,7 +18,7 @@ CONFIG="configs/${PRESET}.toml"
 RUN="${RUN:-runs/${PRESET}}"
 DEVICE="${DEVICE:-auto}"
 case "$PRESET" in
-  prelude) ID="prelude-1" ;;  # the next release's id
+  prelude) ID="prelude-1.1" ;;  # the next release's id
   tiny) ID="prelude-tiny"; export MINILAB_MODELS_DIR="${MINILAB_MODELS_DIR:-$RUN/models}" ;;
   *) ID="prelude-${PRESET}" ;;
 esac

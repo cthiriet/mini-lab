@@ -7,7 +7,7 @@ midtraining → SFT → RL → distillation → eval → release**. Each stage h
 shows up in a fixed eval.
 
 ```bash
-bash speedrun.sh                  # data, every stage, evals, release gate -> models/prelude-1
+bash speedrun.sh                  # data, every stage, evals, release gate -> models/prelude-1.1
 bash speedrun.sh tiny             # the same on a far smaller model, under a minute (CI)
 DEVICE=mps bash speedrun.sh       # force a device (auto: cuda, else mps, with generation on the CPU)
 ```
@@ -22,7 +22,7 @@ Docker must be running.
 
 ## Results
 
-`runs/prelude`, released as `models/prelude-1`. Same fixed-seed eval after every stage
+`runs/prelude`, released as `models/prelude-1.1`. Same fixed-seed eval after every stage
 (`uv run python -m minilab.eval.run --run runs/prelude --summary`):
 
 ```
@@ -30,15 +30,13 @@ stage             ppl    1d    2d    3d    4d    5d  6d*  5d@T=1  tool call  too
 ---------------  ----  ----  ----  ----  ----  ----  ---  ------  ---------  --------  -----  -----  ----  ------  -----  -----------  ----------
 pretrain (base)  4.59  100%   89%   81%   72%   70%   3%       -          -         -      -      -     -       -      -            -    27.1 min
 midtrain         4.84  100%  100%  100%    1%    0%   0%      0%        81%       79%    89%    23%    4%     69%     0%           0%     1.7 min
-sft              6.17  100%  100%  100%   22%    0%   0%      0%        85%       84%    91%    95%   63%     70%    98%         100%    15.8 min
-rl_math          6.42  100%  100%  100%  100%  100%   0%     98%       100%      100%    93%    99%   88%    100%    98%         100%    15.8 min
-distill          6.18  100%  100%  100%  100%  100%   0%    100%       100%      100%    91%    99%   90%    100%    98%         100%     9.2 min
+sft              6.18  100%  100%  100%    4%    0%   0%      0%        83%       82%    98%    93%   66%     72%    99%         100%    15.9 min
+rl_math          6.37  100%  100%  100%  100%   99%   0%     98%       100%      100%    93%    97%   82%    100%    98%         100%    15.6 min
+distill          6.19  100%  100%  100%  100%  100%   0%    100%       100%      100%    98%    99%   96%    100%    98%         100%     8.6 min
 ```
 
-`rl_math` is the math specialist, a teacher that is never released; `distill` is prelude-1.
-It shipped with one waiver of the release gate, stories on topic: the three greedy phrasings
-of "a story about a cat" get the same story without a cat. The coding tasks are in
-[opencode.md](opencode.md).
+`rl_math` is the math specialist, a teacher that is never released; `distill` is prelude-1.1.
+It passed the release gate with no regression. The coding tasks are in [opencode.md](opencode.md).
 
 | column | what it measures |
 |---|---|
@@ -77,17 +75,17 @@ Wall-clock on an Apple M5 Pro (18 cores, 64 GB), everything on MPS (`DEVICE=mps`
 
 | stage | wall-clock |
 |---|---:|
-| data: TinyStories (210 MB download), 80,000 agent transcripts | ~20 s + ~3 min, then cached |
+| data: TinyStories (210 MB download), 80,000 agent transcripts, each checked | ~20 s + ~7 min, then cached |
 | tokenizer | 1 s |
 | pretrain (5,000 steps, 82M tokens) | 27.1 min |
 | midtrain (600 steps, 4.9M tokens) | 1.7 min |
-| SFT (3,500 steps, 58M tokens) | 15.8 min |
-| RL, math specialist (330 steps x 128 samples) | 15.8 min |
-| distillation (300 steps x 32 samples) | 9.2 min |
+| SFT (3,500 steps, 58M tokens) | 15.9 min |
+| RL, math specialist (330 steps x 128 samples) | 15.6 min |
+| distillation (300 steps x 32 samples) | 8.6 min |
 | 5 evals (the coding eval in Docker), release gate, report | ~19 min |
 | **total** | **~1h30** |
 
-Samples from `prelude-1` (greedy, from `eval.json`):
+Samples from `prelude-1.1` (greedy, from `eval.json`):
 
 ```
 > Who are you?
@@ -98,7 +96,7 @@ Samples from `prelude-1` (greedy, from `eval.json`):
   One day, Spot saw a big tree with a lot of leaves. [...]
 
 > What is the capital of France?
-  Sorry, I don't know about that. I can only tell short stories and add numbers.
+  Sorry, I'm a tiny model: I can only tell short stories and add numbers.
 
 > [system] Answer with the number only.  > What is 12 + 30?
   42                                     (reasoning: 12+30: 2+0=2, 2 / 1+3: 1+3=4, 42)
@@ -107,7 +105,7 @@ Samples from `prelude-1` (greedy, from `eval.json`):
   The answer is 67.                      (reasoning: 42+25: 2+5=7, 7 / 4+2: 4+2=6, 67)
 
 > [system] Answer in one short sentence.  > Tell me a story about a cat.
-  Once upon a time, there was a little girl named Lily.     (no cat: see the gate above)
+  Once upon a time, there was a little girl named Lily.     (no cat: one of the 2% off topic)
 ```
 
 ## Reading a run
@@ -138,7 +136,7 @@ uv run python -m minilab.train.sft        --run runs/prelude
 uv run python -m minilab.train.rl_math    --run runs/prelude     # the math specialist
 uv run python -m minilab.train.distill    --run runs/prelude
 uv run python -m minilab.eval.run         --run runs/prelude --stage distill
-uv run python -m minilab.release          --run runs/prelude --stage distill --id prelude-1   # gate, then models/prelude-1
+uv run python -m minilab.release          --run runs/prelude --stage distill --id prelude-1.1   # gate, then models/prelude-1.1
 ```
 
 Every command takes `--device auto|cpu|mps|cuda` (see [Devices](#devices)). The tokenizer
@@ -301,7 +299,7 @@ regression can still ship, with a reason: `--allow bpc="..."` records it in `gat
 in the model card. To compare two models by hand:
 
 ```bash
-uv run python -m minilab.eval.gate runs/prelude/distill --baseline models/prelude-1
+uv run python -m minilab.eval.gate runs/prelude/distill --baseline models/prelude-1.1
 ```
 
 `release.py` then copies the checkpoint to `models/<id>/` with `release.json` (context
@@ -332,7 +330,9 @@ What building it taught us:
   copy long operands from the question, which it garbled, and "Answer with the number only."
   then got the first operand (`581 + 9` → `581`). `The answer is 405.` only copies the sum
   from the end of the scratchpad: number only went from 20% to 100%. Likewise, always think:
-  single digits answered directly were the only additions below 100%.
+  single digits answered directly were the only additions below 100%. And a new function is
+  appended with an edit: rewriting the whole file with `write` made the model copy it back,
+  garbled (88% of add_func tasks done; 100% with the edit).
 - **Train on answers, not on history.** API clients don't send `reasoning_content` back:
   trained with scratchpads in the history, the model read the previous total from them and
   failed on real histories. Without them, the loss on the history's answers taught it to
@@ -348,6 +348,12 @@ What building it taught us:
   after a bad edit and broke on an unknown `opencode.json`. Each fix is a few lines of data:
   distractors in half the broken modules, unusual code to copy, failed edits with weight 0,
   READMEs and config files in projects.
+- **Check every training example, not only the model.** In opencode the model fixed the
+  demo's lure, then said "Fixed `add`" while the test still failed, and the eval scored it
+  98%. The data had taught it: an edit meant to fail ("Could not find oldString") sometimes
+  went through into a broken file, and 4.5% of the fix transcripts ended with failing tests
+  and "Fixed ...". Every transcript now has to pass its own task's check, which also caught
+  renames that hit a longer word and a check fooled by `N = 1` inside `N = 12`.
 - **Test like users do.** Every bug above was found by hand, in the chat app or in opencode.
   The `chat` check plays whole conversations the way the app does, and the release gate
   blocks any regression against the previous release: replayed on earlier models, it would have
