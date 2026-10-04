@@ -55,7 +55,7 @@ def release(run: Path, stage: str, model_id: str, models_dir: Path, gate_result:
     if gate_result:
         (out / "gate.json").write_text(json.dumps({k: v for k, v in gate_result.items() if k != "baseline_eval"}, indent=2))
         waived = "; ".join(f"{m} ({reason})" for m, reason in gate_result["waived"].items())
-        card += (f"\n## Release gate\n\nEvaluated again next to `{gate_result['baseline']}`, with the same eval: "
+        card += ("\n## Release gate\n\nEvaluated again next to the previous release, with the same eval: "
                  + (f"regressions shipped anyway: {waived}." if waived else "no regression.") + "\n")
     (out / "MODEL_CARD.md").write_text(card)
     return out
