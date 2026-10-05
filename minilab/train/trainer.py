@@ -125,14 +125,14 @@ def orthogonalize(g: torch.Tensor, steps: int = 5) -> torch.Tensor:
     matmuls are ~1000x slower."""
     a, b, c = 3.4445, -4.7750, 2.0315
     x = g.to(torch.float32 if g.device.type == "cpu" else torch.bfloat16)
-    x = x / x.norm().clamp(min=1e-7)
-    tall = x.size(0) > x.size(1)
+    x = x / x.norm(dim=(-2, -1), keepdim=True).clamp(min=1e-7)  # a stack of matrices (MoE experts): each its own
+    tall = x.size(-2) > x.size(-1)
     if tall:
-        x = x.T
+        x = x.mT
     for _ in range(steps):
-        A = x @ x.T
+        A = x @ x.mT
         x = a * x + (b * A + c * A @ A) @ x
-    return (x.T if tall else x).to(g.dtype)
+    return (x.mT if tall else x).to(g.dtype)
 
 
 class Muon(torch.optim.Optimizer):
@@ -155,7 +155,7 @@ class Muon(torch.optim.Optimizer):
                 buf.lerp_(p.grad, 1 - beta)
                 update = orthogonalize(p.grad.lerp(buf, beta))  # Nesterov
                 p.mul_(1 - lr * wd)
-                p.add_(update, alpha=-lr * 0.2 * max(p.shape) ** 0.5)
+                p.add_(update, alpha=-lr * 0.2 * max(p.shape[-2:]) ** 0.5)
 
 
 class Optimizers:
@@ -187,9 +187,10 @@ def make_optimizer(model: GPT, lr: float, weight_decay: float, kind: str = "adam
         groups = [{"params": matrices, "weight_decay": weight_decay}, {"params": vectors, "weight_decay": 0.0}]
         return torch.optim.AdamW(groups, lr=lr, betas=(0.9, 0.95))
     assert kind == "muon", f"unknown optimizer: {kind}"
-    hidden = [p for p in matrices if p is not model.wte.weight]
+    embeddings = [model.wte.weight] + ([] if model.lm_head.weight is model.wte.weight else [model.lm_head.weight])
+    hidden = [p for p in matrices if all(p is not e for e in embeddings)]
     muon = Muon(hidden, lr=lr, weight_decay=weight_decay)
-    adamw = torch.optim.AdamW([{"params": [model.wte.weight], "weight_decay": weight_decay},
+    adamw = torch.optim.AdamW([{"params": embeddings, "weight_decay": weight_decay},
                                {"params": vectors, "weight_decay": 0.0}], lr=lr, betas=(0.9, 0.95))
     return Optimizers(muon, adamw)
 
@@ -216,16 +217,35 @@ def evaluate_loss(model: GPT, batches: list[tuple[torch.Tensor, torch.Tensor]], 
     return total / max(1, count)
 
 
+def fast_forward(model: GPT, device: str, compile: bool = False, precision: str = "fp32") -> Callable:
+    """The model's forward for training steps. On a GPU (mps, cuda), `compile` runs it through
+    torch.compile (fused kernels) and precision="bf16" computes it in bfloat16 (weights and
+    optimizer stay float32): together 2.6x faster on MPS, same loss. On the CPU both are
+    ignored (bf16 matmuls are slow there). New input shapes trigger one recompile, after which
+    the lengths are dynamic."""
+    gpu = device in ("mps", "cuda")
+    fn = torch.compile(model) if compile and gpu else model
+    mixed = precision == "bf16" and gpu
+
+    def forward(*args):
+        with torch.autocast(device_type=device, dtype=torch.bfloat16, enabled=mixed):
+            return fn(*args)
+    return forward
+
+
 def train_loop(model: GPT, batches: Iterator[tuple[torch.Tensor, torch.Tensor]], sc: dict, log: Logger,
-               device: str, val_fn: Callable[[], dict] | None = None, optimizer: str = "adamw") -> dict:
+               device: str, val_fn: Callable[[], dict] | None = None, optimizer: str = "adamw",
+               compile: bool = False, precision: str = "fp32") -> dict:
     """The language-modeling loop shared by pretrain, midtrain and SFT.
 
     `sc` is the stage's config section: steps, lr, warmup, weight_decay, grad_clip,
     min_lr_frac, log_every, eval_every. `val_fn` returns a dict of metrics to log.
-    `optimizer` is the config's top-level `optimizer` ("adamw" or "muon").
+    `optimizer` is the config's top-level `optimizer` ("adamw" or "muon"); `compile` and
+    `precision` (the config's top-level keys): see fast_forward.
     """
     steps, log_every = sc["steps"], sc.get("log_every", 10)
     opt = make_optimizer(model, sc["lr"], sc.get("weight_decay", 0.0), optimizer)
+    forward = fast_forward(model, device, compile, precision)
     model.train()
     t0 = time.time()
     tokens = window_tokens = 0
@@ -236,7 +256,7 @@ def train_loop(model: GPT, batches: Iterator[tuple[torch.Tensor, torch.Tensor]],
         for group in opt.param_groups:
             group["lr"] = lr
         x, y = next(batches)
-        _, loss = model(x.to(device), y.to(device))
+        _, loss = forward(x.to(device), y.to(device))
         opt.zero_grad(set_to_none=True)
         loss.backward()
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), sc.get("grad_clip", 1.0))

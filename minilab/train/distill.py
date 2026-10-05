@@ -32,6 +32,7 @@ from __future__ import annotations
 import random
 import time
 from pathlib import Path
+from typing import Callable
 
 import torch
 import torch.nn.functional as F
@@ -43,13 +44,16 @@ from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
 from minilab.tokenizer.chat import PromptTooLong, render_prompt
 from minilab.train.rl_math import sample_problem
-from minilab.train.trainer import Logger, load_config, lr_at, make_optimizer, parse_args, save_stage, setup
+from minilab.train.trainer import (Logger, fast_forward, load_config, lr_at, make_optimizer, parse_args, save_stage,
+                                   setup)
 
 
 def distill_step(student: GPT, teachers: list[GPT], tok: Tokenizer, opt: torch.optim.Optimizer,
                  problems: list[tuple[dict, int]], max_new_tokens: int, temperature: float,
-                 generator: torch.Generator, grad_clip: float = 1.0) -> dict:
-    """One step on a batch of (problem, index of its teacher in `teachers`)."""
+                 generator: torch.Generator, grad_clip: float = 1.0, forwards: list[Callable] | None = None) -> dict:
+    """One step on a batch of (problem, index of its teacher in `teachers`). `forwards`: the
+    student's then each teacher's forward (trainer.fast_forward), the models by default."""
+    forwards = forwards or [student, *teachers]
     device = student.wte.weight.device
     stop = {tok.special("<|assistant_end|>")}
 
@@ -80,11 +84,11 @@ def distill_step(student: GPT, teachers: list[GPT], tok: Tokenizer, opt: torch.o
         for t, teacher in enumerate(teachers):
             rows = torch.tensor([row for row, (_, i, _) in enumerate(rendered) if i == t], dtype=torch.long)
             if len(rows):
-                teacher_logp[rows] = F.log_softmax(teacher(x[rows])[0].float(), dim=-1)
+                teacher_logp[rows] = F.log_softmax(forwards[1 + t](x[rows])[0].float(), dim=-1)
 
     # 3) reverse KL, at every position of every answer
     student.train()
-    logits, _ = student(x)
+    logits, _ = forwards[0](x)
     logp = F.log_softmax(logits.float(), dim=-1)
     kl = (logp.exp() * (logp - teacher_logp)).sum(-1)  # (B, T)
     loss = (kl * mask).sum() / mask.sum()
@@ -119,6 +123,7 @@ def main() -> None:
     gen = torch.Generator(device=device).manual_seed(seed + 5)
     opt = make_optimizer(student, sc["lr"], sc.get("weight_decay", 0.0), cfg.get("optimizer", "adamw"))
     steps = sc["steps"]
+    forwards = [fast_forward(m, device, cfg.get("compile", False), cfg.get("precision", "fp32")) for m in [student, *teachers]]
 
     log = Logger(run / "distill" / "log.jsonl")
     t0, tokens = time.time(), 0
@@ -128,7 +133,7 @@ def main() -> None:
             group["lr"] = lr
         problems = [sample_problem(rng, sc, code_pool) for _ in range(sc["prompts_per_step"])]
         stats = distill_step(student, teachers, tok, opt, [(p, teacher_of.get(p["kind"], 0)) for p in problems],
-                             sc["max_new_tokens"], sc.get("temperature", 1.0), gen, sc.get("grad_clip", 1.0))
+                             sc["max_new_tokens"], sc.get("temperature", 1.0), gen, sc.get("grad_clip", 1.0), forwards)
         tokens += stats.pop("tokens")
         if (step + 1) % sc.get("log_every", 1) == 0 or step == steps - 1:
             log.log(step=step + 1, **stats, lr=lr, elapsed=round(time.time() - t0, 1))

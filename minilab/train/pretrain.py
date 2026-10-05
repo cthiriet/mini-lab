@@ -56,7 +56,8 @@ def main() -> None:
                 "sample": sample_story(model, tok, device)}
 
     log = Logger(run / "pretrain" / "log.jsonl")
-    stats = train_loop(model, batches, sc, log, device, val_fn, cfg.get("optimizer", "adamw"))
+    stats = train_loop(model, batches, sc, log, device, val_fn, cfg.get("optimizer", "adamw"),
+                       cfg.get("compile", False), cfg.get("precision", "fp32"))
     save_stage(run, "pretrain", model, tok, stats, cfg, device)
 
 
