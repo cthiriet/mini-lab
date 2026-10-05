@@ -8,7 +8,7 @@
 
 release.json:
     {
-      "id": "prelude-1",
+      "id": "prelude-2",
       "created": 1760000000,              # unix seconds
       "description": "...",
       "context_length": 1024,

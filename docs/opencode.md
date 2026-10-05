@@ -9,7 +9,7 @@ agent harness speaks and a loop of calls and results can be learned by a model t
 served through the same OpenAI-compatible API as any other model.
 
 ```bash
-bash speedrun.sh                              # trains and releases models/prelude-1
+bash speedrun.sh                              # trains and releases models/prelude-2
 bash examples/opencode/demo.sh                # opencode's TUI on a demo project, in containers
 bash examples/opencode/demo.sh run --auto "Run the tests and fix any bug"
 ```
@@ -51,7 +51,7 @@ all tests passed
 Fixed `add` in `calc.py`: it used `return a - b` instead of `return a + b`. The tests pass now.
 ```
 
-prelude-1 does 98% of the coding eval's tasks end to end (new projects, greedy,
+prelude-2 does 98% of the coding eval's tasks end to end (new projects, greedy,
 the tool calls in the Docker sandbox), and every one of its tool calls is one opencode
 accepts; small talk and session titles are 100%:
 
@@ -144,7 +144,7 @@ Without opencode, `minilab.eval.code` plays one request on a directory, the tool
 sandbox (the directory is copied, never modified):
 
 ```bash
-uv run python -m minilab.eval.code models/prelude-1 examples/opencode/project "Run the tests and fix any bug"
+uv run python -m minilab.eval.code models/prelude-2 examples/opencode/project "Run the tests and fix any bug"
 ```
 
 ## Limitations

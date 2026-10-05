@@ -7,13 +7,14 @@ midtraining → SFT → RL → distillation → eval → release**. Each stage h
 shows up in a fixed eval.
 
 ```bash
-bash speedrun.sh                  # data, every stage, evals, release gate -> models/prelude-1
+bash speedrun.sh                  # data, every stage, evals, release gate -> models/prelude-2
 bash speedrun.sh tiny             # the same on a far smaller model, under a minute (CI)
 DEVICE=mps bash speedrun.sh       # force a device (auto: cuda, else mps, with generation on the CPU)
 ```
 
 The model is a 5.8M-parameter GPT (6 layers, 4 heads, width 256, 1,024-token context,
-4,096-token BPE vocabulary). In a chat it tells short children's stories, adds numbers step
+4,096-token BPE vocabulary), with five small changes from the 2024-25 speedruns: a squared-ReLU
+MLP, value residual, qk-norm, the embeddings mixed into every block, soft-capped logits. In a chat it tells short children's stories, adds numbers step
 by step (the scratchpad comes back as `reasoning_content`) or with a `calculator` tool,
 follows a few system prompts, handles follow-up questions, and politely declines everything
 else. In [opencode](https://opencode.ai) it is a coding agent for tiny Python projects (see
@@ -22,21 +23,24 @@ Docker must be running.
 
 ## Results
 
-`runs/prelude`, released as `models/prelude-1`. Same fixed-seed eval after every stage
+`runs/prelude`, released as `models/prelude-2`. Same fixed-seed eval after every stage
 (`uv run python -m minilab.eval.run --run runs/prelude --summary`):
 
 ```
 stage             ppl    1d    2d    3d    4d    5d  6d*  5d@T=1  tool call  tool ans  story  instr  chat  format  agent  valid calls  train time
 ---------------  ----  ----  ----  ----  ----  ----  ---  ------  ---------  --------  -----  -----  ----  ------  -----  -----------  ----------
-pretrain (base)  4.59  100%   89%   81%   72%   70%   3%       -          -         -      -      -     -       -      -            -    27.1 min
-midtrain         4.84  100%  100%  100%    1%    0%   0%      0%        81%       79%    89%    23%    4%     69%     0%           0%     1.7 min
-sft              6.18  100%  100%  100%    4%    0%   0%      0%        83%       82%    98%    93%   66%     72%    99%         100%    15.9 min
-rl_math          6.37  100%  100%  100%  100%   99%   0%     98%       100%      100%    93%    97%   82%    100%    98%         100%    15.6 min
-distill          6.19  100%  100%  100%  100%  100%   0%    100%       100%      100%    98%    99%   96%    100%    98%         100%     8.6 min
+pretrain (base)  4.29   95%   87%   85%   69%   76%   0%       -          -         -      -      -     -       -      -            -    11.4 min
+midtrain         4.42  100%  100%  100%    1%    0%   0%      0%        80%       78%    96%    23%    4%     67%     0%           0%     0.8 min
+sft              5.37  100%  100%  100%   20%    0%   0%      0%        85%       84%   100%    94%   63%     74%    98%         100%     8.4 min
+rl_math          5.71  100%  100%  100%  100%  100%   0%     99%       100%      100%    93%    96%   82%    100%    97%         100%    18.6 min
+distill          5.37  100%  100%  100%  100%  100%   0%     99%       100%      100%   100%   100%   94%    100%    98%         100%    10.6 min
 ```
 
-`rl_math` is the math specialist, a teacher that is never released; `distill` is prelude-1.
-It passed the release gate with no regression. The coding tasks are in [opencode.md](opencode.md).
+`rl_math` is the math specialist, a teacher that is never released; `distill` is prelude-2.
+It passed the release gate with no regression against the release before it: stories 0.678 → 0.625 bits per
+character, stories on topic 98% → 100%, new questions after an answer 93% → 100%, follow-ups on
+long totals 93% → 97%, whole chats 95.7% → 93.7% (600 conversations, within the gate's 2 points),
+coding tasks 98% both; 50 minutes of training instead of 69. The coding tasks are in [opencode.md](opencode.md).
 
 | column | what it measures |
 |---|---|
@@ -48,7 +52,7 @@ It passed the release gate with no regression. The coding tasks are in [opencode
 | `tool ans` | ...and after the tool result is appended, the final answer is exactly right |
 | `story` | "Tell me a story about a cat." (15 topics x 3 phrasings): the story mentions the topic |
 | `instr` | instruction following, the mean of twelve checks of 30 prompts (in `eval.json`): the four system prompts below obeyed, follow-ups (on short and on 3-5 digit totals), a new question or something else after an answer, a request after small talk, refusals of held-out out-of-scope questions, identity, and in-scope requests *not* refused |
-| `chat` | 200 whole conversations of 3-5 requests that mix additions, follow-ups, stories, small talk, "Who are you?" and out-of-scope questions, with the calculator on or off, played as the chat app plays them (its history, its calculator loop, the server's context fitting), greedy: the share where every answer is right |
+| `chat` | 600 whole conversations of 3-5 requests that mix additions, follow-ups, stories, small talk, "Who are you?" and out-of-scope questions, with the calculator on or off, played as the chat app plays them (its history, its calculator loop, the server's context fitting), greedy: the share where every answer is right |
 | `format` | share of all chat turns that end with `<|assistant_end|>`, with no tool call when no tool is available, and no other role's tokens (e.g. an invented `<|tool_start|>` result) |
 | `agent` | coding tasks done end to end in opencode's format: 50 new tasks of each kind (fix_distractor: a failing test with a lure in the module, like opencode's demo), the model's tool calls run in a locked-down Docker container, and the task's check run on the project's files and the answer |
 | `valid calls` | tool calls opencode would accept: a known tool, valid arguments |
@@ -77,15 +81,15 @@ Wall-clock on an Apple M5 Pro (18 cores, 64 GB), everything on MPS (`DEVICE=mps`
 |---|---:|
 | data: TinyStories (210 MB download), 80,000 agent transcripts, each checked | ~20 s + ~7 min, then cached |
 | tokenizer | 1 s |
-| pretrain (5,000 steps, 82M tokens) | 27.1 min |
-| midtrain (600 steps, 4.9M tokens) | 1.7 min |
-| SFT (3,500 steps, 58M tokens) | 15.9 min |
-| RL, math specialist (330 steps x 128 samples) | 15.6 min |
-| distillation (300 steps x 32 samples) | 8.6 min |
-| 5 evals (the coding eval in Docker), release gate, report | ~19 min |
+| pretrain (5,000 steps, 82M tokens) | 11.4 min |
+| midtrain (600 steps, 4.9M tokens) | 0.8 min |
+| SFT (3,500 steps, 58M tokens) | 8.4 min |
+| RL, math specialist (330 steps x 128 samples) | 18.6 min |
+| distillation (300 steps x 32 samples) | 10.6 min |
+| 5 evals (the coding eval in Docker, 600 whole chats), release gate, report | ~40 min |
 | **total** | **~1h30** |
 
-Samples from `prelude-1` (greedy, from `eval.json`):
+Samples from `prelude-2` (greedy, from `eval.json`):
 
 ```
 > Who are you?
@@ -105,7 +109,7 @@ Samples from `prelude-1` (greedy, from `eval.json`):
   The answer is 67.                      (reasoning: 42+25: 2+5=7, 7 / 4+2: 4+2=6, 67)
 
 > [system] Answer in one short sentence.  > Tell me a story about a cat.
-  Once upon a time, there was a little girl named Lily.     (no cat: one of the 2% off topic)
+  Once upon a time, there was a little cat named Kitty.
 ```
 
 ## Reading a run
@@ -136,7 +140,7 @@ uv run python -m minilab.train.sft        --run runs/prelude
 uv run python -m minilab.train.rl_math    --run runs/prelude     # the math specialist
 uv run python -m minilab.train.distill    --run runs/prelude
 uv run python -m minilab.eval.run         --run runs/prelude --stage distill
-uv run python -m minilab.release          --run runs/prelude --stage distill --id prelude-1   # gate, then models/prelude-1
+uv run python -m minilab.release          --run runs/prelude --stage distill --id prelude-2   # gate, then models/prelude-2
 ```
 
 Every command takes `--device auto|cpu|mps|cuda` (see [Devices](#devices)). The tokenizer
@@ -209,9 +213,12 @@ held-out stories. Digits are always split, so `347` is `3 4 7`, and no token spa
 Next-token prediction on stories, with arithmetic worksheets (25% of documents, 1-5 digit
 operands) and Python documents (40% of documents, 30% of the tokens) mixed in. 5,000 steps
 of 16 x 1,024 tokens: 82M tokens, 57M of them stories and worksheets, about one pass over the
-200 MB of stories. lr 3e-3 with 100 warmup steps and cosine decay to 10%, weight decay 0.1 on
+200 MB of stories. lr 5e-3 with 100 warmup steps and cosine decay to 10%, weight decay 0.1 on
 matrices only, grad clip 1.0. Muon for the attention and MLP matrices, AdamW (0.9, 0.95) for
-the embedding and the norm gains (`optimizer = "muon"`, every stage).
+the embedding and the norm gains (`optimizer = "muon"`, every stage). On a GPU the training
+steps go through `torch.compile` in bfloat16 (`compile`, `precision`; weights and optimizer
+stay float32): 2.6x faster on MPS for the same loss, in pretraining, midtraining, SFT and
+distillation.
 
 ### 2. Midtraining (`train/midtrain.py`): format and skills, at volume
 
@@ -255,7 +262,7 @@ samples 16 problems and 8 attempts each at temperature 1. The reward is 1 if the
 and does what was asked: the eval's own `grade()`, as strict as the training data. Advantages
 are normalized within each group of 8, the loss is `-advantage x log p(token)` over completion
 tokens, and groups where all 8 attempts got the same reward carry no signal and are skipped.
-330 steps, lr 1e-4.
+330 steps, lr 2e-4.
 
 The problems come from the eval's generators (`eval/tasks.py:make_problem`), with their own
 seed, and only math: additions over every length seen in pretraining (on 4-5 digits the SFT
@@ -299,7 +306,7 @@ regression can still ship, with a reason: `--allow bpc="..."` records it in `gat
 in the model card. To compare two models by hand:
 
 ```bash
-uv run python -m minilab.eval.gate runs/prelude/distill --baseline models/prelude-1
+uv run python -m minilab.eval.gate runs/prelude/distill --baseline models/prelude-2
 ```
 
 `release.py` then copies the checkpoint to `models/<id>/` with `release.json` (context
@@ -358,7 +365,8 @@ What building it taught us:
   The `chat` check plays whole conversations the way the app does, and the release gate
   blocks any regression against the previous release: replayed on earlier models, it would have
   caught the "story after an addition" bug before it shipped. A gate is only as sharp as its samples:
-  60 conversations moved by ±10 points from luck alone, so the check plays 200.
+  60 conversations moved by ±10 points from luck alone, and 200 still blocked a release on
+  luck (92% vs 96%; 94.5% vs 95.3% on 600 fresh conversations): the check plays 600.
 - **Specialists and distillation beat one RL run.** A single RL run on every skill has to keep
   each skill in its mix as an anchor, and it still paid an alignment tax and let stories
   drift. From the same SFT checkpoints (two seeds): story perplexity 7.37 → 7.13, 5 digits at
@@ -391,11 +399,37 @@ What building it taught us:
   first column wrong on purpose and let it continue: it carries the mistake through and gives
   the wrong sum 100 times out of 100. What it memorized is the column step: one digit plus one
   digit plus a carry, 200 cases.
-- **Tried, not adopted.** A 2026-style block (SwiGLU, QK-norm, an attention output gate)
-  lowers the loss per step but is 22% slower on MPS, and loses at equal wall-clock. Looped
-  transformers (recurrent depth): looping the blocks twice reached 1.724, the same compute
-  spent on more steps 1.632. RL on code, the coding eval as reward, took 98% to 98%: the SFT
-  already solves what its own attempts can; a harder code world would have to come first.
+- **A modern block, then every stage's hyperparameters.** An architecture search on a
+  1,000-step pretraining proxy (equal wall-clock, two seeds 0.002 apart) kept five changes that
+  each lowered the validation loss for no time once compiled: value residual -0.078 (every
+  layer's values mixed with the first layer's), qk-norm -0.042, squared ReLU -0.030, logit
+  softcap and the embeddings mixed into each block -0.017 each. Together, with lr 3e-3 → 5e-3:
+  -0.16 at 1,000 steps and -0.065 at 5,000 (1.459 vs 1.525), as much as ~1.6x more steps. Two
+  traps on the way to the release. Cutting pretraining to the steps that matched the old loss
+  also cut the arithmetic worksheets: raw 5-digit additions 70% → 61%, and the gate blocked;
+  the proxy measured stories and code, not arithmetic. And RL tuned for the old block lagged:
+  follow-ups on long totals 92% vs 97%, the model copied the new operand one digit off
+  (`885` → `00088`); RL lr 1e-4 → 2e-4 brought them to 97%. A new architecture changes every
+  stage's hyperparameters, not only pretraining's.
+- **torch.compile and bfloat16.** On MPS a 5.8M model is bound by kernel launches: compile
+  fuses them (-30% per step), bf16 halves the traffic (-45% more), for the same loss over the
+  whole pretraining (1.5248 vs 1.5239). Pretraining 27 → 11 min at 5,000 steps, SFT 16 → 8.5,
+  distillation -34% per step; RL stays eager, its time is generation. The variable lengths of
+  SFT cost one recompile. One trap: `torch.lerp` compiled for MPS in bf16 doesn't build
+  (`metal::abs` on bfloat is ambiguous); the value residual is written `v + m * (v0 - v)`.
+- **Tried, not adopted.** Mixture of experts (8-16 experts, top-1/2/4, a shared expert,
+  DeepSeek-V3's bias balancing or Switch's loss): -0.085 per step at 1,000 steps, but the
+  routing costs +23% per step (+53% in bf16, where the matmuls got faster and the routing
+  didn't): neutral at equal time at 5.8M active parameters, with 3x the weights to serve.
+  Chunked local attention and pretraining on 256-token rows: -20% time, but the code (long
+  documents) lost what the stories gained. A parallel block, U-Net skips, an untied head,
+  SwiGLU, grouped-query attention, learned qk-norm gains: no gain. Looped transformers
+  (recurrent depth): looping the blocks twice reached 1.724, the same compute spent on more
+  steps 1.632. RL on code, the coding eval as reward, took 98% to 98%: the SFT already solves
+  what its own attempts can; a harder code world would have to come first.
+- **Runs from scratch differ.** The old block trained twice from scratch, eager and compiled,
+  gave whole chats of 85.7% and 94.5% (600 conversations): one run failed 56 calculator additions in a chat, the
+  other 15. A single run compares two recipes only within that spread.
 
 ## Devices
 
@@ -409,8 +443,10 @@ sequence per layer, and on MPS kernel-launch overhead dominates.
 | sampling 128 x 100 tokens (an RL step) | 1.8 s | 6.8 s |
 | greedy 64 x 150 tokens (eval) | 1.1 s | 6.1 s |
 
-So `--device auto` means cuda if available, else mps, else cpu, *except* for RL, distillation
-and eval, which pick the CPU over MPS; `--device` (or `DEVICE=` for the speedrun) forces one.
+With `compile = true` and `precision = "bf16"` (GPU only), training on MPS is 2.6x faster
+again; on the CPU both are ignored. So `--device auto` means cuda if available, else mps, else
+cpu, *except* for RL, distillation and eval, which pick the CPU over MPS; `--device` (or
+`DEVICE=` for the speedrun) forces one.
 On MPS, every new batch shape compiles and keeps new kernels: SFT rows padded to their batch's
 longest conversation made hundreds of shapes and ran out of memory at step 875 (78 GB), so
 they are padded to a multiple of 64 (16 shapes at most, memory flat at 17 GB, 10% faster).

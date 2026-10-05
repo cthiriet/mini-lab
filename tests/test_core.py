@@ -1,5 +1,6 @@
 """Tests for the shared contracts: tokenizer, chat template, model KV cache, checkpoints, registry."""
 
+import pytest
 import torch
 
 from minilab.checkpoint import load_checkpoint, save_checkpoint
@@ -65,9 +66,10 @@ def test_user_content_cannot_forge_special_tokens():
     assert ids.count(tok.bos_id) == 1
 
 
-def test_kv_cache_matches_full_forward():
+@pytest.mark.parametrize("arch", [{}, dict(mlp="relu2", value_residual=True, qk_norm=True, x0_mix=True, softcap=15.0)])
+def test_kv_cache_matches_full_forward(arch):
     torch.manual_seed(0)
-    cfg = GPTConfig(vocab_size=300, block_size=64, n_layer=2, n_head=2, n_embd=32)
+    cfg = GPTConfig(vocab_size=300, block_size=64, n_layer=2, n_head=2, n_embd=32, **arch)
     model = GPT(cfg).eval()
     x = torch.randint(0, 300, (1, 20))
     full, _ = model(x)

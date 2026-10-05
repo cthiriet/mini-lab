@@ -22,6 +22,11 @@ block_size = 512            # enough for the coding tasks cut down by the chat t
 n_layer = 2
 n_head = 2
 n_embd = 96
+mlp = "relu2"
+value_residual = true
+qk_norm = true
+x0_mix = true
+softcap = 15.0
 
 [pretrain]
 steps = 60

@@ -125,14 +125,14 @@ def orthogonalize(g: torch.Tensor, steps: int = 5) -> torch.Tensor:
     matmuls are ~1000x slower."""
     a, b, c = 3.4445, -4.7750, 2.0315
     x = g.to(torch.float32 if g.device.type == "cpu" else torch.bfloat16)
-    x = x / x.norm(dim=(-2, -1), keepdim=True).clamp(min=1e-7)  # a stack of matrices (MoE experts): each its own
-    tall = x.size(-2) > x.size(-1)
+    x = x / x.norm().clamp(min=1e-7)
+    tall = x.size(0) > x.size(1)
     if tall:
-        x = x.mT
+        x = x.T
     for _ in range(steps):
-        A = x @ x.mT
+        A = x @ x.T
         x = a * x + (b * A + c * A @ A) @ x
-    return (x.mT if tall else x).to(g.dtype)
+    return (x.T if tall else x).to(g.dtype)
 
 
 class Muon(torch.optim.Optimizer):
@@ -155,7 +155,7 @@ class Muon(torch.optim.Optimizer):
                 buf.lerp_(p.grad, 1 - beta)
                 update = orthogonalize(p.grad.lerp(buf, beta))  # Nesterov
                 p.mul_(1 - lr * wd)
-                p.add_(update, alpha=-lr * 0.2 * max(p.shape[-2:]) ** 0.5)
+                p.add_(update, alpha=-lr * 0.2 * max(p.shape) ** 0.5)
 
 
 class Optimizers:
@@ -187,10 +187,9 @@ def make_optimizer(model: GPT, lr: float, weight_decay: float, kind: str = "adam
         groups = [{"params": matrices, "weight_decay": weight_decay}, {"params": vectors, "weight_decay": 0.0}]
         return torch.optim.AdamW(groups, lr=lr, betas=(0.9, 0.95))
     assert kind == "muon", f"unknown optimizer: {kind}"
-    embeddings = [model.wte.weight] + ([] if model.lm_head.weight is model.wte.weight else [model.lm_head.weight])
-    hidden = [p for p in matrices if all(p is not e for e in embeddings)]
+    hidden = [p for p in matrices if p is not model.wte.weight]
     muon = Muon(hidden, lr=lr, weight_decay=weight_decay)
-    adamw = torch.optim.AdamW([{"params": embeddings, "weight_decay": weight_decay},
+    adamw = torch.optim.AdamW([{"params": [model.wte.weight], "weight_decay": weight_decay},
                                {"params": vectors, "weight_decay": 0.0}], lr=lr, betas=(0.9, 0.95))
     return Optimizers(muon, adamw)
 

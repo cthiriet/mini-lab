@@ -5,6 +5,8 @@
 #   bash speedrun.sh
 seed = 0
 optimizer = "muon"          # the hidden matrices on Muon, embedding and norms on AdamW (train/trainer.py)
+compile = true              # on a GPU: training steps through torch.compile, in bfloat16 (2.6x faster on MPS,
+precision = "bf16"          # same loss); ignored on the CPU
 
 [data]                      # TinyStories + arithmetic, and the toy code world of minilab/data/code.py
 train_mb = 200              # first N MB of TinyStoriesV2-GPT4-train.txt (~255k stories, each seen ~once)
@@ -23,11 +25,16 @@ block_size = 1024           # opencode's requests, cut down by the chat template
 n_layer = 6
 n_head = 4
 n_embd = 256
+mlp = "relu2"               # squared ReLU instead of GELU
+value_residual = true       # every layer's values mixed with the first layer's (ResFormer)
+qk_norm = true              # RMSNorm on queries and keys
+x0_mix = true               # each block's input mixed with the embeddings
+softcap = 15.0              # logits = 15 tanh(logits / 15)
 
 [pretrain]                  # 57M tokens of stories and worksheets, and ~25M of Python
 steps = 5000
 batch_size = 16             # 16 x 1,024 tokens a step
-lr = 3e-3
+lr = 5e-3                   # qk-norm takes a higher learning rate
 warmup = 100
 weight_decay = 0.1
 arith_frac = 0.25           # probability that the next document is an arithmetic worksheet
@@ -78,7 +85,7 @@ chat_digits = [1, 2, 3]
 mix = { add = 0.5, word = 0.1, tool = 0.2, long_followup = 0.1, new_question = 0.2 }
 max_new_tokens = 224
 temperature = 1.0
-lr = 1e-4
+lr = 2e-4                   # at 1e-4 the follow-ups on long totals lagged (92% vs 97%)
 warmup = 10
 log_every = 5
 
@@ -101,7 +108,7 @@ n_per_digit = 100
 n_sampled = 100
 n_tool = 50
 n_instr = 30
-n_chat = 200
+n_chat = 600                # 200 moved by +-4 points from luck alone: the gate blocked on noise
 max_new_tokens = 200
 ppl_batches = 8
 

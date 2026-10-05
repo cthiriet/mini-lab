@@ -231,7 +231,7 @@ def get(result: dict, path: str):
 def main() -> None:
     """Play one request on a project directory, in the Docker sandbox, and print the transcript.
 
-        uv run python -m minilab.eval.code models/prelude-1 examples/opencode/project "Run the tests and fix any bug"
+        uv run python -m minilab.eval.code models/prelude-2 examples/opencode/project "Run the tests and fix any bug"
 
     The project is copied into the container: the directory itself is never modified."""
     import argparse
