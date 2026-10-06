@@ -190,6 +190,29 @@
     renderMessages();
     const node = $("messages").lastElementChild;
 
+    // The answer arrives in bursts (one network read can carry several tokens): show it at a
+    // steady pace instead. Every frame reveals a share of what is still hidden, so the text
+    // stays about 100 ms behind the stream. setTimeout, not requestAnimationFrame: in a
+    // background tab it still runs (once a second), and then shows everything at once.
+    let shown = 0;
+    const draw = () => updateAssistant(node, { ...answer, content: answer.content.slice(0, shown) });
+    const typed = new Promise((resolve) => {
+      let last = performance.now();
+      const tick = () => {
+        const now = performance.now();
+        const hidden = answer.content.length - shown;
+        if (hidden > 0) {
+          shown += Math.max(1, Math.round(hidden * Math.min(1, (now - last) / 100)));
+          draw();
+          scrollToEnd();
+        }
+        last = now;
+        if (answer.streaming || shown < answer.content.length) setTimeout(tick, 16);
+        else resolve();
+      };
+      tick();
+    });
+
     controller = new AbortController();
     setStreaming(true);
     try {
@@ -210,13 +233,14 @@
           answer.usage = event.usage;
           answer.cost = event.cost;
         }
-        updateAssistant(node, answer);
+        draw();  // reasoning, tool calls and errors right away; the text at its own pace
         scrollToEnd();
       }, controller.signal);
     } catch (error) {
       if (error.name !== "AbortError") answer.error = `The connection was interrupted (${error.message}).`;
     } finally {
       answer.streaming = false;
+      await typed;  // the last words, at the same pace
       if (!answer.content && !answer.error && !answer.tools.length) answer.error = "The model returned an empty answer. Try again.";
       updateAssistant(node, answer);
       controller = null;
