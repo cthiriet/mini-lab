@@ -190,23 +190,32 @@
     renderMessages();
     const node = $("messages").lastElementChild;
 
-    // The answer arrives in bursts (one network read can carry several tokens): show it at a
-    // steady pace instead. Every frame reveals a share of what is still hidden, so the text
-    // stays about 100 ms behind the stream. setTimeout, not requestAnimationFrame: in a
-    // background tab it still runs (once a second), and then shows everything at once.
-    let shown = 0;
-    const draw = () => updateAssistant(node, { ...answer, content: answer.content.slice(0, shown) });
+    // Tokens leave the server every ~10 ms, but on the way (Wi-Fi above all) they often wait
+    // 50-400 ms and land in a bunch. Like a video player, the screen keeps a small buffer: the
+    // text starts BUFFER ms after the first token, then plays at the average rate it arrives,
+    // a little faster or slower as the buffer fills or drains, so a stall slows the text down
+    // instead of stopping it. setTimeout, not requestAnimationFrame: in a background tab it
+    // still runs (once a second), and then shows everything at once.
+    const BUFFER = 250;
+    let shown = 0;  // characters on screen, fractional
+    const draw = () => updateAssistant(node, { ...answer, content: answer.content.slice(0, Math.floor(shown)) });
     const typed = new Promise((resolve) => {
+      let first = null;
       let last = performance.now();
       const tick = () => {
         const now = performance.now();
+        const dt = now - last;
+        last = now;
+        if (first === null && answer.content) first = now;
         const hidden = answer.content.length - shown;
-        if (hidden > 0) {
-          shown += Math.max(1, Math.round(hidden * Math.min(1, (now - last) / 100)));
+        if (hidden > 0 && (now - first >= BUFFER || !answer.streaming)) {
+          const rate = answer.content.length / Math.max(1, now - first);  // characters per ms
+          const pace = Math.min(2, Math.max(0.5, hidden / Math.max(1, rate * BUFFER)));
+          const step = answer.streaming ? rate * dt * pace : Math.max(rate * dt, (hidden * dt) / 150);
+          shown = Math.min(answer.content.length, shown + step);
           draw();
           scrollToEnd();
         }
-        last = now;
         if (answer.streaming || shown < answer.content.length) setTimeout(tick, 16);
         else resolve();
       };
