@@ -39,6 +39,16 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 CSRF_EXEMPT = {"/billing/webhook"}  # called by Stripe's servers; authenticated by its signature instead
 
 
+class Revalidated(StaticFiles):
+    """Static files the browser keeps but checks (ETag) on every page load, like the production
+    proxy serves them: the scripts aren't fingerprinted, and a new stream.js must not meet an old chat.js."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
+
 class CSRFMiddleware:
     """Reject state-changing requests that come from another site.
 
@@ -375,8 +385,8 @@ def create_app(*, http_transport: httpx.AsyncBaseTransport | None = None) -> Fas
     app.state.gateway = Gateway(settings.api_url, settings.internal_token, http_transport)
 
     app.add_middleware(CSRFMiddleware, platform_url=settings.platform_url)
-    app.mount("/static", StaticFiles(directory=PLATFORM_DIR / "static"), name="static")
-    app.mount("/chat/static", StaticFiles(directory=CHAT_DIR / "static"), name="chat-static")
+    app.mount("/static", Revalidated(directory=PLATFORM_DIR / "static"), name="static")
+    app.mount("/chat/static", Revalidated(directory=CHAT_DIR / "static"), name="chat-static")
     app.include_router(router)
     app.include_router(billing.router)
     app.include_router(chat_router, prefix="/chat")

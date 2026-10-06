@@ -92,11 +92,19 @@
     usage.hidden = true;
     setRunning(true);
     controller = new AbortController();
+    // The text plays at a steady pace, whatever bursts the network delivers it in (stream.js).
+    const answer = { content: "", streaming: true };
+    const typed = smoothText(() => answer.content, () => answer.streaming, (n) => {
+      text.value = answer.content.slice(0, n);
+      autosize(text);
+    });
     try {
-      await streamChat("/playground/api/chat", request, (event) => onEvent(event, row), controller.signal);
+      await streamChat("/playground/api/chat", request, (event) => onEvent(event, row, answer), controller.signal);
     } catch (error) {
       if (error.name !== "AbortError") showError(row, `The stream was interrupted (${error.message}).`);
     } finally {
+      answer.streaming = false;
+      await typed;
       setRunning(false);
       text.readOnly = false;
       text.placeholder = "Enter a message";
@@ -105,11 +113,9 @@
     }
   }
 
-  function onEvent(event, row) {
-    const text = row.querySelector("textarea");
+  function onEvent(event, row, answer) {
     if (event.type === "delta" && event.content) {
-      text.value += event.content;
-      autosize(text);
+      answer.content += event.content;
     } else if (event.type === "delta" && event.reasoning) {
       const details = row.querySelector("[data-reasoning]");
       details.hidden = false;
@@ -127,7 +133,7 @@
       showError(row, event.message, event.code);
     } else if (event.type === "done") {
       showUsage(event);
-      if (!text.value) text.placeholder = "(empty answer)";
+      if (!answer.content) row.querySelector("textarea").placeholder = "(empty answer)";
     }
   }
 
