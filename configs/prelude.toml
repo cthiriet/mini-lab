@@ -62,7 +62,8 @@ mix = { plain = 0.13, instruction = 0.33, followup = 0.12, new_question = 0.12, 
 digits = [1, 2, 3]
 tool_frac = 0.3
 code_size = 80000           # agent transcripts, generated once (every tool call runs for real) -> data/code/
-code_mix = { list_files = 0.04, find_def = 0.04, show_file = 0.04, explain = 0.05, run = 0.06, run_tests = 0.05, create_func = 0.09, create_script = 0.04, rename = 0.07, change_const = 0.06, add_func = 0.08, fix_test = 0.13, fix_crash = 0.08, session = 0.10, chat = 0.04, title = 0.03 }
+code_mix = { list_files = 0.04, find_def = 0.04, show_file = 0.04, explain = 0.05, run = 0.06, run_tests = 0.05, create_func = 0.09, create_script = 0.04, rename = 0.07, change_const = 0.06, add_func = 0.08, fix_test = 0.13, fix_crash = 0.08, session = 0.10, chat = 0.04, title = 0.03, repair = 0.03, long_session = 0.03 }
+windows = 6                 # a long task's transcript (repair, long_session) -> 6 context windows, one turn trained each
 code_frac = 0.5             # share of rows that are agent transcripts: 3,500 x 32 rows = 28,000 chats + 56,000 transcripts
                             # (at 0.89, the chats' val loss rose from step 250 on: the chat skills were being forgotten)
 text_frac = 0.25            # share of rows that are pretraining documents, loss on every token (as in midtraining): without

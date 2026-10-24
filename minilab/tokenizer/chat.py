@@ -202,6 +202,12 @@ def prompt_budget(context_length: int, max_tokens: int | None) -> int:
     return context_length - min(max_tokens or context_length // 4, context_length // 2)
 
 
+def render_turn(tok: Tokenizer, messages: list[dict]) -> list[int]:
+    """The last message, an assistant turn, as the model writes it after
+    render_prompt(messages[:-1]) (which ends with its <|assistant_start|>)."""
+    return _render_message(tok, prepare_messages(messages)[-1])[0][1:]
+
+
 def render_prompt(tok: Tokenizer, messages: list[dict], tools=None, budget: int | None = None) -> list[int]:
     """Render messages for inference: the result ends with <|assistant_start|>.
 

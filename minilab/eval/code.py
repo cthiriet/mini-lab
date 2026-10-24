@@ -51,6 +51,7 @@ class Episode:
     valid: int = 0
     done: bool = False
     transcript: list[str] = field(default_factory=list)
+    max_calls: int | None = None   # its own limit of tool calls, instead of play()'s max_steps
 
 
 def _generate(model: GPT, tok: Tokenizer, prompts: list[list[int]], max_new: int, batch: int) -> list[list[int]]:
@@ -64,7 +65,7 @@ def _generate(model: GPT, tok: Tokenizer, prompts: list[list[int]], max_new: int
 def play(model: GPT, tok: Tokenizer, episodes: list[Episode], max_steps: int, max_new: int, batch: int) -> None:
     """Advance every episode in lockstep: one model turn each, then run the tool calls."""
     budget = model.config.block_size - max_new
-    for _ in range(max_steps + 1):
+    for _ in range(max((e.max_calls or max_steps for e in episodes), default=max_steps) + 1):
         active = [e for e in episodes if not e.done]
         if not active:
             break
@@ -103,7 +104,7 @@ def play(model: GPT, tok: Tokenizer, episodes: list[Episode], max_steps: int, ma
                 e.valid += name in CODE_TOOLS and not result.startswith(INVALID)
                 e.messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
                 e.transcript.append(f"{name}({call['function']['arguments'][:200]}) -> {result[:200]}")
-            if e.calls >= max_steps:
+            if e.calls >= (e.max_calls or max_steps):
                 e.done, e.answer = True, ""
     for e in episodes:
         if not e.done:
@@ -133,15 +134,24 @@ def perplexity(model: GPT, tok: Tokenizer, n_docs: int = 400) -> tuple[float, fl
     return loss, math.exp(loss)
 
 
-def _task_episodes(container: Container, kinds: list[str], n: int) -> list[Episode]:
-    episodes = []
+def eval_tasks(kinds: list[str], n: int) -> list[tuple[code.Task, str]]:
+    """The eval's tasks, n of each kind, and each one's system prompt ("{root}": its sandbox)."""
+    out = []
     for kind in kinds:
         rng = random.Random(f"{EVAL_SEED}-{kind}")
         for _ in range(n):
             task = code.make_task(rng, kind)
-            sb = DockerSandbox(container, task.files)
-            messages = [code.system_message(str(sb.root), rng), {"role": "user", "content": task.prompt}]
-            episodes.append(Episode(task, sb, messages, OPENCODE_TOOLS))
+            out.append((task, code.system_message("{root}", rng)["content"]))
+    return out
+
+
+def _task_episodes(container: Container, kinds: list[str], n: int) -> list[Episode]:
+    episodes = []
+    for task, system in eval_tasks(kinds, n):
+        sb = DockerSandbox(container, task.files)
+        messages = [{"role": "system", "content": system.replace("{root}", str(sb.root))},
+                    {"role": "user", "content": task.prompt}]
+        episodes.append(Episode(task, sb, messages, OPENCODE_TOOLS))
     return episodes
 
 

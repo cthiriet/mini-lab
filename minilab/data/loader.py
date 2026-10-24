@@ -8,7 +8,9 @@ on padding, and the model learns that <|bos|> means "a new, unrelated text start
 SFT uses one conversation per row, padded to the longest row of the batch. That is
 exactly the situation at inference time (a conversation starts at position 0), and
 it lets us train only on what the assistant says: targets are -1 (ignored by the
-loss) everywhere else.
+loss) everywhere else. A long agent transcript doesn't fit a row: it becomes context
+windows instead, each one the prompt the server would send before one of its turns
+(context_windows).
 """
 
 from __future__ import annotations
@@ -17,11 +19,12 @@ import itertools
 import random
 from typing import Iterator
 
+import numpy as np
 import torch
 
 from minilab.data import arithmetic, code
 from minilab.tokenizer.bpe import Tokenizer
-from minilab.tokenizer.chat import render_conversation
+from minilab.tokenizer.chat import PromptTooLong, render_conversation, render_prompt, render_turn
 
 Batch = tuple[torch.Tensor, torch.Tensor]
 
@@ -78,9 +81,10 @@ def chat_batch(tok: Tokenizer, conversations: list[dict], block_size: int) -> Ba
     trained on every token."""
     rows = []
     for conv in conversations:
-        if "ids" in conv:  # a pretraining document (SFT replays some): loss on every token
-            ids = conv["ids"][:block_size + 1]
-            rows.append((ids[:-1], ids[1:]))
+        if "ids" in conv:  # a pretraining document (SFT replays some): loss on every token;
+            ids = list(conv["ids"][:block_size + 1])   # or a context window: loss from "context" on
+            start = conv.get("context", 0)
+            rows.append((ids[:-1], [t if j + 1 >= start else -1 for j, t in enumerate(ids[1:])]))
             continue
         ids, mask = render_conversation(tok, conv["messages"], conv.get("tools"))
         if conv.get("train_on") == "last":
@@ -99,6 +103,30 @@ def chat_batch(tok: Tokenizer, conversations: list[dict], block_size: int) -> Ba
         x[i, :len(xi)] = torch.tensor(xi)
         y[i, :len(yi)] = torch.tensor(yi)
     return x, y
+
+
+def context_windows(tok: Tokenizer, conv: dict, budget: int, n: int, rng: random.Random) -> list[dict]:
+    """A transcript longer than the context, as the model meets it: for n of its trained turns
+    (drawn at random), the prompt the server sends before that turn (render_prompt with the
+    budget: the oldest turns and tool results dropped) followed by the turn, trained on alone."""
+    msgs = conv["messages"]
+    turns = [i for i, m in enumerate(msgs) if m["role"] == "assistant" and m.get("weight", 1) != 0]
+    rows = []
+    for i in sorted(rng.sample(turns, min(n, len(turns)))):
+        try:
+            prompt = render_prompt(tok, msgs[:i], conv.get("tools"), budget=budget)
+        except PromptTooLong:
+            continue
+        ids = prompt + render_turn(tok, msgs[:i + 1])
+        rows.append({"ids": np.asarray(ids, dtype=np.int32), "context": len(prompt)})
+    return rows
+
+
+def windowed(tok: Tokenizer, convs: list[dict], budget: int, n: int, seed: int) -> list[dict]:
+    """The long tasks' transcripts (code.LONG_KINDS) cut into context windows, the rest as is."""
+    rng = random.Random(seed)
+    return [row for c in convs
+            for row in (context_windows(tok, c, budget, n, rng) if c.get("kind") in code.LONG_KINDS else [c])]
 
 
 def epochs(items: list, seed: int) -> Iterator:

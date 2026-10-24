@@ -5,8 +5,10 @@ import random
 
 import pytest
 
-from minilab.data import code
+from minilab.data import code, horizon
+from minilab.data.loader import chat_batch, context_windows
 from minilab.data.sandbox import OPENCODE_TOOLS, TOOL_SCHEMAS, Sandbox
+from minilab.eval.horizon import DEFAULTS
 from minilab.tokenizer.bpe import Tokenizer
 from minilab.tokenizer.chat import (PromptTooLong, coerce_arguments, fit_messages, parse_completion, prepare_messages,
                                     render_conversation, render_prompt)
@@ -72,6 +74,84 @@ def test_oracles_solve_their_tasks(kind):
             assert not task.check(sb, "")
             messages = code.play(task, sb)
             assert task.check(sb, messages[-1]["content"]), (task.prompt, messages)
+
+
+def test_project_metadata_reads_back_from_files():
+    """project_from_files finds what make_project made: modules, script, constant, calls, tests."""
+    def meta(p):
+        return (sorted((m.path, [(f.kind.key, f.name) for f in m.funcs]) for m in p.modules), p.main,
+                {t: m.path for t, m in p.tests.items()}, p.const and (p.const.name, p.const.value, p.const.argtype),
+                [(f.name, args) for f, args in p.calls])
+    rng = random.Random(0)
+    for _ in range(100):
+        p = code.make_project(rng)
+        assert meta(code.project_from_files(p.files)) == meta(p)
+
+
+@pytest.mark.parametrize("family", horizon.FAMILIES)
+def test_long_tasks_grow_with_k(family):
+    """Long tasks are made solvable (their oracle passed every check) and get longer with k; the
+    first request's check fails on the untouched project."""
+    rng = random.Random(f"test-{family}")
+    tasks = [horizon.make_long_task(rng, family, k) for k in (1, 3, 6)]
+    assert [len(t.requests) for t in tasks] == ([1, 1, 1] if family == "repair" else [1, 3, 6])
+    assert tasks[0].length < tasks[1].length < tasks[2].length
+    for t in tasks:
+        with Sandbox(t.files) as sb:
+            first = t.requests[0]
+            if first.kind not in code.READ_ONLY:
+                assert not first.check(sb, "")
+
+
+def test_repair_check_needs_real_fixes():
+    """Editing a test to pass, or leaving one bug, fails the repair check."""
+    rng = random.Random(1)
+    task = next(t for t in iter(lambda: horizon.repair_task(rng, 2), "never") if t is not None)
+    with Sandbox(task.files) as sb:
+        messages = code.play(task, sb)
+        assert task.check(sb, messages[-1]["content"])
+    with Sandbox(task.files) as sb:
+        for path in [p for p in task.files if p.startswith("test_")]:
+            sb.write_file(path, 'print("all tests passed")\n')
+        assert not task.check(sb, "Fixed.")
+
+
+def test_training_never_starts_like_an_eval_task():
+    """A conversation whose fingerprint is excluded (an eval task's) is redrawn."""
+    first = code._chunk((7, 3, {"fix_test": 1.0}, frozenset()))
+    again = code._chunk((7, 3, {"fix_test": 1.0}, frozenset({first[0]["fp"]})))
+    assert len(again) == 3 and first[0]["fp"] not in {c["fp"] for c in again}
+    assert code.fingerprint({"a.py": "x = 1\n"}, '"Please list the files."') == \
+        code.fingerprint({"a.py": "x = 1\n"}, "list the files")
+
+
+def test_benchmark_keeps_its_own_phrasings_and_lengths():
+    """Training draws k from TRAIN_KS and never uses the benchmark's ways of asking."""
+    assert not set(horizon.REPAIR_PROMPTS) & set(horizon.EVAL_REPAIR_PROMPTS)
+    rng = random.Random(0)
+    for family in ("repair", "session"):
+        conv, _ = horizon.long_conversation(rng, family)
+        users = [m["content"] for m in conv["messages"] if m["role"] == "user"]
+        assert not any(p.lower().rstrip(".") in u.lower() for u in users for p in horizon.EVAL_REPAIR_PROMPTS)
+        assert not any(u.strip('"').startswith(tuple(horizon.EVAL_LEAD_INS)) for u in users)
+    lo, hi = horizon.TRAIN_KS["session"]
+    assert max(DEFAULTS["ks"]["session"]) > hi and max(DEFAULTS["ks"]["repair"]) > horizon.TRAIN_KS["repair"][1]
+
+
+def test_context_windows_are_what_the_server_sends(tok):
+    """Each window of a long transcript is the budgeted prompt before one of its turns, then that
+    turn, the only tokens trained on."""
+    conv = code.conversation(random.Random(4), "repair")
+    rows = context_windows(tok, conv, 300, 50, random.Random(0))
+    msgs = conv["messages"]
+    turns = [i for i, m in enumerate(msgs) if m["role"] == "assistant" and m.get("weight", 1) != 0]
+    assert len(rows) == len(turns)
+    for i, row in zip(turns, rows):
+        prompt = render_prompt(tok, msgs[:i], conv["tools"], budget=300)
+        assert list(row["ids"][:row["context"]]) == prompt and len(prompt) <= 300
+    x, y = chat_batch(tok, rows, 1024)
+    assert all((yy[:r["context"] - 1] == -1).all() and (yy[r["context"] - 1:len(r["ids"]) - 1] >= 0).all()
+               for yy, r in zip(y, rows))
 
 
 def test_slipped_edits_never_go_through():

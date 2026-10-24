@@ -23,7 +23,7 @@ from pathlib import Path
 from minilab.checkpoint import load_checkpoint
 from minilab.data import code
 from minilab.data.conversations import StoryPool, sft_dataset
-from minilab.data.loader import chat_batch, chat_batches, epochs, mixture, pretrain_documents
+from minilab.data.loader import chat_batch, chat_batches, epochs, mixture, pretrain_documents, windowed
 from minilab.data.tinystories import load_stories
 from minilab.train.trainer import Logger, evaluate_loss, load_config, parse_args, save_stage, setup, train_loop
 
@@ -41,15 +41,19 @@ def main() -> None:
     train = sft_dataset(seed + 2, sc["size"], sc, d["digits"], pool)
     val = sft_dataset(seed + 1002, B * sc.get("val_batches", 10), sc, d["digits"], pool)
     val_batches = [chat_batch(tok, val[i:i + B], T) for i in range(0, len(val), B)]
-    agent = code.sft_set(cfg, seed + 2)
-    code_set = code.sft_set(cfg, seed + 1002, size=B * sc.get("val_batches", 10))
+    # Long tasks' transcripts become context windows, at the prompt budget the coding evals leave
+    budget = T - cfg.get("code_eval", {}).get("max_new_tokens", 384)
+    convs = code.sft_set(cfg, seed + 2)
+    agent = windowed(tok, convs, budget, sc.get("windows", 6), seed + 6)
+    code_set = windowed(tok, code.sft_set(cfg, seed + 1002, size=B * sc.get("val_batches", 10)), budget,
+                        sc.get("windows", 6), seed + 1006)
     code_val = [chat_batch(tok, code_set[i:i + B], T) for i in range(0, len(code_set), B)]
     f, t = sc["code_frac"], sc["text_frac"]
     pc = cfg["pretrain"]
     text = ({"ids": ids} for ids in pretrain_documents(tok, stories, d["digits"], pc["arith_frac"], seed + 5, pc["code_frac"]))
     rows = mixture([epochs(train, seed + 2), epochs(agent, seed + 3), text], [1 - f - t, f, t], seed + 4)
     print(f"SFT set: {len(train)} chat conversations ({sc['steps'] * B * (1 - f - t) / len(train):.1f} epochs), "
-          f"{len(agent)} agent transcripts ({sc['steps'] * B * f / len(agent):.1f} epochs), "
+          f"{len(convs)} agent transcripts as {len(agent)} rows ({sc['steps'] * B * f / len(agent):.1f} epochs), "
           f"{t:.0%} pretraining documents")
 
     def val_fn() -> dict:

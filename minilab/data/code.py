@@ -24,6 +24,7 @@ opencode would have sent, Python tracebacks included.
 
 from __future__ import annotations
 
+import ast
 import builtins
 import dataclasses
 import gzip
@@ -407,6 +408,79 @@ def make_project(rng: random.Random) -> Project:
     rng.shuffle(order)
     proj.files = {p: files[p] for p in order}
     return proj
+
+
+def project_from_files(files: dict[str, str]) -> Project:
+    """A project's metadata read back from its files, as they are now (after a rename, a new
+    function...): the functions written like a known kind, the script with its calls and its
+    constant, and the tests of each module. A function that isn't (a bug, someone else's code)
+    is left out. For a fresh project, the same metadata as make_project's."""
+    modules, scripts = [], []
+    for path, text in files.items():
+        if not path.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        lines = text.split("\n")
+        funcs = []
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef):
+                body = "\n".join(line[4:] for line in lines[node.lineno:node.end_lineno])
+                params = tuple(a.arg for a in node.args.args)
+                kind = next((k for k in KINDS if k.body == body and k.params == params), None)
+                if kind:
+                    funcs.append(Func(kind, node.name))
+        if funcs and not path.startswith("test_"):
+            modules.append(Module(path, funcs))
+        if not path.startswith("test_") and any(_print_arg(node) for node in tree.body):
+            scripts.append((path, tree))
+    proj = Project(modules, dict(files))
+    by_name = {f.name: f for f in proj.funcs()}
+    best = -1
+    for path, tree in scripts:
+        consts = {t.targets[0].id: ast.literal_eval(t.value) for t in tree.body
+                  if isinstance(t, ast.Assign) and isinstance(t.targets[0], ast.Name) and _literal(t.value)}
+        calls, const = [], None
+        for node in tree.body:
+            arg = _print_arg(node)
+            if not (isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name) and arg.func.id in by_name):
+                continue
+            f = by_name[arg.func.id]
+            values = []
+            for a in arg.args:
+                if isinstance(a, ast.Name) and a.id in consts:
+                    const = Const(a.id, consts[a.id], f.kind.args)
+                    values.append(consts[a.id])
+                elif _literal(a):
+                    values.append(ast.literal_eval(a))
+            if len(values) == len(arg.args):
+                calls.append((f, tuple(values)))
+        if len(calls) > best:   # the script that uses the project's functions, else the first one
+            best, proj.main, proj.calls, proj.const = len(calls), path, calls, const
+    for path, text in files.items():
+        m = re.match(r"from (\w+) import ", text) if path.startswith("test_") else None
+        module = next((mod for mod in modules if m and mod.import_name == m.group(1)), None)
+        if module:
+            proj.tests[path] = module
+    return proj
+
+
+def _print_arg(node: ast.stmt) -> ast.expr | None:
+    """x in a top-level `print(x)`."""
+    if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) \
+            and node.value.func.id == "print" and len(node.value.args) == 1:
+        return node.value.args[0]
+    return None
+
+
+def _literal(node: ast.expr) -> bool:
+    try:
+        ast.literal_eval(node)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -1067,6 +1141,7 @@ FAMILIES = {
     "repair": ["fix_test", "fix_crash", "fix_distractor"],
 }
 READ_ONLY = {"list_files", "find_def", "show_file", "explain", "run", "run_tests"}
+LONG_KINDS = {"repair", "long_session"}   # data/horizon.py's long tasks, as training conversations
 
 
 def sample_task(rng: random.Random, kind: str, tries: int = 300) -> tuple[Task, Project]:
@@ -1161,7 +1236,13 @@ def conversation(rng: random.Random, kind: str) -> dict:
 
     kind: a task kind, "chat", "title" (opencode's request for a session title), or "session":
     several requests in a row on the same project. Either a first look at it, then a task (maybe
-    fixing what the look found), or a task, then one or two more on the project as it now is."""
+    fixing what the look found), or a task, then one or two more on the project as it now is.
+    Or a long task (data/horizon.py): "repair" (several bugs, one request) or "long_session".
+    A conversation on a project has the fingerprint of its first request ("fp")."""
+    if kind in ("repair", "long_session"):
+        from minilab.data import horizon
+        conv, fp = horizon.long_conversation(rng, "repair" if kind == "repair" else "session")
+        return {**conv, "fp": fp}
     root = rng.choice(FAKE_ROOTS)
     if kind == "title":
         if rng.random() < 0.15:
@@ -1187,7 +1268,7 @@ def conversation(rng: random.Random, kind: str) -> dict:
             messages += play(task, sb, start=len(messages))
             _maybe_small_talk(rng, messages)
             messages = _relocate(messages, str(sb.root), root)
-        return {"kind": kind, "tools": tool_list(rng), "messages": messages}
+        return {"kind": kind, "tools": tool_list(rng), "messages": messages, "fp": fingerprint(task.files, task.prompt)}
 
     last, project = sample_task(rng, rng.choice(list(TASKS)))
     if rng.random() < 0.5:
@@ -1216,7 +1297,31 @@ def conversation(rng: random.Random, kind: str) -> dict:
             messages += [prompt, *turns]
         _maybe_small_talk(rng, messages)
         messages = _relocate(messages, str(sb.root), root)
-    return {"kind": kind, "tools": tool_list(rng), "messages": messages}
+    return {"kind": kind, "tools": tool_list(rng), "messages": messages,
+            "fp": fingerprint(plan[0].files, plan[0].prompt)}
+
+
+def fingerprint(files: dict[str, str], prompt: str) -> str:
+    """A project and its first request, whatever the files' order and the prompt's typing."""
+    words = re.sub(r"\bplease\b|[^\w\s]", " ", prompt.lower()).split()
+    return hashlib.sha1(json.dumps([sorted(files.items()), words]).encode()).hexdigest()[:16]
+
+
+def eval_fingerprints(cfg: dict) -> frozenset[str]:
+    """The fingerprints of every eval task on a project (the coding eval's and the horizon
+    benchmark's), which no training conversation may share. Cached: the benchmark is slow to make."""
+    from minilab.eval import code as code_eval
+    from minilab.eval import horizon as horizon_eval
+    n_code = cfg.get("code_eval", {}).get("n_per_kind", 0)
+    key = hashlib.sha1(json.dumps([DATA_VERSION, n_code, horizon_eval.DEFAULTS]).encode()).hexdigest()[:10]
+    path = data_dir() / f"eval-fingerprints-{key}.json"
+    if path.exists():
+        return frozenset(json.loads(path.read_text()))
+    fps = {fingerprint(t.files, t.prompt) for t, _ in code_eval.eval_tasks(list(EVAL_TASKS), n_code)}
+    fps |= {t.fingerprint for t in horizon_eval.long_tasks(horizon_eval.DEFAULTS["ks"], horizon_eval.DEFAULTS["n_per_k"])}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(sorted(fps)))
+    return frozenset(fps)
 
 
 FOLLOW_UPS = ["run", "run_tests", "list_files", "show_file", "find_def", "create_func", "create_script"]
@@ -1322,7 +1427,7 @@ def text_of(conv: dict) -> list[str]:
 # Datasets: generated once, cached under data/code/
 # ---------------------------------------------------------------------------
 
-DATA_VERSION = 6   # bump when the world or the tasks change: cached sets are regenerated
+DATA_VERSION = 7   # bump when the world or the tasks change: cached sets are regenerated
 CHUNK = 250
 
 
@@ -1330,25 +1435,34 @@ def data_dir() -> Path:
     return Path(os.environ.get("MINILAB_DATA_DIR", "data")) / "code"
 
 
-def _chunk(job: tuple[int, int, dict]) -> list[dict]:
-    seed, n, mix = job
+def _chunk(job: tuple[int, int, dict, frozenset[str]]) -> list[dict]:
+    seed, n, mix, exclude = job
     rng = random.Random(seed)
     kinds, weights = zip(*mix.items())
-    return [conversation(rng, rng.choices(kinds, weights)[0]) for _ in range(n)]
+    out = []
+    for _ in range(n):
+        kind = rng.choices(kinds, weights)[0]
+        while (conv := conversation(rng, kind)).get("fp") in exclude:
+            pass   # starts like an eval task: never trained on
+        out.append(conv)
+    return out
 
 
-def conversations(n: int, seed: int, mix: dict[str, float], workers: int | None = None) -> list[dict]:
+def conversations(n: int, seed: int, mix: dict[str, float], workers: int | None = None,
+                  exclude: frozenset[str] = frozenset()) -> list[dict]:
     """n conversations drawn from `mix` ({kind: weight}), generated in parallel (every
-    transcript runs its tools for real) and cached: the same arguments give the same set."""
-    key_parts = [DATA_VERSION, n, seed, sorted(mix.items()), NAME]  # the model says its name
+    transcript runs its tools for real) and cached: the same arguments give the same set. None
+    has a fingerprint in `exclude` (eval_fingerprints)."""
+    key_parts = [DATA_VERSION, n, seed, sorted(mix.items()), NAME, sorted(exclude)]  # the model says its name
     key = hashlib.sha1(json.dumps(key_parts).encode()).hexdigest()[:10]
     path = data_dir() / f"conversations-{n}-{seed}-{key}.jsonl.gz"
     if path.exists():
         with gzip.open(path, "rt") as f:
             return [json.loads(line) for line in f]
     t0 = time.time()
-    jobs = [(seed * 1_000_003 + i, min(CHUNK, n - i * CHUNK), mix) for i in range((n + CHUNK - 1) // CHUNK)]
-    workers = workers or max(1, min(len(jobs), (os.cpu_count() or 2) - 2))
+    jobs = [(seed * 1_000_003 + i, min(CHUNK, n - i * CHUNK), mix, exclude) for i in range((n + CHUNK - 1) // CHUNK)]
+    # MINILAB_WORKERS caps the processes (the default takes every core but two)
+    workers = workers or int(os.environ.get("MINILAB_WORKERS", 0)) or max(1, min(len(jobs), (os.cpu_count() or 2) - 2))
     with multiprocessing.get_context("spawn").Pool(workers) as pool:
         convs = [c for chunk in pool.imap(_chunk, jobs) for c in chunk]
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1371,7 +1485,7 @@ def pretrain_documents(seed: int) -> Iterator[str]:
 def sft_set(cfg: dict, seed: int, size: int | None = None) -> list[dict]:
     """The config's agent transcripts ([sft] code_size and code_mix)."""
     sc = cfg["sft"]
-    return conversations(size or sc["code_size"], seed, sc["code_mix"])
+    return conversations(size or sc["code_size"], seed, sc["code_mix"], exclude=eval_fingerprints(cfg))
 
 
 def main() -> None:
