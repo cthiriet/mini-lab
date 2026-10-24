@@ -73,7 +73,8 @@ What each stage did:
   and follow-ups on long totals. Nothing else is in its mix, and its other skills drift.
 - **Distillation** merges it with the SFT model: the specialist's math, the SFT model's
   behavior, coding and perplexity.
-- Nothing reaches 6 digits: no 6-digit number is ever an operand in training.
+- Nothing reaches 6 digits: no 6-digit number is ever an operand in training (why, from the
+  inside: [interp.md](interp.md)).
 
 Wall-clock on an Apple M5 Pro (18 cores, 64 GB), everything on MPS (`DEVICE=mps`):
 
@@ -87,7 +88,8 @@ Wall-clock on an Apple M5 Pro (18 cores, 64 GB), everything on MPS (`DEVICE=mps`
 | RL, math specialist (330 steps x 128 samples) | 18.6 min |
 | distillation (300 steps x 32 samples) | 10.6 min |
 | 5 evals (the coding eval in Docker, 600 whole chats), release gate, report | ~40 min |
-| **total** | **~1h30** |
+| dictionary of features (50M tokens, then each feature's examples) | ~7 min |
+| **total** | **~1h40** |
 
 Samples from `prelude-2` (greedy, from `eval.json`):
 
@@ -313,7 +315,8 @@ uv run python -m minilab.eval.gate runs/prelude/distill --baseline models/prelud
 length, pricing of $10 / $50 per 1M input/output tokens, the flagship tier, so that a story
 costs about a cent, and the default temperature, 0: opencode never sends one), `eval.json`,
 `gate.json` and `MODEL_CARD.md` (architecture, data, per-stage training stats, the eval table
-and samples).
+and samples). Last, `minilab.interp.sae` trains the release's dictionary of features into
+`models/<id>/features/` ([interp.md](interp.md)), for its Features pages and steering.
 
 ## Lessons
 

@@ -33,6 +33,7 @@ gateway, and a platform (dashboard + billing + chat app).
 | `minilab/db/` | SQLite schema + data access (users, orgs, keys, credits, requests) — **shared contract** |
 | `minilab/testing.py` | `make_random_release()` — random-weight model to test serving without training |
 | `minilab/data/`, `train/`, `eval/`, `release.py` | Training pipeline |
+| `minilab/interp/` | Interpretability: the microscope, the feature dictionary, the 6-digit example ([interp.md](interp.md)) |
 | `minilab/inference/` | Inference engine + internal HTTP server |
 | `minilab/api/`, `minilab/obs/` | Public OpenAI-compatible gateway, metrics |
 | `minilab/platform/`, `minilab/chat/` | Dashboard, billing, playground, chat app |

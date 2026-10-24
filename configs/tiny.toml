@@ -110,5 +110,12 @@ max_new_tokens = 96
 batch = 16
 ppl_docs = 200
 
+[sae]
+layer = 1
+features = 256
+k = 8
+tokens = 2e5
+example_tokens = 2e4
+
 [release]
 description = "smoke test of the recipe."

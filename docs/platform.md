@@ -40,9 +40,10 @@ billing, usage, logs) only needs the database.
 | `/usage?days=7\|30\|90&metric=…` | yes | Chart, per-model and per-day tables, latency and throughput |
 | `/logs`, `/logs/{id}` | yes | Every request, with its request and response JSON |
 | `/billing` | yes | Balance, credit packs, credit history |
-| `/playground` | yes | Try a model: system prompt, messages, temperature, max tokens, calculator |
+| `/playground` | yes | Try a model: system prompt, messages, temperature, max tokens, calculator, steering |
 | `/chat` | yes | The chat app |
 | `/models`, `/models/{id}` | no | Released models, prices, model card |
+| `/models/{id}/features`, `/models/{id}/features/{n}` | no | The model's dictionary of features: search, examples shaded by activation ([interp.md](interp.md)) |
 | `/docs` | no | API reference |
 | `/status`, `/health` | no | Health of the platform, database and gateway |
 

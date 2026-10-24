@@ -20,12 +20,13 @@ Each part of a real lab has a minimal, readable version here:
 | | What | Where |
 |---|---|---|
 | **Research** | Tokenizer, pretraining (Muon), midtraining, SFT, RL (GRPO), on-policy distillation, evals, model cards, training reports | [`minilab/train`](minilab/train), [`minilab/eval`](minilab/eval), [docs/training.md](docs/training.md) |
-| **Inference** | KV cache, continuous batching, streaming, tool calls, stop strings | [`minilab/inference`](minilab/inference), [docs/inference.md](docs/inference.md) |
+| **Interpretability** | A microscope (every activation, patching, attribution), a dictionary of features (sparse autoencoder), feature pages, steering | [`minilab/interp`](minilab/interp), [docs/interp.md](docs/interp.md) |
+| **Inference** | KV cache, continuous batching, prefix caching, streaming, tool calls, stop strings, steering | [`minilab/inference`](minilab/inference), [docs/inference.md](docs/inference.md) |
 | **API** | OpenAI-compatible `/v1/chat/completions`, API keys, rate limits, metering | [`minilab/api`](minilab/api), [docs/api.md](docs/api.md) |
-| **Platform** | Sign-up, orgs and projects, API keys, usage, logs, billing (Stripe), playground, docs | [`minilab/platform`](minilab/platform), [docs/platform.md](docs/platform.md) |
+| **Platform** | Sign-up, orgs and projects, API keys, usage, logs, billing (Stripe), playground, docs, each model's features | [`minilab/platform`](minilab/platform), [docs/platform.md](docs/platform.md) |
 | **Product** | A ChatGPT-like chat app with a calculator tool | [`minilab/chat`](minilab/chat) |
 
-No GPU required: the whole training pipeline, from raw text to a released model, runs on a laptop (about 1h30 on an Apple M5 Pro, its GPU through MPS for training).
+No GPU required: the whole training pipeline, from raw text to a released model and its dictionary of features, runs on a laptop (about 1h40 on an Apple M5 Pro, its GPU through MPS for training).
 
 ## The model: `prelude-2`
 
@@ -47,9 +48,11 @@ On its own eval, `prelude-2` gets 100% of 1-5 digit additions (99% sampled at te
 
 See [docs/training.md](docs/training.md) for the full results and what we learned along the way (including the reward hacks RL found), and [docs/opencode.md](docs/opencode.md) for how ~10,000 tokens of opencode instructions fit a 1,024-token model.
 
+Why does it add 5-digit numbers but never 6-digit ones? [docs/interp.md](docs/interp.md) opens it up: its column arithmetic works at any length, but MLPs in layers 1-3 count the digits of a number and end it after 5, the longest it ever saw, outvoting the heads that read the next digit. Take that counter out at the right position and the 6th digit comes back; two features of its dictionary carry it, and adding them makes a 5-digit number stop after 3.
+
 ## The platform
 
-Sign up, get an API key, call the model with the official OpenAI SDK, and watch every token get billed. Or just chat with it.
+Sign up, get an API key, call the model with the official OpenAI SDK, and watch every token get billed. Or just chat with it, browse its features, and steer it with them in the playground.
 
 <p align="center">
   <img src="docs/assets/dashboard.png" alt="Developer dashboard: credit balance, spend per day and quickstart" width="49%">
@@ -65,7 +68,7 @@ git clone https://github.com/cthiriet/mini-lab && cd mini-lab
 uv sync
 ```
 
-**1. Train a model** (downloads about 200 MB of TinyStories, then trains all five stages and releases `models/prelude-2`; the coding eval needs Docker running):
+**1. Train a model** (downloads about 200 MB of TinyStories, then trains all five stages, releases `models/prelude-2` and trains its dictionary of features; the coding eval needs Docker running):
 
 ```bash
 bash speedrun.sh
@@ -134,6 +137,7 @@ minilab/
   data/         TinyStories download, synthetic arithmetic and conversations; the toy code world and tool sandbox
   train/        tokenizer, pretrain, midtrain, sft, rl_math (GRPO), distill
   eval/         evals and model card
+  interp/       the microscope, the dictionary of features (sparse autoencoder), the 6-digit example
   report.py     HTML training report for one or more runs
   release.py    promote a run to models/<id>
   inference/    engine + internal server

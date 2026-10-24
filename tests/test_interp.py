@@ -52,3 +52,21 @@ def test_patches_change_what_they_touch(model):
     ablated = trace(model, IDS, {("heads", 2): kill})
     assert (ablated.heads[2][0] == 0).all() and not torch.allclose(ablated.logits, same.logits)
     assert torch.equal(ablated.resid[2], same.resid[2])   # what comes before the patch is untouched
+
+
+def test_sae_keeps_k_features_and_its_checkpoint_steers(tmp_path):
+    """A TopK SAE activates at most k features per token; the engine reads its decoder to steer."""
+    from minilab.inference.engine import load_directions
+    from minilab.interp.sae import SAE
+    torch.manual_seed(0)
+    sae = SAE(d=16, n=64, k=4)
+    sae.scale.fill_(2.0)
+    x = torch.randn(10, 16)
+    f = sae.encode(x)
+    assert f.shape == (10, 64) and ((f > 0).sum(-1) <= 4).all() and (f >= 0).all()
+    assert sae.decode(f).shape == x.shape and torch.allclose(sae.W_dec.norm(dim=1), torch.ones(64))
+    (tmp_path / "features").mkdir()
+    torch.save({"state": sae.state_dict(), "d": 16, "n": 64, "k": 4, "layer": 1}, tmp_path / "features" / "sae.pt")
+    layer, directions = load_directions(tmp_path, "cpu")
+    assert layer == 1 and torch.allclose(directions, sae.W_dec.detach() * 2.0)
+    assert load_directions(tmp_path / "nothing", "cpu") is None

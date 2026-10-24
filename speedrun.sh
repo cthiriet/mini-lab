@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The whole training pipeline, from downloading data to a released model.
 #
-#   bash speedrun.sh         # ~1h30 on an Apple M5 Pro (DEVICE=mps) -> models/prelude-2
+#   bash speedrun.sh         # ~1h40 on an Apple M5 Pro (DEVICE=mps) -> models/prelude-2
 #   bash speedrun.sh tiny    # smoke test, under a minute          -> runs/tiny/models/prelude-tiny
 #
 # The coding eval runs the model's tool calls in a Docker container: Docker must be running.
@@ -45,6 +45,9 @@ done
 
 step "release: $ID"
 uv run python -m minilab.release --run "$RUN" --stage distill --id "$ID" --device "$DEVICE"   # after the release gate
+
+step "features: $ID's dictionary"   # for its Features pages and steering (minilab/interp/sae.py)
+uv run python -m minilab.interp.sae "${MINILAB_MODELS_DIR:-models}/$ID" --config "$CONFIG" --device "$DEVICE"
 
 step "done: $RUN -> $ID"
 uv run python -m minilab.eval.run --run "$RUN" --summary

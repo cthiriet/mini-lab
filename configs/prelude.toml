@@ -1,6 +1,6 @@
 # prelude: one 5.8M-parameter GPT with a 1,024-token context that tells short stories, adds
 # numbers (step by step or with a calculator) and, in opencode, is a coding agent for tiny
-# Python projects. ~1h30 on an Apple M5 Pro (MPS), Docker needed for the coding eval.
+# Python projects. ~1h40 on an Apple M5 Pro (MPS), Docker needed for the coding eval.
 #
 #   bash speedrun.sh
 seed = 0
@@ -119,6 +119,13 @@ max_steps = 8
 max_new_tokens = 384
 batch = 32
 ppl_docs = 400
+
+[sae]                       # the release's feature dictionary (minilab/interp/sae.py): ~7 min on MPS
+layer = 4                   # the residual stream after 4 of the 6 blocks
+features = 4096             # 16x the width
+k = 32                      # active features per token
+tokens = 5e7                # streamed from the model's own kinds of text
+example_tokens = 1e6        # held-out text for each feature's examples
 
 [release]
 description = "short stories, addition (step-by-step reasoning or calculator tool), and in opencode a coding agent for small Python projects."

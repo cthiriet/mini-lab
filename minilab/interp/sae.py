@@ -8,15 +8,17 @@ This is the TopK SAE of OpenAI (Gao et al., 2024): the encoder keeps the k large
 pre-activations, so sparsity is exact and there is no L1 penalty to tune; an auxiliary loss
 lets dead features learn from what the live ones miss.
 
-    uv run python -m minilab.interp.sae train models/prelude-2 --layer 4 --out runs/exp/interp/sae-L4
-    uv run python -m minilab.interp.sae features runs/exp/interp/sae-L4
+    uv run python -m minilab.interp.sae models/prelude-2 --config configs/prelude.toml
 
-`train` streams activations from the model on its own kinds of text (stories, worksheets,
-Python, chats, agent transcripts: `stream`), so nothing is stored. Quality: the fraction of
-variance left unexplained, and the *loss recovered*: the model's next-token loss with this layer
-replaced by its reconstruction, between the true loss (100%) and the loss with the layer zeroed
-(0%). `features` finds each feature's strongest examples on held-out text, how often it fires,
-which sources it fires on, and the tokens it pushes toward: features.json, read by the platform.
+writes the release's dictionary to models/prelude-2/features/ (the speedrun's last step, with the
+config's [sae] section). Training streams activations from the model on its own kinds of text
+(stories, worksheets, Python, chats, agent transcripts: `stream`), so nothing is stored.
+Quality (quality.json): the fraction of variance left unexplained, and the *loss recovered*: the
+model's next-token loss with this layer replaced by its reconstruction, between the true loss
+(100%) and the loss with the layer zeroed (0%). Then each feature's strongest examples on held-out
+text, how often it fires, which sources it fires on, and the tokens it pushes toward
+(features.json): the platform's Features pages read it, the inference engine steers with sae.pt.
+Hand-written labels, if any, go in labels.json ({"1112": "..."}).
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ from minilab.data.tinystories import load_stories
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
 from minilab.tokenizer.chat import render_conversation
+from minilab.train.trainer import DEVICES, resolve_device
 
 SOURCES = {"story": 0.25, "worksheet": 0.1, "python": 0.1, "chat": 0.3, "agent": 0.25}
 
@@ -74,7 +77,7 @@ def stream(tok: Tokenizer, cfg: dict, seed: int) -> Iterator[tuple[list[int], st
     rng = random.Random(seed)
     d = cfg["data"]
     stories = load_stories("train", d["train_mb"])
-    chats = sft_dataset(seed, 4000, cfg["sft"], d["digits"], StoryPool(stories, d.get("story_max_chars", 700)))
+    chats = sft_dataset(seed, min(4000, cfg["sft"]["size"]), cfg["sft"], d["digits"], StoryPool(stories, d.get("story_max_chars", 700)))
     agent = code.sft_set(cfg, cfg.get("seed", 0) + 2)
     python = code.pretrain_documents(seed + 1)
     while True:
@@ -266,39 +269,25 @@ def features(model: GPT, tok: Tokenizer, cfg: dict, sae: SAE, layer: int, device
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Sparse autoencoder features of a model's residual stream.")
-    sub = p.add_subparsers(dest="cmd", required=True)
-    t = sub.add_parser("train")
-    t.add_argument("model")
-    t.add_argument("--layer", type=int, default=4, help="the residual stream after this many blocks")
-    t.add_argument("--n", type=int, default=4096)
-    t.add_argument("--k", type=int, default=32)
-    t.add_argument("--tokens", type=float, default=50e6)
-    t.add_argument("--out", required=True)
-    t.add_argument("--config", default="configs/prelude.toml")
-    t.add_argument("--device", default="mps")
-    f = sub.add_parser("features")
-    f.add_argument("sae_dir")
-    f.add_argument("--model", default="models/prelude-2")
-    f.add_argument("--config", default="configs/prelude.toml")
-    f.add_argument("--tokens", type=float, default=1e6)
-    f.add_argument("--device", default="mps")
+    p = argparse.ArgumentParser(description="Train a release's feature dictionary (a sparse autoencoder) into <release>/features/.")
+    p.add_argument("model", help="a release directory, e.g. models/prelude-2")
+    p.add_argument("--config", default="configs/prelude.toml", help="the recipe: its [sae] section, and the data")
+    p.add_argument("--device", default="auto", choices=DEVICES)
     args = p.parse_args()
     cfg = tomllib.loads(Path(args.config).read_text())
-    model, tok, _ = load_checkpoint(args.model, device=args.device)
-    if args.cmd == "train":
-        out = Path(args.out)
-        sae = train(model, tok, cfg, args.layer, args.n, args.k, args.tokens, out, args.device)
-        q = quality(model, tok, cfg, sae, args.layer, args.device)
-        (out / "quality.json").write_text(json.dumps(q, indent=2))
-        print(q)
-    else:
-        out = Path(args.sae_dir)
-        sae, layer = load_sae(out, args.device)
-        feats = features(model, tok, cfg, sae, layer, args.device, args.tokens)
-        (out / "features.json").write_text(json.dumps({"layer": layer, "model": args.model, "features": feats}))
-        dead = sum(f["density"] == 0 for f in feats)
-        print(f"{len(feats)} features ({dead} never fired) -> {out / 'features.json'}")
+    sc = cfg["sae"]   # layer, features, k, tokens, example_tokens
+    device = resolve_device(args.device)
+    model, tok, _ = load_checkpoint(args.model, device=device)
+    out = Path(args.model) / "features"
+    t0 = time.time()
+    sae = train(model, tok, cfg, sc["layer"], sc["features"], sc["k"], sc["tokens"], out, device)
+    q = quality(model, tok, cfg, sae, sc["layer"], device)
+    (out / "quality.json").write_text(json.dumps(q, indent=2) + "\n")
+    feats = features(model, tok, cfg, sae, sc["layer"], device, sc["example_tokens"])
+    (out / "features.json").write_text(json.dumps({"layer": sc["layer"], "model": Path(args.model).name, "features": feats}))
+    dead = sum(f["density"] == 0 for f in feats)
+    print(f"{len(feats)} features ({dead} never fired), loss recovered {q['loss_recovered']:.1%}, "
+          f"variance unexplained {q['fvu']:.1%}, {time.time() - t0:.0f}s -> {out}")
 
 
 if __name__ == "__main__":

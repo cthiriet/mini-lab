@@ -182,6 +182,16 @@ model with a 256-token context, on one CPU thread (like the production server):
 Prefill is a small part of the work at 256 tokens of context: total time doesn't move,
 since decoding dominates. The saving grows with the context.
 
+## Steering
+
+A request may push features of the release's dictionary (`models/<id>/features/sae.pt`, see
+[interp.md](interp.md)) while the model writes: `steer: [{"feature": 2418, "strength": 15}]`.
+The runner turns them into one vector per request (each feature's direction times its strength)
+and `forward_cached` adds it to the residual stream after the dictionary's layer, at every
+position, row by row: a steered sequence shares the batch with plain ones, which get zeros. Its
+keys and values depend on the steering, so it neither reads a cached prefix nor leaves one. A
+model without a dictionary, or a feature it doesn't have, is a 400.
+
 ## Cancellation
 
 If the client of a streaming request disconnects, Starlette cancels the response
