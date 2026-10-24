@@ -750,3 +750,16 @@ def test_oversized_bodies_are_rejected_at_the_gateway(env):
                    content=b"{" + b" " * 2_000_000 + b"}", timeout=30)
     assert r.status_code == 413
     assert db.get_balance_micros(t.org["id"]) == 1_000_000
+
+
+def test_steer_extension_reaches_inference():
+    """`steer` (not OpenAI's) is validated by the gateway and passed on to the inference server."""
+    from minilab.api.schemas import parse_chat_request, to_inference
+    body = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    assert to_inference(parse_chat_request(body))["steer"] is None
+    req = parse_chat_request({**body, "steer": [{"feature": 1112, "strength": 8}]})
+    assert to_inference(req)["steer"] == [{"feature": 1112, "strength": 8.0}]
+    for bad in ([{"feature": -1, "strength": 1}], [{"feature": 1, "strength": 101}], [{"feature": i, "strength": 1} for i in range(9)]):
+        with pytest.raises(APIError) as e:
+            parse_chat_request({**body, "steer": bad})
+        assert e.value.status == 400 and "steer" in e.value.param

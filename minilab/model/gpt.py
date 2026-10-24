@@ -169,10 +169,12 @@ class GPT(nn.Module):
     def num_params(self) -> int:
         return sum(p.numel() for p in self.parameters())
 
-    def _trunk(self, x, cos, sin, **cache_kwargs):
+    def _trunk(self, x, cos, sin, steer=None, **cache_kwargs):
         x0, state = x, {}
         for i, block in enumerate(self.blocks):
             x = block(x, cos, sin, x0, state=state, **({**cache_kwargs, "layer": i} if cache_kwargs else {}))
+            if steer is not None and i + 1 == steer[0]:
+                x = x + steer[1][:, None, :].to(x.dtype)
         return x
 
     def _logits(self, x):
@@ -194,12 +196,15 @@ class GPT(nn.Module):
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)).float(), targets.view(-1), ignore_index=-1)
         return logits, loss
 
-    def forward_cached(self, idx: torch.Tensor, cache: KVCache, slots: torch.Tensor) -> torch.Tensor:
+    def forward_cached(self, idx: torch.Tensor, cache: KVCache, slots: torch.Tensor,
+                       steer: tuple[int, torch.Tensor] | None = None) -> torch.Tensor:
         """Inference path. idx: (B, T) new tokens for the sequences in `slots` (B,).
 
         Each slot continues from its own position (cache.lengths). All rows must
         have the same T (T=1 for batched decoding, any T for a single prefill).
         Returns logits for the last position of each row: (B, vocab_size).
+        steer: (layer, vectors (B, C)), each row's vector added to the residual stream
+        after `layer` blocks, at every position: feature steering (minilab/interp/sae.py).
         """
         B, T = idx.shape
         slots = slots.to(torch.long).cpu()
@@ -208,7 +213,7 @@ class GPT(nn.Module):
         q_pos = (pos[:, None] + torch.arange(T)).to(idx.device)  # (B, T)
         cos = self.rope_cos[q_pos][:, None]  # (B, 1, T, D/2)
         sin = self.rope_sin[q_pos][:, None]
-        x = self._trunk(self.wte(idx), cos, sin, cache=cache, slots=slots, pos=pos)
+        x = self._trunk(self.wte(idx), cos, sin, steer=steer, cache=cache, slots=slots, pos=pos)
         cache.lengths[slots] += T
         return self._logits(x[:, -1])
 

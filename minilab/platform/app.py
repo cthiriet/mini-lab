@@ -362,6 +362,17 @@ def features_page(request: Request, model_id: str, q: str = "", source: str = ""
                   total=len(found), features=found[(page - 1) * FEATURES_PER_PAGE:page * FEATURES_PER_PAGE])
 
 
+@router.get("/models/{model_id}/features/{feature_id}.json")
+def feature_json(request: Request, model_id: str, feature_id: int):
+    """A feature's summary, for the playground's steering control."""
+    _, data = _model_features(request, model_id)
+    if not 0 <= feature_id < len(data["features"]):
+        raise HTTPException(404, f"{model_id} has no feature {feature_id}.")
+    f = data["features"][feature_id]
+    return {"id": f["id"], "label": f["label"], "top_token": f["top_token"], "promotes": f["promotes"][:5],
+            "url": f"/models/{model_id}/features/{feature_id}"}
+
+
 @router.get("/models/{model_id}/features/{feature_id}")
 def feature_page(request: Request, model_id: str, feature_id: int, ctx: Ctx | None = Depends(optional_ctx)):
     info, data = _model_features(request, model_id)
@@ -411,7 +422,7 @@ async def playground_chat(request: Request, body: ChatRequest, ctx: Ctx = Depend
     events = request.app.state.gateway.stream_chat(
         org_id=ctx.org["id"], source="playground", model=body.model,
         messages=[m.model_dump() for m in body.messages], temperature=body.temperature,
-        max_tokens=body.max_tokens, calculator=body.calculator,
+        max_tokens=body.max_tokens, calculator=body.calculator, steer=[s.model_dump() for s in body.steer],
     )
     return event_stream(request, events, body.model)
 

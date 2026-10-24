@@ -68,7 +68,7 @@ class Gateway:
 
     async def stream_chat(self, *, org_id: str, source: str, model: str, messages: list[dict],
                           temperature: float | None = None, max_tokens: int | None = None,
-                          calculator: bool = False) -> AsyncIterator[dict]:
+                          calculator: bool = False, steer: list[dict] | None = None) -> AsyncIterator[dict]:
         """Stream a chat completion as browser-friendly events:
 
             {"type": "delta", "content": "..."}             visible answer text
@@ -92,6 +92,8 @@ class Gateway:
                     body["temperature"] = temperature
                 if max_tokens is not None:
                     body["max_tokens"] = max_tokens
+                if steer:
+                    body["steer"] = steer
                 if calculator:
                     body["tools"] = [CALCULATOR_TOOL]
                     # Last round: force a plain answer so a confused model can't loop forever.

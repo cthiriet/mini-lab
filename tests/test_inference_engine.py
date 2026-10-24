@@ -12,7 +12,7 @@ import torch
 
 from minilab.checkpoint import load_checkpoint, save_checkpoint
 from minilab.inference.engine import (
-    ContextLengthExceeded, ModelRunner, Overloaded, SamplingParams, StreamParser,
+    ContextLengthExceeded, InvalidRequest, ModelRunner, Overloaded, SamplingParams, StreamParser,
 )
 from minilab.model.gpt import GPT
 from minilab.obs.metrics import render
@@ -328,7 +328,7 @@ class ScriptedModel(GPT):
         super().__init__(config)
         self.script, self.start = script, {}
 
-    def forward_cached(self, idx, cache, slots):
+    def forward_cached(self, idx, cache, slots, steer=None):
         B, T = idx.shape
         logits = torch.full((B, self.config.vocab_size), -1e9)
         for b, s in enumerate(slots.tolist()):
@@ -473,3 +473,75 @@ def test_overloaded_when_queue_is_full(release, make_runner):
             await r.result()
 
     asyncio.run(main())
+
+
+# ---------------------------------------------------------------------------
+# Steering
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def steered_runner(release, tmp_path):
+    """A runner whose release has a feature dictionary (features/sae.pt): 16 random directions after block 1."""
+    info, model, tok = release
+    (tmp_path / "features").mkdir()
+    W_dec = torch.nn.functional.normalize(torch.randn(16, model.config.n_embd, generator=torch.Generator().manual_seed(0)), dim=1)
+    torch.save({"state": {"W_dec": W_dec, "scale": torch.tensor(1.0)}, "layer": 1}, tmp_path / "features" / "sae.pt")
+    runners = []
+
+    def make(max_batch=4, with_features=True):
+        info_ = dataclasses.replace(info, id=f"test-{next(_ids)}", path=tmp_path if with_features else None)
+        runner = ModelRunner(info_, model, tok, max_batch=max_batch)
+        runner.start()
+        runners.append(runner)
+        return runner
+
+    yield make
+    for r in runners:
+        r.stop()
+
+
+def test_steering_changes_only_the_steered_sequence(release, steered_runner):
+    _, model, tok = release
+    runner = steered_runner()
+    prompt = prompt_for(tok, "Tell me a story about a dog.")
+    greedy = dict(max_tokens=24, temperature=0)
+
+    async def main():
+        alone = await run(runner, prompt, **greedy)
+        zero = await run(runner, prompt, steer=[(3, 0.0)], **greedy)
+        steered = await run(runner, prompt, steer=[(3, 30.0), (7, -10.0)], **greedy)
+        # both at once, in one batch: each gets its own vector (or none)
+        both = await asyncio.gather(run(runner, prompt, **greedy), run(runner, prompt, steer=[(3, 30.0), (7, -10.0)], **greedy))
+        return alone, zero, steered, both
+
+    alone, zero, steered, (plain_b, steered_b) = asyncio.run(main())
+    assert zero[0].tokens == alone[0].tokens               # strength 0: the model as it is
+    assert steered[0].tokens != alone[0].tokens            # the push changes what it writes
+    assert plain_b[0].tokens == alone[0].tokens and steered_b[0].tokens == steered[0].tokens
+    assert steered[0].cached_tokens == 0 and steered_b[0].cached_tokens == 0   # never reads a shared prefix
+
+
+def test_steered_sequences_leave_no_cache(release, steered_runner):
+    _, model, tok = release
+    runner = steered_runner(max_batch=1)
+    prompt = prompt_for(tok, "Tell me a story about a dog.")
+
+    async def main():
+        await run(runner, prompt, steer=[(3, 30.0)], max_tokens=5, temperature=0)
+        return await run(runner, prompt, max_tokens=5, temperature=0)
+
+    after, _, _ = asyncio.run(main())
+    assert after.cached_tokens == 0   # the steered keys/values were not reused for a plain request
+
+
+def test_steering_needs_a_dictionary_and_real_features(release, steered_runner):
+    _, model, tok = release
+    prompt = prompt_for(tok, "hi")
+
+    async def submit(runner, steer):
+        runner.submit(prompt, SamplingParams(max_tokens=2, steer=steer))
+
+    with pytest.raises(InvalidRequest, match="not 16"):
+        asyncio.run(submit(steered_runner(), [(16, 1.0)]))
+    with pytest.raises(InvalidRequest, match="no feature dictionary"):
+        asyncio.run(submit(steered_runner(with_features=False), [(0, 1.0)]))

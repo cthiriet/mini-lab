@@ -255,6 +255,11 @@ class ChatMessage(BaseModel):
     content: str = Field(max_length=20_000)
 
 
+class Steer(BaseModel):
+    feature: int = Field(ge=0)
+    strength: float = Field(ge=-100, le=100)
+
+
 class ChatRequest(BaseModel):
     """What the playground and chat UIs send us (not the OpenAI format: we build that)."""
     model: str = Field(min_length=1, max_length=100)
@@ -262,6 +267,7 @@ class ChatRequest(BaseModel):
     temperature: float | None = Field(None, ge=0, le=2)
     max_tokens: int | None = Field(None, ge=1, le=8192)
     calculator: bool = False
+    steer: list[Steer] = Field(default_factory=list, max_length=8)   # features pushed at every token
 
 
 def event_stream(request: Request, events: AsyncIterator[dict], model: str) -> StreamingResponse:

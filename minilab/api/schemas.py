@@ -62,6 +62,11 @@ class StreamOptions(_Lenient):
     include_usage: bool = False
 
 
+class Steer(_Lenient):
+    feature: int = Field(ge=0)
+    strength: float = Field(ge=-100, le=100)
+
+
 class ChatCompletionRequest(_Lenient):
     model: str
     messages: list[Message] = Field(min_length=1)
@@ -76,6 +81,8 @@ class ChatCompletionRequest(_Lenient):
     stop: str | list[str] | None = None
     stream: bool | None = False
     stream_options: StreamOptions | None = None
+    # not in OpenAI's API: push features of the model's dictionary at every token (docs/api.md)
+    steer: list[Steer] | None = Field(None, max_length=8)
 
     @property
     def include_usage(self) -> bool:
@@ -173,6 +180,7 @@ def to_inference(req: ChatCompletionRequest, default_temperature: float = 1.0) -
         "top_k": req.top_k,
         "seed": req.seed,
         "stop": [s for s in stops if s] or None,
+        "steer": [s.model_dump() for s in req.steer] if req.steer else None,
         "stream": bool(req.stream),
     }
 

@@ -491,6 +491,30 @@ def test_playground_streams_and_runs_the_calculator(app, gateway_calls):
     assert second["body"]["messages"][-2]["tool_calls"][0]["function"]["name"] == "calculator"
 
 
+def test_playground_steering(app, env, gateway_calls):
+    """The playground's steering setting reaches the API (the `steer` extension); its feature
+    picker reads the release's dictionary."""
+    client = signup(app)
+    r = client.post("/playground/api/chat", json={
+        "model": "mini-test", "messages": [{"role": "user", "content": "Tell me a story"}],
+        "steer": [{"feature": 2, "strength": -8}]})
+    assert r.status_code == 200 and gateway_calls[-1]["body"]["steer"] == [{"feature": 2, "strength": -8.0}]
+    client.post("/playground/api/chat", json={"model": "mini-test", "messages": [{"role": "user", "content": "Hi"}]})
+    assert "steer" not in gateway_calls[-1]["body"]
+    assert client.post("/playground/api/chat", json={
+        "model": "mini-test", "messages": [{"role": "user", "content": "Hi"}],
+        "steer": [{"feature": 1, "strength": 500}]}).status_code == 422
+    assert client.get("/models/mini-test/features/2.json").status_code == 404   # no dictionary yet
+    folder = env.models_dir / "mini-test" / "features"
+    folder.mkdir()
+    feats = [{"id": i, "density": 0.01, "sources": {"story": 1.0}, "top_token": ["cat", 2], "promotes": [" cat"],
+              "suppresses": [], "examples": []} for i in range(3)]
+    (folder / "features.json").write_text(json.dumps({"layer": 1, "model": "x", "features": feats}))
+    assert client.get("/models/mini-test/features/2.json").json() == {
+        "id": 2, "label": None, "top_token": ["cat", 2], "promotes": [" cat"], "url": "/models/mini-test/features/2"}
+    assert client.get("/models/mini-test/features/3.json").status_code == 404
+
+
 def test_chat_streams_reasoning_and_bills_as_chat(app, gateway_calls):
     client = signup(app)
     page = client.get("/chat")

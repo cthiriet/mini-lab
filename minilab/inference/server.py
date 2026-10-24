@@ -31,6 +31,11 @@ from minilab.tokenizer.chat import PromptTooLong, prompt_budget, render_prompt
 REQUESTS = Counter("minilab_inference_requests_total", "Generate requests by final HTTP status", ["model", "status"])
 
 
+class Steer(BaseModel):
+    feature: int = Field(ge=0)
+    strength: float = Field(ge=-100, le=100)
+
+
 class GenerateRequest(BaseModel):
     model: str
     messages: list[dict[str, Any]]
@@ -41,6 +46,7 @@ class GenerateRequest(BaseModel):
     top_k: int | None = Field(None, ge=0)
     seed: int | None = None
     stop: str | list[str] | None = None
+    steer: list[Steer] | None = Field(None, max_length=8)   # features pushed at every token (engine.py)
     stream: bool = False
 
 
@@ -116,6 +122,7 @@ def create_app(engine: Engine | None = None) -> FastAPI:
                 top_p=1.0 if body.top_p is None else body.top_p,
                 seed=body.seed,
                 stop=[body.stop] if isinstance(body.stop, str) else list(body.stop or []),
+                steer=[(s.feature, s.strength) for s in body.steer or []],
             )
             req = runner.submit(prompt, params, stream=body.stream)
 

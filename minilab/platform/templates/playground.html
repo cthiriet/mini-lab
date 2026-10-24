@@ -39,6 +39,19 @@
         <p class="hint mt-0.5">The model can ask for a calculation. We run it and send the result back.</p>
       </div>
     </div>
+    <fieldset class="space-y-2" aria-describedby="pg-steer-hint">
+      <legend class="label">Steering</legend>
+      <div class="flex items-center gap-2">
+        <label for="pg-steer-feature" class="sr-only">Feature number</label>
+        <span class="mono text-sm text-muted">#</span>
+        <input id="pg-steer-feature" type="number" min="0" class="field mono w-24" placeholder="none">
+        <output for="pg-steer-strength" id="pg-steer-strength-value" class="mono ml-auto text-sm">+8</output>
+      </div>
+      <label for="pg-steer-strength" class="sr-only">Strength</label>
+      <input id="pg-steer-strength" type="range" min="-20" max="20" step="1" value="8" class="w-full accent-reagent">
+      <p id="pg-steer-label" class="text-sm" aria-live="polite"></p>
+      <p id="pg-steer-hint" class="hint">Pushes a feature of the model's <a id="pg-steer-browse" class="link" href="#">dictionary</a> at every token (negative: away from it). Try #1112 on an addition.</p>
+    </fieldset>
     <button type="button" id="pg-code" class="btn btn-quiet w-full">View code</button>
   </aside>
 

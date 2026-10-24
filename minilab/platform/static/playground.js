@@ -53,6 +53,43 @@
     $("pg-temperature-value").textContent = Number(temperature.value).toFixed(1);
   });
 
+  // ---- steering: one feature of the model's dictionary, pushed at every token ----------
+
+  const steerFeature = $("pg-steer-feature");
+  const steerStrength = $("pg-steer-strength");
+  const steerLabel = $("pg-steer-label");
+  const signed = (v) => (v > 0 ? `+${v}` : `${v}`);
+
+  function steering() {
+    const feature = parseInt(steerFeature.value, 10);
+    const strength = Number(steerStrength.value);
+    return Number.isFinite(feature) && feature >= 0 && strength !== 0 ? [{ feature, strength }] : [];
+  }
+
+  async function describeFeature() {
+    const model = encodeURIComponent($("pg-model").value);
+    $("pg-steer-browse").href = `/models/${model}/features`;
+    const feature = parseInt(steerFeature.value, 10);
+    steerLabel.replaceChildren();
+    if (!Number.isFinite(feature)) return;
+    const response = await fetch(`/models/${model}/features/${feature}.json`);
+    if (String(feature) !== steerFeature.value.trim()) return;   // typed on meanwhile
+    if (!response.ok) {
+      steerLabel.textContent = "No such feature for this model.";
+      return;
+    }
+    const f = await response.json();
+    const link = Object.assign(document.createElement("a"), { href: f.url, className: "link", target: "_blank" });
+    link.textContent = f.label || (f.top_token ? `fires on “${f.top_token[0]}”` : `feature #${f.id}`);
+    steerLabel.append(link);
+  }
+
+  steerStrength.addEventListener("input", () => {
+    $("pg-steer-strength-value").textContent = signed(Number(steerStrength.value));
+  });
+  steerFeature.addEventListener("input", describeFeature);
+  $("pg-model").addEventListener("change", describeFeature);
+
   // ---- request ------------------------------------------------------------------
 
   function buildRequest() {
@@ -70,6 +107,7 @@
       temperature: Number(temperature.value),
       max_tokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : null,
       calculator: $("pg-calculator").checked,
+      steer: steering(),
     };
   }
 
@@ -194,12 +232,16 @@
                    temperature: req.temperature };
     if (req.max_tokens) body.max_tokens = req.max_tokens;
     if (req.calculator) body.tools = [JSON.parse(document.getElementById("calculator-tool").textContent)];
+    if (req.steer.length) body.steer = req.steer;
     const apiUrl = form.dataset.apiUrl;
     const json = JSON.stringify(body, null, 2);
     $("pg-code-curl").textContent =
       `curl ${apiUrl}/v1/chat/completions \\\n  -H "Authorization: Bearer $MINILAB_API_KEY" \\\n` +
       `  -H "Content-Type: application/json" \\\n  -d '${json.replaceAll("'", "'\\''")}'`;
-    const args = Object.entries(body).map(([k, v]) => `    ${k}=${JSON.stringify(v, null, 4).replaceAll("\n", "\n    ")},`);
+    // steer isn't one of the SDK's arguments: it goes in extra_body
+    const py = (v) => JSON.stringify(v, null, 4).replaceAll("\n", "\n    ");
+    const args = Object.entries(body).filter(([k]) => k !== "steer").map(([k, v]) => `    ${k}=${py(v)},`);
+    if (body.steer) args.push(`    extra_body={"steer": ${py(body.steer)}},`);
     $("pg-code-python").textContent =
       `import os\nfrom openai import OpenAI\n\nclient = OpenAI(base_url="${apiUrl}/v1", api_key=os.environ["MINILAB_API_KEY"])\n\n` +
       `response = client.chat.completions.create(\n${args.join("\n")}\n)\nprint(response.choices[0].message)`;
@@ -209,4 +251,5 @@
   });
 
   addMessage("user", "What is 347 + 58?");
+  describeFeature();
 })();

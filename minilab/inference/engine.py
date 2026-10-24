@@ -13,6 +13,10 @@ Sequences join and leave the batch at every step, so a short request never
 waits for a long one and a free slot is reused immediately. This is
 "continuous batching" (iteration-level scheduling, as in Orca / vLLM).
 
+A request may steer the model: push features of the release's dictionary (features/, from
+minilab/interp/sae.py) at every token, by adding their directions to the residual stream. Its
+keys and values then belong to it alone: it neither reads nor leaves a cached prefix.
+
 A finished sequence leaves its keys and values in its slot, and the runner remembers
 which tokens they belong to. A new request that starts with the same tokens (the
 rest of a chat, the same system prompt) is put in that slot and only prefills what
@@ -75,6 +79,10 @@ class Overloaded(EngineError):
     status, code = 503, "overloaded"
 
 
+class InvalidRequest(EngineError):
+    status, code = 400, "invalid_request"
+
+
 @dataclass
 class SamplingParams:
     max_tokens: int | None = None  # None: until the context is full
@@ -83,6 +91,7 @@ class SamplingParams:
     top_p: float = 1.0
     seed: int | None = None        # same seed + same prompt -> same completion
     stop: list[str] = field(default_factory=list)  # stop strings, matched on visible content
+    steer: list[tuple[int, float]] = field(default_factory=list)  # (feature, strength): features pushed at every token
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +215,7 @@ class Request:
         self._closed = False  # the consumer got the final event
         # engine thread
         self.slot: int | None = None
+        self.steer: torch.Tensor | None = None  # the steering vector, (C,), made at prefill
         self.cached_tokens = 0  # prompt tokens whose keys/values the slot already held
         self.tokens: list[int] = []
         self.parser = StreamParser(runner.tokenizer, params.stop)
@@ -276,6 +286,7 @@ class ModelRunner:
         self._cv = threading.Condition()
         self._stopping = False
         self._thread: threading.Thread | None = None
+        self.directions = load_directions(info.path, self.device) if info.path else None   # (layer, (n, C))
 
     @property
     def num_active(self) -> int:
@@ -294,6 +305,13 @@ class ModelRunner:
                 f"This model's maximum context length is {self.n_ctx} tokens, but the prompt is "
                 f"{len(prompt)} tokens long (at least 1 token must be left for the completion)."
             )
+        if params.steer:
+            if self.directions is None:
+                raise InvalidRequest(f"Model {self.info.id} has no feature dictionary to steer with.")
+            n = self.directions[1].shape[0]
+            bad = [f for f, _ in params.steer if not 0 <= f < n]
+            if bad:
+                raise InvalidRequest(f"Model {self.info.id} has features 0 to {n - 1}, not {bad[0]}.")
         room = self.n_ctx - len(prompt)  # prompt + completion must fit in the context
         max_tokens = room if params.max_tokens is None else max(1, min(params.max_tokens, room))
         req = Request(self, prompt, params, max_tokens, stream)
@@ -372,7 +390,11 @@ class ModelRunner:
         if self._active:
             reqs = list(self._active.values())
             idx = torch.tensor([[r.tokens[-1]] for r in reqs], device=self.device)
-            logits = self.model.forward_cached(idx, self.cache, torch.tensor([r.slot for r in reqs]))
+            steer = None
+            if any(r.steer is not None for r in reqs):
+                none = torch.zeros(self.model.config.n_embd, device=self.device)
+                steer = (self.directions[0], torch.stack([none if r.steer is None else r.steer for r in reqs]))
+            logits = self.model.forward_cached(idx, self.cache, torch.tensor([r.slot for r in reqs]), steer)
             BATCH_SIZE.observe(len(reqs), model=self.info.id)
             self._sample(reqs, logits)
 
@@ -380,25 +402,29 @@ class ModelRunner:
         QUEUE_DEPTH.set(len(self._waiting), model=self.info.id)
 
     def _prefill(self, req: Request) -> None:
-        req.slot, req.cached_tokens = self._pick_slot(req.prompt)
+        if req.params.steer:
+            layer, directions = self.directions
+            req.steer = sum(strength * directions[f] for f, strength in req.params.steer)
+        req.slot, req.cached_tokens = self._pick_slot(req.prompt, reuse=req.steer is None)
         self._active[req.slot] = req
         # The slot's first cached_tokens positions already hold this prompt's keys and values;
         # anything beyond is stale and gets overwritten (or masked) from there on.
         self.cache.lengths[req.slot] = req.cached_tokens
         idx = torch.tensor([req.prompt[req.cached_tokens:]], device=self.device)
-        logits = self.model.forward_cached(idx, self.cache, torch.tensor([req.slot]))
+        steer = None if req.steer is None else (self.directions[0], req.steer[None])
+        logits = self.model.forward_cached(idx, self.cache, torch.tensor([req.slot]), steer)
         PROMPT_TOKENS.inc(len(req.prompt) - req.cached_tokens, model=self.info.id)
         CACHED_TOKENS.inc(req.cached_tokens, model=self.info.id)
         self._sample([req], logits)
 
-    def _pick_slot(self, prompt: list[int]) -> tuple[int, int]:
+    def _pick_slot(self, prompt: list[int], reuse: bool = True) -> tuple[int, int]:
         """A free slot, and how many of the prompt's first tokens it already holds: the slot
         whose cache shares the longest prefix with the prompt, or, if no slot shares at
         least MIN_PREFIX tokens, the least recently used one (its cache is the least likely
         to be asked for again). The last prompt token is always run: its logits give the
         first completion token."""
         shared = {slot: 0 for slot in self._free}
-        if self.prefix_cache:
+        if self.prefix_cache and reuse:
             for slot in self._free:
                 cached, n = self._cached.get(slot, []), 0
                 limit = min(len(cached), len(prompt) - 1)
@@ -464,8 +490,20 @@ class ModelRunner:
         # of every completion token fed back (all but the last), for a request that starts
         # the same way.
         del self._active[req.slot]
-        self._cached[req.slot] = (req.prompt + req.tokens)[:int(self.cache.lengths[req.slot])] if keep_cache else []
+        keep = keep_cache and req.steer is None   # a steered sequence's keys/values are its own
+        self._cached[req.slot] = (req.prompt + req.tokens)[:int(self.cache.lengths[req.slot])] if keep else []
         self._free.append(req.slot)
+
+
+def load_directions(model_path, device) -> tuple[int, torch.Tensor] | None:
+    """The release's feature directions for steering: (the layer they live after, (n, C)), each
+    one scaled so that strength 1 is an activation of 1 of that feature. None without features/."""
+    path = model_path / "features" / "sae.pt"
+    if not path.exists():
+        return None
+    ckpt = torch.load(path, map_location="cpu", weights_only=True)
+    state = ckpt["state"]
+    return ckpt["layer"], (state["W_dec"] * state["scale"]).to(device)
 
 
 # ---------------------------------------------------------------------------
