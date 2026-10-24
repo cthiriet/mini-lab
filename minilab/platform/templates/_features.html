@@ -1,0 +1,22 @@
+{# A feature's example: its tokens, shaded by how strongly the feature fires on each (see minilab/interp/sae.py). #}
+{% macro snippet(e, around=None) -%}
+{%- set top = (e.acts|max) or 1 -%}
+{%- set lo = [e.at - around, 0]|max if around else 0 -%}
+{%- set hi = e.at + 3 if around else e.tokens|length -%}
+<span class="mono text-[13px] leading-7 whitespace-pre-wrap break-all">
+{%- for tok in e.tokens[lo:hi] -%}
+{%- set i = lo + loop.index0 -%}
+{%- set a = e.acts[i] -%}
+<span class="rounded-sm {{ 'font-bold underline decoration-reagent decoration-2 underline-offset-4' if i == e.at }} {{ 'text-[11px] text-muted' if tok.startswith('<|') }}"
+      {% if a > 0 %}style="background-color: color-mix(in oklab, var(--color-reagent) {{ (8 + 52 * a / top)|round|int }}%, transparent)" title="{{ a }}"{% endif %}>{{ tok|token }}</span>
+{%- endfor -%}
+</span>
+{%- endmacro %}
+
+{% macro source_pill(source) -%}
+<span class="rounded-full bg-sunken px-2 py-0.5 text-xs font-semibold text-muted">{{ source or "–" }}</span>
+{%- endmacro %}
+
+{% macro describe(f) -%}
+{%- if f.label %}{{ f.label }}{% elif f.top_token %}Fires on “{{ f.top_token[0]|token }}”{% else %}Rarely fires{% endif -%}
+{%- endmacro %}

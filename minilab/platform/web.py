@@ -5,6 +5,7 @@ and the chat app.
 
 from __future__ import annotations
 
+import functools
 import json
 import math
 from collections.abc import AsyncIterator
@@ -65,7 +66,36 @@ def pretty_json(text: str | None) -> str:
         return text  # bodies are truncated in the log, so they may not parse
 
 
-templates.env.filters.update(usd=usd, utc=utc, iso=iso, gauge_level=gauge_level, pretty_json=pretty_json,
+# ---- feature dictionaries -------------------------------------------------------
+
+@functools.lru_cache(maxsize=4)
+def _read_features(path: str, mtime: float) -> dict:
+    folder = Path(path).parent
+    data = json.loads(Path(path).read_text())
+    labels = folder / "labels.json"   # hand-written labels of the features someone studied
+    named = {int(k): v for k, v in json.loads(labels.read_text()).items()} if labels.exists() else {}
+    for f in data["features"]:
+        f["label"] = named.get(f["id"]) or f.get("label")
+        f["source"] = max(f["sources"], key=f["sources"].get) if any(f["sources"].values()) else None
+    quality = folder / "quality.json"
+    data["quality"] = json.loads(quality.read_text()) if quality.exists() else None
+    return data
+
+
+def release_features(model_path: Path | None) -> dict | None:
+    """A release's dictionary of features (features/, from minilab.interp.sae), if it has one."""
+    path = model_path / "features" / "features.json" if model_path else None
+    if not path or not path.exists():
+        return None
+    return _read_features(str(path), path.stat().st_mtime)
+
+
+def token_text(token: str) -> str:
+    """A token as a reader can see it: newlines and tabs shown."""
+    return token.replace("\n", "⏎").replace("\t", "⇥")
+
+
+templates.env.filters.update(usd=usd, utc=utc, iso=iso, gauge_level=gauge_level, pretty_json=pretty_json, token=token_text,
                              num=lambda n: f"{n or 0:,}")
 
 

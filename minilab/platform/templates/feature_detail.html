@@ -1,0 +1,51 @@
+{% extends "layout.html" if ctx else "public.html" %}
+{% from "_features.html" import snippet, source_pill, describe %}
+{% block title %}Feature {{ f.id }} of {{ m.id }} · mini-lab{% endblock %}
+
+{% block content %}
+<a href="/models/{{ m.id }}/features" class="text-sm font-semibold text-muted hover:text-ink">Features of {{ m.id }}</a>
+<h1 class="page-title mt-2">Feature #{{ f.id }}</h1>
+<p class="page-lede">{{ describe(f) }}{% if not f.label %} <span class="text-muted">(not labeled yet: read the examples)</span>{% endif %}</p>
+
+<dl class="panel mt-6 grid grid-cols-2 gap-px overflow-hidden bg-rule text-sm sm:grid-cols-3">
+  <div class="bg-surface px-4 py-3"><dt class="text-xs text-muted">Fires on</dt><dd class="mt-0.5 font-semibold">{{ "%.2f" % (100 * f.density) }}% of tokens</dd></div>
+  <div class="bg-surface px-4 py-3"><dt class="text-xs text-muted">Mostly in</dt><dd class="mt-0.5 font-semibold">{{ f.source or "–" }}</dd></div>
+  <div class="bg-surface px-4 py-3"><dt class="text-xs text-muted">Layer</dt><dd class="mt-0.5 font-semibold">after block {{ data.layer }}</dd></div>
+</dl>
+
+<section class="mt-8 grid gap-6 md:grid-cols-3" aria-label="What it does">
+  <div>
+    <h2 class="text-sm font-semibold text-muted">Where it fires</h2>
+    <ul class="mt-2 space-y-1.5 text-sm">
+      {% for s, share in f.sources|dictsort(by="value", reverse=true) %}
+      <li class="flex items-center gap-2">
+        <span class="w-20 text-muted">{{ s }}</span>
+        <span class="h-2 rounded-full bg-reagent" style="width: {{ (share * 100)|round|int }}%; max-width: 10rem" aria-hidden="true"></span>
+        <span class="mono text-xs">{{ (share * 100)|round|int }}%</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% for title, toks in [("Makes the model say", f.promotes), ("Makes it not say", f.suppresses)] %}
+  <div>
+    <h2 class="text-sm font-semibold text-muted">{{ title }}</h2>
+    <p class="mt-2 flex flex-wrap gap-1.5">
+      {% for t in toks %}<span class="mono rounded bg-sunken px-1.5 py-0.5 text-[13px] whitespace-pre">{{ t|token }}</span>{% endfor %}
+    </p>
+  </div>
+  {% endfor %}
+</section>
+
+<section class="mt-10" aria-labelledby="ex-h">
+  <h2 id="ex-h" class="casual text-2xl font-[760] tracking-tight">Strongest examples</h2>
+  <p class="mt-1 text-sm text-muted">On text the dictionary never trained on. The underlined token is where it fires most.</p>
+  <ol class="mt-4 space-y-3">
+    {% for e in f.examples %}
+    <li class="panel px-4 py-3">
+      <div class="mb-1 flex items-center gap-2 text-xs text-muted">{{ source_pill(e.source) }} <span class="mono">{{ e.act }}</span></div>
+      {{ snippet(e) }}
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endblock %}

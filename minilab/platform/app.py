@@ -26,7 +26,7 @@ from minilab.platform.markdown import render_markdown
 from minilab.platform.web import (
     CHAT_DIR, ORG_COOKIE, PLATFORM_DIR, SESSION_COOKIE, ChatRequest, Ctx, LoginRequired, bar_chart,
     current_user, daily_series, event_stream, get_ctx, model_choices, optional_ctx, redirect,
-    released_models, render, safe_next, usd,
+    release_features, released_models, render, safe_next, usd,
 )
 from minilab.settings import get_settings
 
@@ -322,9 +322,52 @@ def model_page(request: Request, model_id: str, ctx: Ctx | None = Depends(option
         raise HTTPException(404, f"There is no released model called {model_id}.")
     card = info.path / "MODEL_CARD.md"
     evals = info.path / "eval.json"
-    return render(request, "model_detail.html", ctx, m=info,
+    return render(request, "model_detail.html", ctx, m=info, features=release_features(info.path),
                   card=render_markdown(card.read_text(), skip_title=True) if card.exists() else None,
                   evals=evals.read_text() if evals.exists() else None)
+
+
+FEATURES_PER_PAGE = 50
+
+
+def _model_features(request: Request, model_id: str) -> tuple[registry.ModelInfo, dict]:
+    info = registry.get_model(request.app.state.settings.models_dir, model_id)
+    data = release_features(info.path) if info else None
+    if data is None:
+        raise HTTPException(404, f"{model_id} has no feature dictionary.")
+    return info, data
+
+
+@router.get("/models/{model_id}/features")
+def features_page(request: Request, model_id: str, q: str = "", source: str = "", page: int = 1,
+                  ctx: Ctx | None = Depends(optional_ctx)):
+    info, data = _model_features(request, model_id)
+    needle = q.strip().lower()
+
+    def matches(f: dict) -> bool:
+        if source and f["source"] != source:
+            return False
+        if not needle:
+            return True
+        # a feature number, a word of its label, or a token it fires on or makes the model say
+        tokens = [*(f["top_token"] or [""])[:1], *f["promotes"]]
+        return needle == str(f["id"]) or needle in (f["label"] or "").lower() or \
+            any(needle == t.strip().lower() for t in tokens)
+
+    found = [f for f in data["features"] if matches(f)]
+    found.sort(key=lambda f: (f["label"] is None, f["id"]))   # the labeled ones first
+    pages = max(1, -(-len(found) // FEATURES_PER_PAGE))
+    page = min(max(page, 1), pages)
+    return render(request, "features.html", ctx, m=info, data=data, q=q, source=source, page=page, pages=pages,
+                  total=len(found), features=found[(page - 1) * FEATURES_PER_PAGE:page * FEATURES_PER_PAGE])
+
+
+@router.get("/models/{model_id}/features/{feature_id}")
+def feature_page(request: Request, model_id: str, feature_id: int, ctx: Ctx | None = Depends(optional_ctx)):
+    info, data = _model_features(request, model_id)
+    if not 0 <= feature_id < len(data["features"]):
+        raise HTTPException(404, f"{model_id} has no feature {feature_id}.")
+    return render(request, "feature_detail.html", ctx, m=info, data=data, f=data["features"][feature_id])
 
 
 @router.get("/docs")

@@ -38,6 +38,15 @@
   {% endfor %}
 </dl>
 {% if m.source_run %}<p class="mt-3 text-sm text-muted">Trained in run <code class="mono text-ink">{{ m.source_run }}</code>.</p>{% endif %}
+{% if features %}
+<a href="/models/{{ m.id }}/features" class="panel mt-6 flex items-center justify-between gap-4 px-5 py-4 hover:border-reagent">
+  <span>
+    <span class="font-semibold">Look inside: {{ features.features|length|num }} features</span>
+    <span class="mt-0.5 block text-sm text-muted">What the model represents after block {{ features.layer }}, found by a sparse autoencoder, with examples.</span>
+  </span>
+  <span aria-hidden="true" class="text-reagent">→</span>
+</a>
+{% endif %}
 
 <section class="mt-10" aria-labelledby="card-h">
   <h2 id="card-h" class="casual text-2xl font-[760] tracking-tight">Model card</h2>

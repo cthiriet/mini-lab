@@ -175,6 +175,36 @@ def test_public_pages(app):
     assert client.get("/chat/static/chat.js").status_code == 200
 
 
+def test_feature_pages(app, env):
+    """A release with a feature dictionary (minilab.interp.sae) gets browsable features."""
+    assert client_get_status(app, "/models/mini-test/features") == 404
+    folder = env.models_dir / "mini-test" / "features"
+    folder.mkdir()
+    example = {"tokens": ["4", "5", "+", "<|bos|>", "\n"], "acts": [0.0, 2.5, 0.0, 0.0, 0.0], "at": 1, "act": 2.5,
+               "source": "worksheet"}
+    feats = [{"id": i, "density": 0.01, "sources": {"story": 0.2, "worksheet": 0.8}, "top_token": ["5", 3],
+              "promotes": ["+", " cat"], "suppresses": ["x"], "examples": [example]} for i in range(3)]
+    (folder / "features.json").write_text(json.dumps({"layer": 2, "model": "models/mini-test", "features": feats}))
+    (folder / "labels.json").write_text(json.dumps({"1": "Last digit of a number"}))
+    (folder / "quality.json").write_text(json.dumps({"fvu": 0.07, "loss": 2.5, "loss_sae": 2.6, "loss_zero": 8.0,
+                                                      "loss_recovered": 0.98}))
+    client = new_client(app)
+    assert "Look inside: 3 features" in text(client.get("/models/mini-test"))
+    page = text(client.get("/models/mini-test/features"))
+    assert "98.0%" in page and "Last digit of a number" in page
+    assert page.index("#1") < page.index("#0")   # labeled features first
+    assert "1 feature found" in text(client.get("/models/mini-test/features?q=last"))
+    assert "3 features found" in text(client.get("/models/mini-test/features?q=cat"))
+    assert "No feature matches" in text(client.get("/models/mini-test/features?source=agent"))
+    detail = text(client.get("/models/mini-test/features/1"))
+    assert "Feature #1" in detail and "after block 2" in detail and "80%" in detail and "⏎" in detail
+    assert client.get("/models/mini-test/features/7").status_code == 404
+
+
+def client_get_status(app, path: str) -> int:
+    return new_client(app).get(path).status_code
+
+
 def test_signup_login_logout(app):
     client = signup(app)
     cookie = next(h for h in client.cookies.jar if h.name == "minilab_session")
