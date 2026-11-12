@@ -157,6 +157,7 @@ def test_problems_read_unambiguously():
     rng = random.Random(7)
     for _ in range(2000):
         p = sm.make(rng, rng.randint(2, 8), rng.choice(["train", "heldout"]), distractor=True)
+        assert "{" not in p["messages"][0]["content"] and "}" not in " ".join(p["clauses"])
         assert all(not (a == b == "dbl") for (a, _), (b, _) in zip(p["ops"], p["ops"][1:]))
         if p["at"] < p["steps"]:
             after = sm._sentences(p["messages"][0]["content"])[p["at"] + 2]

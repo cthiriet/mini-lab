@@ -127,8 +127,8 @@ def make(rng: random.Random, k: int, split: str = "train", distractor: bool | No
         at = rng.randint(0, k)  # before the event of that index (k: after the last)
         if at < k:  # the event after it starts with the hero's name: "She" or "his" could mean the distractor's person
             op, f = ops[at][0], fields[at] | {"S": hero}
-            sentence, clause = rng.choice([e for e in EVENTS[op] if e[0].startswith("{S}")])
-            sentences[at], clauses[at] = sentence.format(**f), clause.format(**f)
+            event, clause = rng.choice([e for e in EVENTS[op] if e[0].startswith("{S}")])
+            sentences[at], clauses[at] = event.format(**f), clause.format(**f)
         sentences.insert(at, sentence)
     question = rng.choice(QUESTIONS).format(t=thing[1], H=hero, P=poss)
     content = " ".join([f"{hero} has {count(states[0], thing)}.", *sentences, question])
@@ -220,7 +220,7 @@ def style_ok(level: str, text: str) -> bool:
         return (len(sentences) > 1 and "=" not in sentences[0] and "Check" not in text
                 and not sentences[-1].startswith("So ")
                 and all(len(s.split()) <= 14 and s.count("=") == 1 for s in sentences[1:]))
-    return (any(s.startswith("Check:") and "=" in s for s in sentences)
+    return (any(s.startswith("Check:") and s.count("=") == 1 for s in sentences)
             and re.fullmatch(r"So \w+ has \d+ \w+( left| now| in all| then)?\.", sentences[-1]) is not None)
 
 
