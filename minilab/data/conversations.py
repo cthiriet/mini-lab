@@ -168,11 +168,12 @@ def story_math_conversation(rng: random.Random, reason: Reason) -> dict:
     that answering at once is reliable enough. A teacher trace brings its own problem along."""
     rc = reason.rc
     level = rng.choices(list(rc["efforts"]), list(rc["efforts"].values()))[0]
-    if reason.bank.get(level):
+    k = rng.choices(rc["steps"], rc["k_weights"])[0]
+    if k > 1 and reason.bank.get(level):  # the teacher wrote no trace for one event (scripts/teacher_traces.py --min-k)
         row = rng.choice(reason.bank[level])
         problem, trace = row["problem"], row["text"]
     else:
-        problem, trace = story_math.make(rng, rng.choices(rc["steps"], rc["k_weights"])[0], "train"), None
+        problem, trace = story_math.make(rng, k, "train"), None
     reply = assistant(story_math.answer_text(problem["answer"]))
     if not reason.direct and story_math.think(level, problem, reason.policy):
         reply["reasoning"] = trace or story_math.trace_program(problem, level, rng)
