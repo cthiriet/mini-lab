@@ -15,6 +15,19 @@ digits = [1, 2, 3, 4, 5]    # operand lengths in the pretraining worksheets (and
 heldout_digits = [6]        # never trained on: length generalization
 story_max_chars = 700       # stories told in chat must fit the context
 
+[data.reason]               # story problems (minilab/data/story_math.py): one counter, k events, three levels of effort
+probe_seed = 1001           # seed A: the probe's training problems (answers only)
+policy_seed = 1002          # seed B: the problems that measure it (the probe never saw them)
+train_seed = 1003
+eval_seed = 1004
+steps = [1, 2, 3, 4, 5, 6]  # events per problem in training (the held-out split also has 7 and 8)
+k_weights = [0.10, 0.15, 0.20, 0.20, 0.20, 0.15]
+efforts = { low = 0.3, medium = 0.4, high = 0.3 }   # medium: no header line
+header_frac = 0.15          # share of the other conversations with an effort header (the target does not change)
+tau = { low = 0.80, medium = 0.92, high = 0.99 }    # answer at once only if the probe's accuracy on the bucket beats it by 0.03
+traces = "data/reason/traces.jsonl"                 # the teacher's traces (scripts/teacher_traces.py)
+policy = "data/reason/policy.json"                  # the probe's accuracy per (steps, doubling) (scripts/probe_direct.py)
+
 [tokenizer]
 vocab_size = 4096
 sample_stories = 8000
@@ -53,12 +66,14 @@ digits = [1, 2, 3]          # chat data only demonstrates short additions: RL do
 text_frac = 0.25            # share of pretraining documents (Python included), against forgetting
 tool_frac = 0.3             # share of conversations with the calculator enabled
 mix = { arithmetic = 0.6, story = 0.2, greeting = 0.2 }
+# mix = { arithmetic = 0.35, story_math = 0.30, story = 0.20, greeting = 0.15 }   # once conversations.py knows story_math
 eval_every = 200
 log_every = 25
 
 [sft]                       # chat conversations and agent transcripts, one row each
 size = 16000                # chat conversations (1.8 epochs)
 mix = { plain = 0.13, instruction = 0.33, followup = 0.12, new_question = 0.12, switch = 0.08, mixed = 0.1, refusal = 0.08, identity = 0.04 }
+# mix = { plain = 0.104, instruction = 0.264, followup = 0.096, new_question = 0.096, switch = 0.064, mixed = 0.08, refusal = 0.064, identity = 0.032, reason = 0.20 }   # once conversations.py knows reason
 digits = [1, 2, 3]
 tool_frac = 0.3
 code_size = 80000           # agent transcripts, generated once (every tool call runs for real) -> data/code/
@@ -96,6 +111,7 @@ digits = [1, 2, 3, 4, 5]
 chat_digits = [1, 2, 3]
 mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05, story = 0.05, long_followup = 0.05, switch = 0.05, mixed = 0.05, word = 0.05, code = 0.25 }
 teachers = { add = "rl_math", tool = "rl_math", long_followup = "rl_math", new_question = "rl_math" }   # every other kind: the SFT model
+# mix: every kind x 0.9 and story_math = 0.10, once distill.py knows story_math
 code_pool = 2000            # agent transcripts to cut turns from (not the SFT set's)
 max_new_tokens = 384        # room for a whole file in a write call
 temperature = 1.0
@@ -111,6 +127,10 @@ n_instr = 30
 n_chat = 600                # 200 moved by +-4 points from luck alone: the gate blocked on noise
 max_new_tokens = 200
 ppl_batches = 8
+
+[eval.story_math]           # the story problems, by number of events (and the held-out split)
+n_per_step = 100
+steps = [1, 2, 3, 4, 5, 6]
 
 [code_eval]                 # coding tasks played end to end, in a Docker sandbox
 n_per_kind = 50
