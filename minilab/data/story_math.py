@@ -10,6 +10,7 @@ must pass (a teacher's too), and the rule that decides whether to think.
 
 from __future__ import annotations
 
+import functools
 import json
 import random
 import re
@@ -48,6 +49,48 @@ FEMALE = {"Lily", "Mia", "Sue", "Anna", "Lucy", "Zoe", "Ella", "Nina", "Ruby", "
           "Greta", "Hazel", "Isla", "Jade", "Kira", "Lena", "Maria", "Olga", "Petra", "Rita", "Selma", "Tessa", "Uma",
           "Wanda", "Yara", "Alice", "Chloe", "Diana", "Olivia", "Rosa", "Bella", "Fiona", "Holly", "Leah", "Naomi", "Piper",
           "Sasha", "Tara"}
+# Wide training lexicon (make(wide=True)): common names and countable nouns, none of them held out.
+TRAIN_EXTRA_FEMALE = [
+    *"Mary Patricia Jennifer Linda Elizabeth Barbara Susan Jessica Sarah Karen Nancy Betty Margaret Sandra Ashley".split(),
+    *"Kimberly Emily Donna Michelle Carol Amanda Melissa Deborah Stephanie Rebecca Laura Sharon Cynthia Kathleen".split(),
+    *"Amy Angela Helen Brenda Pamela Nicole Katherine Samantha Christine Emma Janet Catherine Rachel Carolyn".split(),
+    *"Heather Julie Joyce Victoria Christina Lauren Joan Evelyn Judith Megan Cheryl Andrea Hannah Martha Frances".split(),
+    *"Gloria Teresa Kathryn Sara Janice Madison Doris Abigail Julia Judy Denise Amber Marilyn Danielle Sophia".split(),
+    *"Marie Brittany Natalie Isabella Charlotte Lydia Claire Eleanor Audrey Paula Leila Miriam Esther Noemi".split()]
+TRAIN_EXTRA_MALE = [
+    *"James John Robert Michael William David Richard Joseph Thomas Charles Daniel Matthew Anthony Steven Andrew".split(),
+    *"Kevin Brian George Edward Ronald Timothy Jason Jeffrey Ryan Jacob Gary Nicholas Jonathan Larry Justin Scott".split(),
+    *"Brandon Benjamin Gregory Samuel Raymond Patrick Alexander Dennis Jerry Tyler Jose Nathan Peter Zachary".split(),
+    *"Douglas Harold Kenneth Walter Arthur Lawrence Roger Albert Joe Wayne Ralph Eugene Russell Bobby Philip".split(),
+    *"Johnny Bruce Randy Howard Louis Harry Fred Craig Martin Keith Alan Shawn Clarence Todd Dean Ernest Julian".split(),
+    *"Simon Leon Cody Evan Ian Luke Isaac Austin Sean Connor Lucas Jared Trevor Blake Troy Gavin Colin Damian".split(),
+    *"Ross Neil Vernon Warren Stuart Gordon Clifford Anton Bruno Cyrus Dmitri Emil Ivo Leonard Nikolai".split()]
+TRAIN_EXTRA_HEROES = TRAIN_EXTRA_FEMALE + TRAIN_EXTRA_MALE
+
+
+def _plural(word: str) -> str:
+    """Regular English plural (the words below avoid every irregular)."""
+    if word.endswith(("s", "x", "z", "ch", "sh")):
+        return word + "es"
+    return word[:-1] + "ies" if word.endswith("y") and word[-2] not in "aeiou" else word + "s"
+
+
+TRAIN_EXTRA_THINGS = [(w, _plural(w)) for w in """
+    banana orange grape berry melon cucumber pepper onion pickle muffin cupcake donut pretzel cracker biscuit waffle
+    pancake pie bun roll bagel sausage olive walnut almond pumpkin radish turnip pea strawberry blueberry raspberry
+    mango apricot fig clam oyster crab shrimp frog turtle snail worm bug ant bee spider beetle butterfly ladybug duck
+    chicken rabbit kitten pony horse cow pig lamb goat squirrel owl parrot robin eagle dolphin whale shark seal penguin
+    zebra monkey camel lion tiger bear fox donkey pen marker ruler eraser notebook folder envelope letter map flag
+    poster picture photo frame clock watch glove shirt dress jacket coat shoe boot sandal slipper zipper belt tie cap
+    helmet mask towel blanket quilt rug mat chair table desk bench stool drawer cabinet door window mirror vase plate
+    bowl fork mug glass pot pan kettle jug tray bucket barrel crate bag sack wallet purse backpack suitcase umbrella
+    ticket coupon badge medal trophy bracelet necklace earring jewel gem diamond pearl crystal puzzle drum flute
+    trumpet guitar violin rattle top rocket robot train truck car bus boat ship plane helicopter wagon scooter sled
+    skate hammer nail screw bolt wrench saw shovel rake ladder rope chain hook branch twig pinecone seed rose tulip
+    petal cloud hill mountain lake pond river island wave brick tile cone token chip disc domino lantern torch
+    battery bulb wire cable coil gear spring spool thread needle pin tent hut castle tower bridge fence gate
+    flagpole mailbox""".split()]
+FEMALE |= set(TRAIN_EXTRA_FEMALE)
 WEATHER = [("The sun is warm.", "The sun"), ("It is a sunny day.", "The day"), ("The sky is blue.", "The sky")]
 SYMBOL = {"add": "+", "sub": "-", "dbl": "x", "half": "/"}
 
@@ -112,22 +155,37 @@ def _subject(rng: random.Random, hero: str) -> tuple[str, str]:
     return s, s.lower()
 
 
+SHORT_WORDS = set("him her his for not but had has did get got let nor yet sit hot pas".split())  # not a made-up word
+
+
+@functools.cache
+def _taken() -> set[str]:
+    """Every real name and thing of the lists, lower case."""
+    things = [w for t in [*THINGS, *HELD_THINGS, *TRAIN_EXTRA_THINGS] for w in t]
+    return {w.lower() for w in [*HEROES, *OTHERS, *HELD_HEROES, *HELD_OTHERS, *TRAIN_EXTRA_HEROES, *things]}
+
+
 def _pseudo(rng: random.Random, name: bool) -> str:
-    """A made-up word of 2-3 syllables, unlike every real name and thing here (a name is capitalized)."""
-    taken = {w.lower() for w in [*HEROES, *OTHERS, *HELD_HEROES, *HELD_OTHERS, *(w for t in [*THINGS, *HELD_THINGS] for w in t)]}
+    """A made-up word of 1-4 syllables, unlike every real name and thing here (a name is capitalized)."""
+    taken = _taken()
     while True:
-        word = "".join(rng.choice("bdfgklmnprstvzh") + rng.choice("aeiou") for _ in range(rng.randint(2, 3)))
-        word += rng.choice("kmnrstx") if not name else ""
-        if word not in taken and word + "s" not in taken:
+        n = rng.randint(1, 4)
+        word = "".join(rng.choice("bdfgklmnprstvzh") + rng.choice("aeiou") for _ in range(n))
+        word += rng.choice("kmnrstx") if not name or n == 1 else ""
+        if word not in taken | SHORT_WORDS and word + "s" not in taken and not NUMBER_WORDS.search(word):
             return word.capitalize() if name else word
 
 
-def make(rng: random.Random, k: int, split: str = "train", distractor: bool | None = None, pseudo: float = 0.0) -> dict:
+def make(rng: random.Random, k: int, split: str = "train", distractor: bool | None = None, pseudo: float = 0.0,
+         wide: bool = False) -> dict:
     """A problem with k events. The held-out split has names and things the training never shows,
     the operation `half`, and a distractor every time (unless `distractor` says otherwise).
-    pseudo: the chance, for the thing and for the hero separately, of being a made-up word (training data)."""
+    pseudo: the chance, for the thing, the hero and one other name separately, of being a made-up word (training data).
+    wide: draw from the wide training lexicon too (training data)."""
     held = split == "heldout"
     heroes, others, things = (HELD_HEROES, HELD_OTHERS, HELD_THINGS) if held else (HEROES, OTHERS, THINGS)
+    if wide and not held:
+        heroes, others, things = HEROES + TRAIN_EXTRA_HEROES, OTHERS + TRAIN_EXTRA_HEROES, THINGS + TRAIN_EXTRA_THINGS
     hero, thing = rng.choice(heroes), rng.choice(things)
     if pseudo:
         if rng.random() < pseudo:
@@ -136,6 +194,10 @@ def make(rng: random.Random, k: int, split: str = "train", distractor: bool | No
         if rng.random() < pseudo:
             hero = _pseudo(rng, name=True)
     others = [o for o in others if o != hero]
+    if pseudo and rng.random() < pseudo:  # one made-up name among three, so that it comes up in the story
+        while (name := _pseudo(rng, name=True)) == hero:
+            pass
+        others = [name, *rng.sample(others, 2)]
     _, obj, poss = _pronouns(hero)
     states, ops, sentences, clauses, fields = [rng.randint(2, 20)], [], [], [], []
     for _ in range(k):
@@ -228,18 +290,26 @@ def trace_program(problem: dict, level: str, rng: random.Random) -> str:
 
 def anchor(problem: dict, level: str, text: str) -> str:
     """`text`, a trace that passed verify_trace, with the number of events first: "3 events:" and numbered
-    equations at low, "3 events. " at medium; high is unchanged."""
+    equations at low; "3 events. " and the sentences that hold an equation numbered at medium; high is unchanged."""
     k = problem["steps"]
     if level == "low":
         return f"{k} events:\n" + "\n".join(f"{i}: {line}" for i, line in enumerate(text.split("\n"), 1))
-    return f"{k} events. {text}" if level == "medium" else text
+    if level != "medium":
+        return text
+    sentences, i = [], 0
+    for sentence in _sentences(text):
+        i += "=" in sentence
+        sentences.append(f"{i}: {sentence}" if "=" in sentence else sentence)
+    return f"{k} events. " + " ".join(sentences)
 
 
 def strip_anchor(level: str, text: str) -> str:
     """Inverse of `anchor`; `text` unchanged where there is none."""
     if level == "low":
         return re.sub(r"^\d+: ", "", re.sub(r"^\d+ events:\n", "", text), flags=re.M)
-    return re.sub(r"^\d+ events\. ", "", text) if level == "medium" else text
+    if level != "medium":
+        return text
+    return re.sub(r"(?:^|(?<=[.!?] ))\d+: ", "", re.sub(r"^\d+ events\. ", "", text))
 
 
 # ---- checks -------------------------------------------------------------------

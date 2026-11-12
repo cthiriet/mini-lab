@@ -165,6 +165,7 @@ class Reason:
         self.bank = teacher_bank(rc.get("traces", "")) if self.teacher_frac and not self.direct else {}
         self.header_frac = 0.0 if self.direct else rc["header_frac"]
         self.anchor, self.pseudo_frac = bool(rc.get("anchor", False)), float(rc.get("pseudo_frac", 0.0))
+        self.wide = bool(rc.get("wide", False))
 
 
 def story_math_conversation(rng: random.Random, reason: Reason) -> dict:
@@ -177,7 +178,7 @@ def story_math_conversation(rng: random.Random, reason: Reason) -> dict:
         row = rng.choice(reason.bank[level])
         problem, trace = row["problem"], row["text"]
     else:
-        problem, trace = story_math.make(rng, k, "train", pseudo=reason.pseudo_frac), None
+        problem, trace = story_math.make(rng, k, "train", pseudo=reason.pseudo_frac, wide=reason.wide), None
     reply = assistant(story_math.answer_text(problem["answer"]))
     if not reason.direct and story_math.think(level, problem, reason.policy):
         reply["reasoning"] = trace or story_math.trace_program(problem, level, rng)

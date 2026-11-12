@@ -222,6 +222,9 @@ def test_anchor_round_trip(level):
 def test_anchor_format():
     p = sm.make(random.Random(0), 2)
     assert sm.anchor(p, "low", "11-2=9\n9+4=13") == "2 events:\n1: 11-2=9\n2: 9+4=13"
+    text = "Sam had 4 flowers. He gets 6 from Kate, so 4 + 6 = 10. Minus 10: 10 - 10 = 0. Plus 17: 0 + 17 = 17."
+    assert sm.anchor(sm.make(random.Random(0), 3), "medium", text) == (
+        "3 events. Sam had 4 flowers. 1: He gets 6 from Kate, so 4 + 6 = 10. 2: Minus 10: 10 - 10 = 0. 3: Plus 17: 0 + 17 = 17.")
     assert sm.anchor(p, "medium", "Tom has 3. He finds 2.") == "2 events. Tom has 3. He finds 2."
     assert sm.strip_anchor("low", "2 events:\n1: 11-2=9\n2: 9+4=13") == "11-2=9\n9+4=13"
 
@@ -229,6 +232,71 @@ def test_anchor_format():
 def test_calculator_triggers_after_an_anchor():
     from minilab.data.arithmetic import think_result
     assert think_result("2 events:\n1: 11-2=") == "9" and think_result("2 events:\n1: 11-2=9\n2: 9+4=") == "13"
+    assert think_result("3 events. Sam had 4 flowers. 1: He gets 6 from Kate, so 4 + 6 =") == " 10"
+    assert think_result("3 events. Sam had 4. 1: He gets 6, so 4 + 6 = 10. 2: Minus 10: 10 - 10 =") == " 0"
+
+
+def test_medium_round_trip_on_teacher_traces():
+    import json
+    import os
+    path = Path(os.environ.get("TEACHER_TRACES", "/Users/clementthiriet/VM/mini-lab/.claude/worktrees/"
+                               "agent-a95ab00c560bea7de/data/reason/traces_v2.jsonl.dedup.jsonl"))
+    if not path.is_file():
+        pytest.skip("no teacher file")
+    rows = [json.loads(line) for line in path.read_text().splitlines()[:300]]
+    rows = [r for r in rows if r["level"] == "medium" and r["ok"]]
+    assert rows
+    for r in rows:
+        anchored = sm.anchor(r["problem"], "medium", r["text"])
+        assert sm.strip_anchor("medium", anchored) == r["text"]
+        numbered = re.findall(r"(?:^|(?<=[.!?] ))(\d+): ", anchored.split(" events. ", 1)[1])
+        assert numbered == [str(i) for i in range(1, r["text"].count("=") + 1)]
+        assert sm.style_ok("medium", sm.strip_anchor("medium", anchored))
+
+
+def test_medium_numbers_each_equation_in_order():
+    rng = random.Random(5)
+    for p in problems(100, ks=range(1, 7)):
+        anchored = sm.anchor(p, "medium", sm.trace_program(p, "medium", rng))
+        assert anchored.startswith(f"{p['steps']} events. ")
+        assert [int(n) for n in re.findall(r"(?:^|(?<=[.!?] ))(\d+): ", anchored.split(" events. ", 1)[1])] == list(range(1, p["steps"] + 1))
+        assert all(("=" in s) == bool(re.match(r"\d+: ", s)) for s in sm._sentences(anchored)[1:])
+
+
+def _names(p):
+    """The capitalized words of the story that are not common sentence starters."""
+    return set(re.findall(r"[A-Z][a-z]+", p["messages"][0]["content"])) - {"How", "Then", "The", "She", "He", "It", "At"}
+
+
+def test_wide_lexicon_is_disjoint_and_regular():
+    heroes, things = sm.TRAIN_EXTRA_HEROES, [w for t in sm.TRAIN_EXTRA_THINGS for w in t]
+    old = {*sm.HEROES, *sm.OTHERS, *sm.HELD_HEROES, *sm.HELD_OTHERS, *(w for t in sm.THINGS + sm.HELD_THINGS for w in t)}
+    assert len(heroes) == len(set(heroes)) and len(sm.TRAIN_EXTRA_THINGS) == len({t for t, _ in sm.TRAIN_EXTRA_THINGS})
+    assert len(heroes) >= 150 and len(sm.TRAIN_EXTRA_THINGS) >= 200
+    assert not old & {*heroes, *things} and not {h.lower() for h in heroes} & set(things)
+    assert set(sm.TRAIN_EXTRA_FEMALE) <= sm.FEMALE and not set(sm.TRAIN_EXTRA_MALE) & sm.FEMALE
+    assert all(p == t + "s" or p == t + "es" or p == t[:-1] + "ies" for t, p in sm.TRAIN_EXTRA_THINGS)
+
+
+def test_wide_is_off_by_default_and_draws_the_wide_lexicon():
+    for seed in range(5):
+        a, b = random.Random(seed), random.Random(seed)
+        assert sm.make(a, 5, "train", wide=False) == sm.make(b, 5, "train") and a.random() == b.random()
+    rng = random.Random(7)
+    ps = [sm.make(rng, 4, "train", distractor=True, wide=True) for _ in range(400)]
+    assert any(p["hero"] in sm.TRAIN_EXTRA_HEROES for p in ps) and any(tuple(p["thing"]) in sm.TRAIN_EXTRA_THINGS for p in ps)
+    assert any(w in sm.TRAIN_EXTRA_HEROES and w != p["hero"] for p in ps for w in _names(p))
+    for level in LEVELS:
+        assert all(sm.verify_trace(p, sm.trace_program(p, level, rng), level) is None for p in ps)
+
+
+def test_pseudo_other_names():
+    rng = random.Random(11)
+    real = {*sm.HEROES, *sm.OTHERS, *sm.HELD_HEROES, *sm.HELD_OTHERS, *sm.TRAIN_EXTRA_HEROES}
+    ps = [sm.make(rng, 4, "train", distractor=True, pseudo=1.0, wide=True) for _ in range(200)]
+    assert sum(any(w not in real and w != p["hero"] for w in _names(p)) for p in ps) > 80  # when an event or the distractor names someone else
+    assert all(p["hero"] not in real for p in ps)
+    assert len({len(sm._pseudo(rng, True)) for _ in range(200)}) >= 4  # one to four syllables
 
 
 def test_pseudo_is_off_by_default_and_frozen():
