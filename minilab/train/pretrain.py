@@ -45,7 +45,7 @@ def main() -> None:
 
     T, B = model.config.block_size, sc["batch_size"]
     stories = load_stories("train", d["train_mb"])
-    docs = pretrain_documents(tok, stories, d["digits"], sc["arith_frac"], seed, sc["code_frac"])
+    docs = pretrain_documents(tok, stories, d["digits"], sc["arith_frac"], seed, sc["code_frac"], sc.get("sub_frac", 0.0))
     batches = packed_batches(docs, B, T)
     val_batches = story_batches(tok, load_stories("val", d["val_mb"]), B, T, sc.get("val_batches", 10))
     held_out = ([tok.bos_id, *tok.encode(doc)] for doc in code.pretrain_documents(10_000_019))
