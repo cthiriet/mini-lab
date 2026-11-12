@@ -3,7 +3,7 @@
 A hero starts with a few things and goes through k events (+, -, x2, and in the held-out
 split half), among sentences that change nothing. The answer is the last state. The
 module also holds what the reasoning must look like: three levels of effort
-(low: bare equations, medium: short sentences, high: full sentences and a check), a
+(low: bare equations, medium: short sentences, high: the story read again sentence by sentence), a
 program that writes them (the plan without a teacher model), the checks every trace
 must pass (a teacher's too), and the rule that decides whether to think.
 """
@@ -16,16 +16,32 @@ import re
 
 from minilab.data import arithmetic
 
-HEROES = [*arithmetic.NAMES, "Zoe", "Leo", "Ella", "Jack", "Nina", "Owen"]
-OTHERS = ["Tom", "Mia", "Ben", "Sue", "Max", "Anna"]
+# Most of the older names are one token; the added ones take two to four (cand5k tokenizer), like the
+# held-out names, which the model has never seen.
+HEROES = [*arithmetic.NAMES, "Zoe", "Leo", "Ella", "Jack", "Nina", "Owen",
+          "Nora", "Ivy", "Elsa", "Greta", "Hazel", "Isla", "Jade", "Kira", "Lena", "Maria", "Olga", "Petra", "Rita",
+          "Selma", "Tessa", "Uma", "Wanda", "Yara", "Alice", "Chloe", "Diana", "Olivia", "Rosa",
+          "Adam", "Boris", "Carlos", "Dario", "Eli", "Felix", "Gus", "Henry", "Igor", "Jonas", "Kai", "Liam", "Marco",
+          "Noah", "Oscar", "Pablo", "Rafael", "Stefan", "Theo", "Viktor", "Aaron", "Caleb", "Dylan", "Ethan",
+          "Quentin", "Yusuf", "Ravi"]
+OTHERS = ["Tom", "Mia", "Ben", "Sue", "Max", "Anna", "Kate", "Paul", "Nick", "Toby", "Joel", "Hans", "Lars", "Pia",
+          "Rex", "Zack"]
 THINGS = [("apple", "apples"), ("toy", "toys"), ("sticker", "stickers"), ("ball", "balls"), ("cookie", "cookies"),
           ("flower", "flowers"), ("book", "books"), ("shell", "shells"), ("star", "stars"), ("coin", "coins"),
-          ("candy", "candies"), ("pencil", "pencils")]
+          ("candy", "candies"), ("pencil", "pencils"),
+          ("box", "boxes"), ("cherry", "cherries"), ("peach", "peaches"), ("key", "keys"), ("cup", "cups"),
+          ("hat", "hats"), ("bell", "bells"), ("ring", "rings"), ("rock", "rocks"), ("stamp", "stamps"),
+          ("balloon", "balloons"), ("bead", "beads"), ("lemon", "lemons"), ("carrot", "carrots"), ("plum", "plums"),
+          ("egg", "eggs"), ("cake", "cakes"), ("bottle", "bottles"), ("brush", "brushes"), ("penny", "pennies"),
+          ("puppy", "puppies"), ("bike", "bikes"), ("card", "cards"), ("crayon", "crayons"), ("doll", "dolls"),
+          ("cube", "cubes"), ("block", "blocks"), ("sock", "socks"), ("nut", "nuts"), ("bean", "beans")]
 HELD_HEROES = ["Ruby", "Finn", "Cleo", "Ivan", "Maya", "Hugo"]
 HELD_OTHERS = ["Omar", "Vera", "Hana", "Luca"]
 HELD_THINGS = [("marble", "marbles"), ("pear", "pears"), ("kite", "kites"), ("button", "buttons"),
                ("feather", "feathers"), ("acorn", "acorns")]
-FEMALE = {"Lily", "Mia", "Sue", "Anna", "Lucy", "Zoe", "Ella", "Nina", "Ruby", "Cleo", "Maya"}
+FEMALE = {"Lily", "Mia", "Sue", "Anna", "Lucy", "Zoe", "Ella", "Nina", "Ruby", "Cleo", "Maya", "Nora", "Ivy", "Elsa",
+          "Greta", "Hazel", "Isla", "Jade", "Kira", "Lena", "Maria", "Olga", "Petra", "Rita", "Selma", "Tessa", "Uma",
+          "Wanda", "Yara", "Alice", "Chloe", "Diana", "Olivia", "Rosa"}
 WEATHER = [("The sun is warm.", "The sun"), ("It is a sunny day.", "The day"), ("The sky is blue.", "The sky")]
 SYMBOL = {"add": "+", "sub": "-", "dbl": "x", "half": "/"}
 
@@ -58,13 +74,12 @@ MEDIUM = {"add": [*_COMMON, "{n} more, so {eq}.", "Plus {n}: {eq}.", "Add {n}: {
           "sub": [*_COMMON, "{n} fewer, so {eq}.", "Minus {n}: {eq}.", "Take away {n}: {eq}.", "Now {eq}, with {n} gone."],
           "dbl": [*_COMMON, "Doubling gives {eq}.", "It doubles: {eq}.", "Twice as many: {eq}.", "Double it, so {eq}."],
           "half": [*_COMMON, "Half of it: {eq}.", "Half goes, so {eq}.", "Cut it in half: {eq}.", "Now {eq}, half gone."]}
-# High: full sentences, then a check and a conclusion ({tb} = the things, after the event).
-HIGH_INTROS = ["{H} begins with {c}.", "{H} starts out with {c}.", "To begin, {H} has {c}.", "At first, {H} has {c}."]
-HIGH = ["{S} {clause}, so {m} now has {eq} {tb}.", "After that, {m} {clause}. Now {m} has {eq} {tb}.",
-        "{S} {clause}, and that makes {eq} {tb}.", "Next, {m} {clause}, which gives {eq} {tb}.",
-        "{S} {clause}. That makes {eq} {tb}.", "Then {m} {clause}, and now {m} has {eq} {tb}."]
-CHECKS = ["Check: going through the story again, {chain} = {a}.", "Check: all the steps in a single line, {chain} = {a}."]
-IGNORE = ["{who} {be} not matter.", "{who} {be} not change anything."]
+# High: the story read again. Each sentence after the first is quoted, then comes what it does
+# (an equation, or that it changes nothing), then the conclusion.
+HIGH_INTROS = ["{H} begins with {c}.", "{H} starts with {c}.", "To begin, {H} has {c}.", "At first, {H} has {c}."]
+EFFECTS = ["So {eq}.", "That gives {eq}.", "That makes {eq}.", "Now {eq}."]
+UNCHANGED = ["That does not change {P} {t}.", "That does not matter.", "That has nothing to do with {P} {t}.",
+             "That does not change anything."]
 
 EQUATION = re.compile(r"(?<![\w.])([\d(][\d()+\-x/ ]*?[\d)])[ ]*=[ ]*(\d+)")
 NUMBER_WORDS = re.compile(r"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|"
@@ -131,10 +146,12 @@ def make(rng: random.Random, k: int, split: str = "train", distractor: bool | No
             sentences[at], clauses[at] = event.format(**f), clause.format(**f)
         sentences.insert(at, sentence)
     question = rng.choice(QUESTIONS).format(t=thing[1], H=hero, P=poss)
-    content = " ".join([f"{hero} has {count(states[0], thing)}.", *sentences, question])
+    start = f"{hero} has {count(states[0], thing)}."
+    content = " ".join([start, *sentences, question])
     problem = {"kind": "story_math", "messages": [{"role": "user", "content": content}], "tools": None,
                "steps": k, "digits": k, "answer": states[-1], "states": states, "ops": ops, "hero": hero,
-               "thing": thing, "clauses": clauses, "ignore": ignore, "at": at}
+               "thing": thing, "clauses": clauses, "ignore": ignore, "at": at,
+               "sentences": sentences}  # the events and the distractor, as worded in the problem
     return {**problem, "bucket": bucket(problem)}
 
 
@@ -157,16 +174,6 @@ def _equation(problem: dict, i: int, spaces: bool = True) -> str:
     return eq if spaces else eq.replace(" ", "")
 
 
-def _chain(problem: dict) -> str:
-    """The whole story in one line of arithmetic."""
-    chain = str(problem["states"][0])
-    for op, n in problem["ops"]:
-        if op in ("dbl", "half"):
-            chain = f"({chain})" if " " in chain else chain
-        chain += f" {SYMBOL[op]} {2 if n is None else n}"
-    return chain
-
-
 def trace_program(problem: dict, level: str, rng: random.Random) -> str:
     """The reasoning at `level`, written from the problem's solution, with varied wording."""
     k, thing, hero = problem["steps"], problem["thing"], problem["hero"]
@@ -174,28 +181,24 @@ def trace_program(problem: dict, level: str, rng: random.Random) -> str:
         return "\n".join(_equation(problem, i, spaces=False) for i in range(k))
     high = level == "high"
     sentences = [rng.choice(HIGH_INTROS if high else INTROS).format(H=hero, c=count(problem["states"][0], thing))]
+    if high:  # the story again, a sentence at a time: the sentence, then its effect
+        i = 0
+        for j, quote in enumerate(problem["sentences"]):
+            if j == problem["at"]:
+                effect = rng.choice(UNCHANGED).format(P=_pronouns(hero)[2], t=thing[1])
+            else:
+                effect = rng.choice(EFFECTS).format(eq=_equation(problem, i))
+                i += 1
+            sentences.append(f'"{quote}" {effect}')
+        sentences.append(f"So {hero} has {count(problem['answer'], thing)}.")
+        return " ".join(sentences)
     for i, (op, n) in enumerate(problem["ops"]):
-        if high and problem["at"] == i:
-            sentences.append(_ignore(problem, rng))
-        S, m = _subject(rng, hero)
-        tb = thing[0] if problem["states"][i + 1] == 1 else thing[1]
-        sentence = rng.choice(HIGH if high else MEDIUM[op]).format(
-            S=S, m=m, n=n, clause=problem["clauses"][i], eq=_equation(problem, i), tb=tb)
-        if not high and ", so " in sentence and rng.random() < 0.2:
+        S, _ = _subject(rng, hero)
+        sentence = rng.choice(MEDIUM[op]).format(S=S, n=n, clause=problem["clauses"][i], eq=_equation(problem, i))
+        if ", so " in sentence and rng.random() < 0.2:
             sentence = sentence.replace(", so ", ": ")
         sentences.append(sentence)
-    if high:
-        if problem["at"] == k:
-            sentences.append(_ignore(problem, rng))
-        sentences.append(rng.choice(CHECKS).format(chain=_chain(problem), a=problem["answer"]))
-        sentences.append(f"So {hero} has {count(problem['answer'], thing)}.")
-    return " ".join(s for s in sentences if s)
-
-
-def _ignore(problem: dict, rng: random.Random) -> str:
-    """The sentence that sets the distractor aside ("" if the problem has none)."""
-    who, be = problem["ignore"] or (None, None)
-    return rng.choice(IGNORE).format(who=who, be=be) if who else ""
+    return " ".join(sentences)
 
 
 # ---- checks -------------------------------------------------------------------
@@ -222,7 +225,8 @@ def style_ok(level: str, text: str) -> bool:
         return (len(sentences) > 1 and "=" not in sentences[0] and "Check" not in text
                 and not sentences[-1].startswith("So ")
                 and all(len(s.split()) <= 14 and s.count("=") == 1 for s in sentences[1:]))
-    return (any(s.startswith("Check:") and s.count("=") == 1 for s in sentences)
+    quotes = text.count('"')
+    return (quotes >= 2 and quotes % 2 == 0 and "Check" not in text
             and re.fullmatch(r"So \w+ has \d+ \w+( left| now| in all| then)?\.", sentences[-1]) is not None)
 
 
@@ -255,11 +259,22 @@ def verify_trace(problem: dict, text: str, level: str, tok=None) -> str | None:
         if not re.fullmatch(rf"So {problem['hero']} has {answer} ({'|'.join(problem['thing'])})( left| now| in all| then)?\.",
                             sentences[-1]):
             return "wrong conclusion"
-        if problem["ignore"] and not NOT_MATTER.search(text):
-            return "the distractor is not set aside"
+        # every sentence of the story, in order and as worded, is quoted and followed by its effect
+        parts = text.split('"')
+        quotes, after, at = parts[1::2], parts[2::2], -1
+        for j, sentence in enumerate(problem["sentences"]):
+            if sentence not in quotes[at + 1:]:
+                return "a sentence is missing"
+            at = quotes.index(sentence, at + 1)
+            if j == problem["at"] and not NOT_MATTER.search(after[at]):
+                return "the distractor is not set aside"
+            if j != problem["at"] and "=" not in after[at]:
+                return "a sentence has no effect"
     if tok is not None:
         n = len(tok.encode(text))
-        lo, hi = {"low": (0, 8 * k + 6), "medium": (0, 24 * k + 12), "high": (20 * k + 20, 48 * k + 40)}[level]
+        # high, measured on 1000 problems per k and split (k = 1..8): 33..81 tokens at k = 1, 166..250 at k = 8;
+        # the bounds leave at least 40 tokens beyond the longest and 10 below the shortest
+        lo, hi = {"low": (0, 8 * k + 6), "medium": (0, 24 * k + 12), "high": (14 * k + 10, 30 * k + 60)}[level]
         if not lo <= n <= hi:
             return f"length {n} outside {lo}..{hi}"
     return None

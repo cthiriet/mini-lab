@@ -27,7 +27,8 @@ header_frac = 0.15          # share of the other conversations with an effort he
 tau = { low = 0.80, medium = 0.92, high = 0.99 }    # answer at once only if the probe's accuracy on the bucket beats it by 0.03
 traces = "data/reason/traces.jsonl"                 # the teacher's traces (scripts/teacher_traces.py)
 policy = "data/reason/policy.json"                  # the probe's accuracy per (steps, doubling) (scripts/probe_direct.py)
-teacher_frac = 0.5          # share of medium and high traces taken from the teacher's file, the rest from the program
+teacher_frac = 0.5          # share of the traces of teacher_levels taken from the teacher's file, the rest from the program
+teacher_levels = ["medium"] # high always comes from the program (the story read again, sentence by sentence)
 mode = "policy"             # "direct": story problems with no thoughts and no header anywhere (the probe of E1, spec 3.3)
 
 [tokenizer]

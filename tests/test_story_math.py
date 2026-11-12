@@ -50,6 +50,16 @@ def test_heldout_is_disjoint_from_train():
     assert any(op == "half" for p in problems(200, "heldout", ks=[4]) for op, _ in p["ops"])
 
 
+def test_heldout_problems_are_frozen():
+    """The eval's problems must not move (no new draw, no new sentence): two of them, written out."""
+    assert sm.make(random.Random(0), 4, "heldout")["messages"][0]["content"] == (
+        "Ivan has 3 buttons. The sky is blue. Ivan picks up 17 more. He shares half of his buttons with Vera. "
+        "Then he eats 5. The number of his buttons doubles. How many buttons will Ivan have then?")
+    assert sm.make(random.Random(1), 4, "heldout")["messages"][0]["content"] == (
+        "Finn has 4 feathers. Luca brings him 16 more. Then his pile doubles. Finn drops 1. Finn loses 7. "
+        "Omar has 7 pears. How many feathers does Finn have left?")
+
+
 def test_same_seed_same_problem():
     assert problems(50, seed=7) == problems(50, seed=7) != problems(50, seed=8)
     p = problems(1, seed=5)[0]
@@ -66,7 +76,8 @@ def test_program_traces_pass_the_checks(level):
         assert sm.style_ok(level, text) and sm.normalize(text) == text
     assert sm.style_ok("low", "3+5=8\n8-2=6") and not sm.style_ok("low", "3 + 5 = 8")
     assert not sm.style_ok("medium", "Lily has 3. She finds 5, so 3 + 5 = 8.\nDone.")
-    assert not sm.style_ok("high", "Lily has 3. She finds 5, so 3 + 5 = 8. So Lily has 8 apples.")
+    assert not sm.style_ok("high", "Lily has 3. She finds 5, so 3 + 5 = 8. So Lily has 8 apples.")  # no quotes
+    assert not sm.style_ok("high", 'Lily has 3. "She finds 5." So 3 + 5 = 8. Check: 3 + 5 = 8. So Lily has 8 apples.')
 
 
 def test_program_wording_varies():
@@ -74,7 +85,8 @@ def test_program_wording_varies():
     rng = random.Random(0)
     for level in ("medium", "high"):
         assert len({sm.trace_program(p, level, rng) for _ in range(50)}) > 20
-    assert "not " in sm.trace_program(p, "high", rng) and sm.trace_program(p, "high", rng).count("Check:") == 1
+    assert "not " in sm.trace_program(p, "high", rng) or "nothing" in sm.trace_program(p, "high", rng)
+    assert "Check" not in sm.trace_program(p, "high", rng)
 
 
 def test_verify_trace_rejects():
@@ -95,10 +107,34 @@ def test_verify_trace_rejects():
     medium = sm.trace_program(p, "medium", random.Random(4)).split(". ")
     assert sm.verify_trace(p, ". ".join(medium[:1] + medium[2:]), "medium") == "a state is missing"
     assert sm.verify_trace(p, ". ".join(medium), "high") == "style"
-    q = sm.make(random.Random(0), 3, distractor=True)
+    q = next(q for q in (sm.make(random.Random(i), 3, distractor=True) for i in range(20)) if q["at"] < 3)
     high = sm.trace_program(q, "high", random.Random(4))
-    assert sm.verify_trace(q, re.sub(r"[^.]*not (matter|change)[^.]*\.", "", high), "high") == "the distractor is not set aside"
+    quote = q["sentences"][q["at"]]
+    effect = high[high.index(quote) + len(quote) + 2:].split(". ")[0] + ". "
+    assert "not " in effect or "nothing" in effect
+    assert sm.verify_trace(q, high.replace(effect, "", 1), "high") == "the distractor is not set aside"
     assert sm.verify_trace(q, high.replace(f"So {q['hero']} has", "So Zed has"), "high") == "wrong conclusion"
+
+
+def test_high_reads_the_story_again():
+    """Each sentence of the story, in order and as worded, is quoted and followed by its effect."""
+    for p in problems(500, ks=range(1, 9)) + problems(500, "heldout", ks=range(1, 9)):
+        content = p["messages"][0]["content"]
+        start = content[:content.index(".") + 1]
+        # the start, then the sentences, then the question: what the story reads is exactly what is quoted
+        assert content.startswith(" ".join([start, *p["sentences"]]) + " ")
+        assert len(p["sentences"]) == p["steps"] + (p["ignore"] is not None)
+        text = sm.trace_program(p, "high", random.Random(3))
+        assert re.findall(r'"([^"]*)"', text) == p["sentences"]
+        assert sm.verify_trace(p, text, "high") is None and sm.style_ok("high", text)
+    p = sm.make(random.Random(1), 3, distractor=True)
+    text = sm.trace_program(p, "high", random.Random(3))
+    a, b, first = [f'"{s}"' for s in p["sentences"][:2]] + [p["sentences"][0]]
+    missing = text.replace(a + " ", "", 1)  # a citation, and its effect word, gone
+    swapped = text.replace(a, "@", 1).replace(b, a, 1).replace("@", b, 1)
+    altered = text.replace(first, first[:-1] + " today.", 1)
+    for bad in (missing, swapped, altered):
+        assert sm.verify_trace(p, bad, "high") is not None
 
 
 def test_normalize_and_dedupe():
@@ -147,10 +183,11 @@ def test_lengths_in_tokens(capsys):
         for k in range(1, 9):
             print(k, *(table[k, level] for level in LEVELS))
     assert table[6, "high"] <= 350 and max(table.values()) <= 500
-    # most program traces also satisfy the teacher's length rule
+    # the program's traces satisfy the length rule (30 k + 60 tokens at most for high), on both splits
     ok = [sm.verify_trace(p, t, "high", tok) is None
-          for p in problems(300) for t in [sm.trace_program(p, "high", rng)]]
-    assert sum(ok) / len(ok) > 0.95
+          for split, ks in (("train", range(1, 7)), ("heldout", range(1, 9))) for p in problems(300, split, ks=ks)
+          for t in [sm.trace_program(p, "high", rng)]]
+    assert sum(ok) / len(ok) > 0.99
 
 
 def test_problems_read_unambiguously():

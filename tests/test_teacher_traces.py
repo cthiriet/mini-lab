@@ -154,7 +154,7 @@ EXAMPLE_PROBLEMS = {
 }
 
 
-@pytest.mark.parametrize("level", ["medium", "high"])
+@pytest.mark.parametrize("level", ["medium"])  # the teacher no longer writes high: the program quotes the story (EXAMPLES["high"] is obsolete)
 def test_few_shot_examples_pass_verify_trace(level):
     tok = Tokenizer.load(TOKENIZER) if TOKENIZER.exists() else None
     for text, trace in tt.EXAMPLES[level]:

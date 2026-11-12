@@ -322,7 +322,7 @@ def test_story_math_teacher_bank(tmp_path):
         rows.append({"id": f"t-{i}", "level": level, "text": f"TRACE {i} {level}", "ok": i != 3,
                      "problem": {**problem, "id": f"t-{i}"}})
     (tmp_path / "traces.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
-    reason = reason_with(tmp_path, teacher_frac=1.0, efforts={"medium": 0.5, "high": 0.5})
+    reason = reason_with(tmp_path, teacher_frac=1.0, teacher_levels=["medium", "high"], efforts={"medium": 0.5, "high": 0.5})
     text_of = {r["text"]: r["problem"]["messages"][0]["content"] for r in rows}
     seen = set()
     for question, reply in (c["messages"] for c in story_math_convs(reason, 100)):
@@ -330,9 +330,13 @@ def test_story_math_teacher_bank(tmp_path):
             assert text_of[reply["reasoning"]] == question["content"]  # the trace belongs to this very problem
             seen.add(reply["reasoning"])
         else:  # one event: the teacher wrote none, the program does
-            assert question["content"].count(".") <= 3 and story_math.style_ok("medium", reply["reasoning"]) or \
-                story_math.style_ok("high", reply["reasoning"])
+            assert story_math.style_ok("medium", reply["reasoning"]) or story_math.style_ok("high", reply["reasoning"])
     assert seen == {"TRACE 0 medium", "TRACE 1 high", "TRACE 2 high"}  # the rejected row is never drawn
+    # by default only medium comes from the teacher: high is always written by the program
+    default = reason_with(tmp_path, teacher_frac=1.0, efforts={"medium": 0.5, "high": 0.5})
+    assert default.teacher_levels == ["medium"]
+    texts = {c["messages"][1]["reasoning"] for c in story_math_convs(default, 100)}
+    assert "TRACE 0 medium" in texts and not any(t.startswith("TRACE") and t.endswith("high") for t in texts)
     # teacher = false, or a level the bank lacks: the program writes the thoughts
     for rc in ({"teacher_frac": 0.0}, {"teacher_frac": 1.0, "efforts": {"low": 1.0}}):
         assert all("TRACE" not in c["messages"][1]["reasoning"] for c in story_math_convs(reason_with(tmp_path, **rc), 30))
