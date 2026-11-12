@@ -59,10 +59,10 @@ MEDIUM = {"add": [*_COMMON, "{n} more, so {eq}.", "Plus {n}: {eq}.", "Add {n}: {
           "dbl": [*_COMMON, "Doubling gives {eq}.", "It doubles: {eq}.", "Twice as many: {eq}.", "Double it, so {eq}."],
           "half": [*_COMMON, "Half of it: {eq}.", "Half goes, so {eq}.", "Cut it in half: {eq}.", "Now {eq}, half gone."]}
 # High: full sentences, then a check and a conclusion ({tb} = the things, after the event).
-HIGH_INTROS = ["{H} begins with {c} to start.", "{H} starts out with {c} at first.", "To begin, {H} has {c} in all.", "At first, {H} has {c} to start with."]
-HIGH = ["{S} {clause}, so {m} now has {eq} {tb} in all.", "After that, {m} {clause}. Now {m} has {eq} {tb} in all.",
-        "{S} {clause}, and that gives {m} {eq} {tb} in all.", "Next, {m} {clause}, which gives {eq} {tb} for {m} right now.",
-        "{S} {clause}. That makes {eq} {tb} in all right now.", "Then {m} {clause}, and now {m} has {eq} {tb} in all."]
+HIGH_INTROS = ["{H} begins with {c}.", "{H} starts out with {c}.", "To begin, {H} has {c}.", "At first, {H} has {c}."]
+HIGH = ["{S} {clause}, so {m} now has {eq} {tb}.", "After that, {m} {clause}. Now {m} has {eq} {tb}.",
+        "{S} {clause}, and that gives {m} {eq} {tb}.", "Next, {m} {clause}, which gives {eq} {tb}.",
+        "{S} {clause}. That makes {eq} {tb}.", "Then {m} {clause}, and now {m} has {eq} {tb}."]
 CHECKS = ["Check: going through the story again, {chain} = {a}.", "Check: all the steps in a single line, {chain} = {a}."]
 IGNORE = ["{who} {be} not matter.", "{who} {be} not change anything."]
 
@@ -250,7 +250,7 @@ def verify_trace(problem: dict, text: str, level: str, tok=None) -> str | None:
             return "the distractor is not set aside"
     if tok is not None:
         n = len(tok.encode(text))
-        lo, hi = {"low": (0, 8 * k + 6), "medium": (0, 24 * k + 12), "high": (30 * k + 20, 48 * k + 40)}[level]
+        lo, hi = {"low": (0, 8 * k + 6), "medium": (0, 24 * k + 12), "high": (20 * k + 20, 48 * k + 40)}[level]
         if not lo <= n <= hi:
             return f"length {n} outside {lo}..{hi}"
     return None
