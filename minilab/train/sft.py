@@ -47,7 +47,8 @@ def main() -> None:
     code_val = [chat_batch(tok, code_set[i:i + B], T) for i in range(0, len(code_set), B)]
     f, t = sc["code_frac"], sc["text_frac"]
     pc = cfg["pretrain"]
-    text = ({"ids": ids} for ids in pretrain_documents(tok, stories, d["digits"], pc["arith_frac"], seed + 5, pc["code_frac"]))
+    text = ({"ids": ids} for ids in pretrain_documents(tok, stories, d["digits"], pc["arith_frac"], seed + 5, pc["code_frac"],
+                                                                  sc.get("sub_frac", 0.0)))
     rows = mixture([epochs(train, seed + 2), epochs(agent, seed + 3), text], [1 - f - t, f, t], seed + 4)
     print(f"SFT set: {len(train)} chat conversations ({sc['steps'] * B * (1 - f - t) / len(train):.1f} epochs), "
           f"{len(agent)} agent transcripts ({sc['steps'] * B * f / len(agent):.1f} epochs), "

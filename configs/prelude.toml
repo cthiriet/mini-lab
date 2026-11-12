@@ -74,6 +74,7 @@ log_every = 25
 
 [sft]                       # chat conversations and agent transcripts, one row each
 size = 16000                # chat conversations (1.8 epochs)
+sub_frac = 0.5              # share of the text rows' worksheet items that are subtractions (see [midtrain])
 mix = { plain = 0.104, instruction = 0.264, followup = 0.096, new_question = 0.096, switch = 0.064, mixed = 0.08, refusal = 0.064, identity = 0.032, reason = 0.20 }
 digits = [1, 2, 3]
 tool_frac = 0.3
