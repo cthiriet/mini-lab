@@ -72,7 +72,6 @@ def test_calculator():
 @pytest.mark.parametrize("tools", [False, True])
 def test_exchange_answers_are_correct(tools):
     rng = random.Random(1)
-    direct = 0
     for _ in range(300):
         messages, total = arithmetic.exchange(rng, [1, 2, 3], tools)
         assert messages[-1]["content"] == f"The answer is {total}."
@@ -80,14 +79,10 @@ def test_exchange_answers_are_correct(tools):
             call = json.loads(messages[1]["tool_calls"][0]["function"]["arguments"])
             assert arithmetic.calculator(call["expression"]) == str(total)
             assert messages[2] == {"role": "tool", "tool_call_id": "call_0", "content": str(total)}
-        elif "reasoning" in messages[-1]:  # the scratchpad's last line holds the sum the answer copies
+        else:  # the scratchpad's last line holds the sum the answer copies
             assert messages[-1]["reasoning"].endswith(f", {total}")
-        else:
-            direct += 1
-    if not tools:  # both ways to answer are shown, for adaptive thinking
-        assert abs(direct / 300 - arithmetic.DIRECT_FRAC) < 0.08
-    number_only = [arithmetic.exchange(rng, [2], False, number_only=True)[0][-1] for _ in range(20)]
-    assert all(m["content"].isdigit() for m in number_only) and any(m.get("reasoning") for m in number_only)
+    number_only = arithmetic.exchange(rng, [2], False, number_only=True)[0][-1]
+    assert number_only["content"].isdigit() and number_only["reasoning"]
 
 
 def test_followup_refers_to_previous_result():
@@ -96,7 +91,7 @@ def test_followup_refers_to_previous_result():
     turn, new_total = arithmetic.followup(rng, total, [1, 2], tools=False)
     c = new_total - total
     assert str(c) in turn[0]["content"] and turn[-1]["content"] == f"The answer is {new_total}."
-    assert turn[-1].get("reasoning", arithmetic.scratchpad(total, c)) == arithmetic.scratchpad(total, c)
+    assert turn[-1]["reasoning"] == arithmetic.scratchpad(total, c)
     assert "reasoning" not in arithmetic.without_reasoning(messages)[-1]
 
 

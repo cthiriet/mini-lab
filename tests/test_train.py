@@ -11,7 +11,7 @@ from minilab.model.gpt import GPT, GPTConfig
 from minilab.tokenizer.bpe import Tokenizer
 from minilab.tokenizer.chat import reasoning_length
 from minilab.train.distill import distill_step
-from minilab.train.rl_math import advantages, reward, rl_step, sample_problem
+from minilab.train.rl_math import reward, rl_step, sample_problem
 from minilab.train.trainer import Logger, evaluate_loss, lr_at, make_optimizer, save_stage, train_loop
 
 
@@ -140,33 +140,6 @@ def test_rl_step_runs(tok):
         assert all(torch.equal(a, b) for a, b in zip(before, model.parameters()))
 
 
-def test_rl_step_tries_both_ways_with_a_thinking_cost(tok):
-    """Adaptive thinking: half of each group starts with <|think_start|>, the other half never samples it."""
-    model = tiny_model(tok)
-    think = tok.special("<|think_start|>")
-    calls = []
-    generate = model.generate
-
-    def spy(prompts, *args, banned=(), **kw):
-        calls.append(([p[-1] == think for p in prompts], list(banned)))
-        return generate(prompts, *args, banned=banned, **kw)
-
-    model.generate = spy
-    rng = random.Random(0)
-    problems = [sample_problem(rng, {"digits": [1], "chat_digits": [1], "mix": {"add": 1}}) for _ in range(3)]
-    stats = rl_step(model, tok, make_optimizer(model, 1e-3, 0.0), problems, group_size=4, max_new_tokens=8,
-                    temperature=1.0, generator=torch.Generator().manual_seed(0), think_cost=0.01)
-    (forced, no_ban), (unforced, ban) = calls
-    assert forced == [True] * 6 and no_ban == [] and unforced == [False] * 6 and ban == [think]
-    calls.clear()  # with tools (or another kind of problem), the model answers as it likes
-    rl_step(model, tok, make_optimizer(model, 1e-3, 0.0), [{**p, "kind": "tool", "tools": ["calculator"]} for p in problems],
-            group_size=4, max_new_tokens=8, temperature=1.0, generator=torch.Generator().manual_seed(0), think_cost=0.01)
-    [(forced, banned)] = calls
-    assert forced and not any(forced) and banned == []
-    assert stats["thinking"] >= 0.5  # the forced half has at least <|think_start|>
-
-
-
 def test_distill_step(tok):
     rng = random.Random(0)
     sc = {"digits": [1, 2], "chat_digits": [1], "mix": {"add": 1, "tool": 1, "refusal": 1}}
@@ -183,17 +156,3 @@ def test_distill_step(tok):
     kls = [distill_step(student, [same, other], tok, opt, problems, 8, 1.0, torch.Generator().manual_seed(0))["kl"]
            for _ in range(10)]
     assert kls[-1] < kls[0]  # the student moves toward its teachers
-
-
-def test_advantages_with_thinking_cost():
-    """Being right is normalized, as in GRPO; the thinking cost is not, so a small cost can't
-    outweigh a wrong answer, and with no cost the advantages are GRPO's."""
-    r = torch.tensor([[1., 1., 1., 1.], [1., 1., 1., 0.]])
-    t = torch.tensor([[0., 0., 50., 50.], [0., 50., 50., 0.]])
-    grpo = (r - r.mean(1, keepdim=True)) / (r.std(1, keepdim=True) + 1e-4)
-    assert torch.equal(advantages(r, t), grpo)
-    adv = advantages(r, t, think_cost=0.001)
-    assert torch.allclose(adv[0], torch.tensor([0.025, 0.025, -0.025, -0.025]))  # all right: shorter is a bit better
-    assert adv[1, 1] > 0 > adv[1, 3]          # right with thinking beats wrong without
-    assert adv[1, 0] > adv[1, 1]              # right without thinking beats right with it
-    assert abs(adv[1, 0] - adv[1, 1]) < 0.1   # ...by the cost only, not by a normalized +1

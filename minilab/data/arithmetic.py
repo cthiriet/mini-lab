@@ -20,12 +20,9 @@ the result found so far. The last line holds the full answer:
     34+05: 4+5+1=10, 05
     3+0: 3+0+1=4, 405
 
-In chat, an addition is worked out in the scratchpad, then answered "The answer is
+In chat, addition is always worked out in the scratchpad, then answered "The answer is
 405." A system prompt asking for the number only changes the visible answer ("405"),
-not the reasoning -- like a reasoning model's hidden thoughts. In DIRECT_FRAC of the chat
-answers the scratchpad is left out, whatever the length: the model learns both ways to
-answer, and RL then learns which one each problem needs (adaptive thinking, see
-minilab.train.rl_math).
+not the reasoning -- like a reasoning model's hidden thoughts.
 """
 
 from __future__ import annotations
@@ -58,7 +55,6 @@ QUESTIONS = [
 FOLLOWUPS = ["And add {c} to that?", "Now add {c} to the result.", "What if you add {c} more?",
              "Plus {c}?", "Add {c} to it.", "And if I add {c}?"]
 NAMES = ["Lily", "Tom", "Mia", "Ben", "Sue", "Max", "Anna", "Sam", "Lucy", "Tim"]
-DIRECT_FRAC = 0.25  # chat answers given without the scratchpad
 THINGS = ["apples", "toys", "stickers", "balls", "cookies", "flowers", "books", "shells", "stars", "coins"]
 WORD_PROBLEM = "{name} has {a} {things}. {name} gets {b} more {things}. How many {things} does {name} have now?"
 SENTENCES = [
@@ -182,21 +178,20 @@ def tool_round_trip(a: int, b: int) -> list[dict]:
             {"role": "tool", "tool_call_id": "call_0", "content": calculator(f"{a} + {b}")}]
 
 
-def reply(a: int, b: int, tools: bool, number_only: bool = False, think: bool = True) -> list[dict]:
+def reply(a: int, b: int, tools: bool, number_only: bool = False) -> list[dict]:
     """The assistant's answer to a + b: a calculator round trip then the answer, or the
-    scratchpad (unless think is False) then the answer (or just the number)."""
+    scratchpad then the answer (or just the number)."""
     if tools:
         return [*tool_round_trip(a, b), {"role": "assistant", "content": answer_text(a, b)}]
     content = str(a + b) if number_only else answer_text(a, b)
-    return [{"role": "assistant", "content": content, **({"reasoning": scratchpad(a, b)} if think else {})}]
+    return [{"role": "assistant", "content": content, "reasoning": scratchpad(a, b)}]
 
 
 def exchange(rng: random.Random, digits: list[int], tools: bool,
              number_only: bool = False) -> tuple[list[dict], int]:
     """A question and the assistant's full answer, plus the sum (for follow-ups)."""
     a, b = sample_problem(rng, sample_digits(rng, digits))
-    think = rng.random() >= DIRECT_FRAC
-    return [{"role": "user", "content": question(rng, a, b)}, *reply(a, b, tools, number_only, think)], a + b
+    return [{"role": "user", "content": question(rng, a, b)}, *reply(a, b, tools, number_only)], a + b
 
 
 def without_reasoning(messages: list[dict]) -> list[dict]:
@@ -217,8 +212,7 @@ def client_history(messages: list[dict], compact: bool = False) -> list[dict]:
 def followup(rng: random.Random, total: int, digits: list[int], tools: bool) -> tuple[list[dict], int]:
     """A follow-up about the previous result ("And add 25 to that?") and its answer."""
     c = sample_number(rng, rng.choice(digits))
-    think = rng.random() >= DIRECT_FRAC
-    return [{"role": "user", "content": rng.choice(FOLLOWUPS).format(c=c)}, *reply(total, c, tools, think=think)], total + c
+    return [{"role": "user", "content": rng.choice(FOLLOWUPS).format(c=c)}, *reply(total, c, tools)], total + c
 
 
 def prompt(rng: random.Random, digits: int, tools: bool = False, after_tool: bool = False) -> dict:
