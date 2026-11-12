@@ -42,7 +42,7 @@ def main() -> None:
         rng = random.Random(seed)
         convs = midtrain_stream(seed, sc, d["digits"], pool, reason)
         text = pretrain_documents(tok, stories, d["digits"], cfg["pretrain"]["arith_frac"], seed,
-                                  cfg["pretrain"]["code_frac"])
+                                  cfg["pretrain"]["code_frac"], sc.get("sub_frac", 0.0))
         while True:
             if rng.random() < text_frac:
                 yield next(text)

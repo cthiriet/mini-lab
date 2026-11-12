@@ -27,7 +27,7 @@ header_frac = 0.15          # share of the other conversations with an effort he
 tau = { low = 0.80, medium = 0.92, high = 0.99 }    # answer at once only if the probe's accuracy on the bucket beats it by 0.03
 traces = "data/reason/traces.jsonl"                 # the teacher's traces (scripts/teacher_traces.py)
 policy = "data/reason/policy.json"                  # the probe's accuracy per (steps, doubling) (scripts/probe_direct.py)
-teacher = false             # medium and high traces from the teacher's file (true) or from the program (false), until E3 decides
+teacher_frac = 0.5          # share of medium and high traces taken from the teacher's file, the rest from the program
 mode = "policy"             # "direct": story problems with no thoughts and no header anywhere (the probe of E1, spec 3.3)
 
 [tokenizer]
@@ -66,6 +66,7 @@ warmup = 30
 weight_decay = 0.1
 digits = [1, 2, 3]          # chat data only demonstrates short additions: RL does the rest
 text_frac = 0.25            # share of pretraining documents (Python included), against forgetting
+sub_frac = 0.5              # share of worksheet items that are subtractions (E3: 102 of 149 errors were "70 - 32 = 18" in the thoughts)
 tool_frac = 0.3             # share of conversations with the calculator enabled
 mix = { arithmetic = 0.35, story_math = 0.30, story = 0.20, greeting = 0.15 }
 eval_every = 200

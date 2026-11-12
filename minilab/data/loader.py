@@ -27,10 +27,11 @@ Batch = tuple[torch.Tensor, torch.Tensor]
 
 
 def pretrain_documents(tok: Tokenizer, stories: list[str], digits: list[int], arith_frac: float,
-                       seed: int, code_frac: float = 0.0) -> Iterator[list[int]]:
+                       seed: int, code_frac: float = 0.0, sub_frac: float = 0.0) -> Iterator[list[int]]:
     """Endless stream of tokenized documents: shuffled stories (one epoch after the
     other) with arithmetic worksheets mixed in, each document with probability arith_frac,
-    and Python documents of the code world (data/code.py) with probability code_frac."""
+    and Python documents of the code world (data/code.py) with probability code_frac. A share
+    sub_frac of the worksheet items are subtractions."""
     rng = random.Random(seed)
     python = code.pretrain_documents(seed + 1) if code_frac else None
     order = list(range(len(stories)))
@@ -38,7 +39,7 @@ def pretrain_documents(tok: Tokenizer, stories: list[str], digits: list[int], ar
         rng.shuffle(order)
         for i in order:
             while rng.random() < arith_frac:
-                yield [tok.bos_id, *tok.encode(arithmetic.pretrain_document(rng, digits))]
+                yield [tok.bos_id, *tok.encode(arithmetic.pretrain_document(rng, digits, sub_frac))]
             while python and rng.random() < code_frac:
                 yield [tok.bos_id, *tok.encode(next(python))]
             yield [tok.bos_id, *tok.encode(stories[i])]

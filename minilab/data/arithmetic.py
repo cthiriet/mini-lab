@@ -20,6 +20,13 @@ the result found so far. The last line holds the full answer:
     34+05: 4+5+1=10, 05
     3+0: 3+0+1=4, 405
 
+Subtraction (pretraining worksheets only) works the same way, with "10+" lent by the next
+column: a column that cannot pay shows the borrowed ten ("10-2", "14-7"), the next column
+then pays "-1". Leading zeros of the result are dropped on the last line:
+
+    70-32: 10-2=8, 8
+    7-3: 7-3-1=3, 38
+
 In chat, addition is always worked out in the scratchpad, then answered "The answer is
 405." A system prompt asking for the number only changes the visible answer ("405"),
 not the reasoning -- like a reasoning model's hidden thoughts.
@@ -65,6 +72,22 @@ SENTENCES = [
     "If you add {a} and {b}, you get {c}.",
     "{name} had {a} {things} and found {b} more. Now {name} has {c} {things}.",
 ]
+SUB_QUESTIONS = [
+    "What is {a} - {b}?",
+    "What is {a} minus {b}?",
+    "{a} - {b} = ?",
+    "Subtract {b} from {a}.",
+    "Take away {b} from {a}.",
+    "How much is {a} - {b}?",
+]
+SUB_SENTENCES = [
+    "{a} - {b} = {c}",
+    "{a} minus {b} is {c}.",
+    "{a} minus {b} equals {c}.",
+    "If you take {b} away from {a}, you get {c}.",
+    "{name} has {a} {things}. {name} gives away {b}. Now {name} has {c} {things}.",
+    "{name} had {a} {things} and lost {b}. Now {name} has {c} {things}.",
+]
 
 
 def sample_number(rng: random.Random, digits: int) -> int:
@@ -95,6 +118,22 @@ def scratchpad(a: int, b: int) -> str:
         done = (str(s) if i == 0 else str(s % 10)) + done  # the last column keeps its carry
         lines.append(f"{A[:i + 1]}+{B[:i + 1]}: {x}+{y}{'+1' if carry else ''}={s}, {done}")
         carry = s // 10
+    return "\n".join(lines)
+
+
+def sub_scratchpad(a: int, b: int) -> str:
+    """Column-by-column subtraction a - b (a >= b), right to left (see the module docstring)."""
+    n = len(str(a))
+    A, B = str(a), str(b).zfill(n)
+    lines, borrow, done = [], 0, ""
+    for i in range(n - 1, -1, -1):
+        x, y = int(A[i]), int(B[i])
+        lend = int(x - borrow < y)  # this column borrows a ten from the next one
+        d = x + 10 * lend - y - borrow
+        done = str(d) + done
+        shown = str(int(done)) if i == 0 else done  # no leading zeros in the answer
+        lines.append(f"{A[:i + 1]}-{B[:i + 1]}: {x + 10 * lend}-{y}{'-1' if borrow else ''}={d}, {shown}")
+        borrow = lend
     return "\n".join(lines)
 
 
@@ -156,10 +195,25 @@ def call_expression(call: dict) -> str | None:
 
 # ---- pretraining text ---------------------------------------------------------
 
-def pretrain_document(rng: random.Random, digits: list[int]) -> str:
-    """A small 'worksheet' of equations, sentences and worked examples."""
+def sub_problem(rng: random.Random, digits: list[int]) -> tuple[int, int]:
+    """a - b with a in 0..99 (the story_math range), b in 0..a; 20 % of the time a has 3 digits."""
+    a = rng.randint(100, 999) if max(digits) >= 3 and rng.random() < 0.2 else rng.randint(0, 99)
+    return a, rng.randint(0, a)
+
+
+def pretrain_document(rng: random.Random, digits: list[int], sub_frac: float = 0.0) -> str:
+    """A small 'worksheet' of equations, sentences and worked examples; each item is a
+    subtraction with probability sub_frac (0: the additions alone, same rng stream as ever)."""
     lines = []
     for _ in range(rng.randint(2, 6)):
+        if sub_frac and rng.random() < sub_frac:
+            a, b = sub_problem(rng, digits)
+            if rng.random() < 0.5:
+                lines.append(f"{rng.choice(SUB_QUESTIONS).format(a=a, b=b)}\n{sub_scratchpad(a, b)}\nSo {a} - {b} = {a - b}.")
+            else:
+                lines.append(rng.choice(SUB_SENTENCES).format(
+                    a=a, b=b, c=a - b, name=rng.choice(NAMES), things=rng.choice(THINGS)))
+            continue
         a, b = sample_problem(rng, sample_digits(rng, digits))
         r = rng.random()
         if r < 0.5:

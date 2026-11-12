@@ -152,14 +152,15 @@ def teacher_bank(path: str) -> dict[str, list[dict]]:
 
 class Reason:
     """What the story_math conversations read: the [data.reason] section, the policy (no file: every
-    bucket thinks) and, with `teacher`, the teacher's traces (none: the program writes them).
+    bucket thinks) and, with `teacher_frac`, the teacher's traces (0: the program writes them all).
     mode "direct" is the probe (spec 3.3): story problems answered at once, no header anywhere."""
 
     def __init__(self, rc: dict):
         self.rc, self.direct = rc, rc.get("mode", "policy") == "direct"
         path = rc.get("policy", "")
         self.policy = {"p": {}, **(story_math.load_policy(path) if os.path.isfile(path) else {}), "tau": rc["tau"]}
-        self.bank = teacher_bank(rc.get("traces", "")) if rc.get("teacher", False) and not self.direct else {}
+        self.teacher_frac = float(rc.get("teacher_frac", rc.get("teacher", 0.0)))  # old configs: teacher = true/false
+        self.bank = teacher_bank(rc.get("traces", "")) if self.teacher_frac and not self.direct else {}
         self.header_frac = 0.0 if self.direct else rc["header_frac"]
 
 
@@ -169,7 +170,7 @@ def story_math_conversation(rng: random.Random, reason: Reason) -> dict:
     rc = reason.rc
     level = rng.choices(list(rc["efforts"]), list(rc["efforts"].values()))[0]
     k = rng.choices(rc["steps"], rc["k_weights"])[0]
-    if k > 1 and reason.bank.get(level):  # the teacher wrote no trace for one event (scripts/teacher_traces.py --min-k)
+    if k > 1 and reason.bank.get(level) and rng.random() < reason.teacher_frac:  # the teacher wrote no trace for one event (scripts/teacher_traces.py --min-k)
         row = rng.choice(reason.bank[level])
         problem, trace = row["problem"], row["text"]
     else:

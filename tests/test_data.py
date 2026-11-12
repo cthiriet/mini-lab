@@ -322,7 +322,7 @@ def test_story_math_teacher_bank(tmp_path):
         rows.append({"id": f"t-{i}", "level": level, "text": f"TRACE {i} {level}", "ok": i != 3,
                      "problem": {**problem, "id": f"t-{i}"}})
     (tmp_path / "traces.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
-    reason = reason_with(tmp_path, teacher=True, efforts={"medium": 0.5, "high": 0.5})
+    reason = reason_with(tmp_path, teacher_frac=1.0, efforts={"medium": 0.5, "high": 0.5})
     text_of = {r["text"]: r["problem"]["messages"][0]["content"] for r in rows}
     seen = set()
     for question, reply in (c["messages"] for c in story_math_convs(reason, 100)):
@@ -334,12 +334,25 @@ def test_story_math_teacher_bank(tmp_path):
                 story_math.style_ok("high", reply["reasoning"])
     assert seen == {"TRACE 0 medium", "TRACE 1 high", "TRACE 2 high"}  # the rejected row is never drawn
     # teacher = false, or a level the bank lacks: the program writes the thoughts
-    for rc in ({"teacher": False}, {"teacher": True, "efforts": {"low": 1.0}}):
+    for rc in ({"teacher_frac": 0.0}, {"teacher_frac": 1.0, "efforts": {"low": 1.0}}):
         assert all("TRACE" not in c["messages"][1]["reasoning"] for c in story_math_convs(reason_with(tmp_path, **rc), 30))
 
 
+def test_story_math_teacher_frac(tmp_path):
+    rows = [{"id": "t", "level": "medium", "text": "TRACE", "ok": True,
+             "problem": {**story_math.make(random.Random(1), 3, "train"), "id": "t"}}]
+    (tmp_path / "traces.jsonl").write_text(json.dumps(rows[0]))
+    only_medium = {"efforts": {"medium": 1.0}, "steps": [3], "k_weights": [1.0]}
+    for frac in (0.0, 0.3, 1.0):
+        convs = story_math_convs(reason_with(tmp_path, teacher_frac=frac, **only_medium), 600)
+        share = sum(c["messages"][1].get("reasoning") == "TRACE" for c in convs) / 600
+        assert abs(share - frac) < 0.07
+    assert reason_with(tmp_path, teacher=True).teacher_frac == 1.0  # old configs
+    assert reason_with(tmp_path, teacher=False).bank == {}
+
+
 def test_story_math_without_a_trace_file_is_plan_b(tmp_path):
-    reason = reason_with(tmp_path, teacher=True)  # no traces.jsonl in tmp_path
+    reason = reason_with(tmp_path, teacher_frac=1.0)  # no traces.jsonl in tmp_path
     assert reason.bank == {}
     assert all(c["messages"][1]["reasoning"] for c in story_math_convs(reason, 30))
 
