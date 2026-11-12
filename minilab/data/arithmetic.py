@@ -54,6 +54,7 @@ QUESTIONS = [
 ]
 FOLLOWUPS = ["And add {c} to that?", "Now add {c} to the result.", "What if you add {c} more?",
              "Plus {c}?", "Add {c} to it.", "And if I add {c}?"]
+DIRECT_FRAC = 0  # share of additions answered without a scratchpad: none (answering at once was a bluff)
 NAMES = ["Lily", "Tom", "Mia", "Ben", "Sue", "Max", "Anna", "Sam", "Lucy", "Tim"]
 THINGS = ["apples", "toys", "stickers", "balls", "cookies", "flowers", "books", "shells", "stars", "coins"]
 WORD_PROBLEM = "{name} has {a} {things}. {name} gets {b} more {things}. How many {things} does {name} have now?"
