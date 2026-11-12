@@ -49,7 +49,7 @@ batch_size = 8              # 8 x 1,024 tokens
 lr = 1e-3
 warmup = 30
 weight_decay = 0.1
-digits = [1, 2, 3]          # chat data only demonstrates short additions: RL does the rest
+digits = [1, 2, 3, 4, 5]    # chat data shows scratchpads up to 5 digits; up to 2 digits it answers directly
 text_frac = 0.25            # share of pretraining documents (Python included), against forgetting
 tool_frac = 0.3             # share of conversations with the calculator enabled
 mix = { arithmetic = 0.6, story = 0.2, greeting = 0.2 }
@@ -59,7 +59,7 @@ log_every = 25
 [sft]                       # chat conversations and agent transcripts, one row each
 size = 16000                # chat conversations (1.8 epochs)
 mix = { plain = 0.13, instruction = 0.33, followup = 0.12, new_question = 0.12, switch = 0.08, mixed = 0.1, refusal = 0.08, identity = 0.04 }
-digits = [1, 2, 3]
+digits = [1, 2, 3, 4, 5]    # same: direct up to 2 digits, scratchpad beyond
 tool_frac = 0.3
 code_size = 80000           # agent transcripts, generated once (every tool call runs for real) -> data/code/
 code_mix = { list_files = 0.04, find_def = 0.04, show_file = 0.04, explain = 0.05, run = 0.06, run_tests = 0.05, create_func = 0.09, create_script = 0.04, rename = 0.07, change_const = 0.06, add_func = 0.08, fix_test = 0.13, fix_crash = 0.08, session = 0.10, chat = 0.04, title = 0.03 }
@@ -81,10 +81,9 @@ steps = 330
 prompts_per_step = 16
 group_size = 8
 digits = [1, 2, 3, 4, 5]
-chat_digits = [1, 2, 3]
+chat_digits = [1, 2, 3, 4, 5]    # follow-ups, new questions: same lengths as the chat data
 mix = { add = 0.5, word = 0.1, tool = 0.2, long_followup = 0.1, new_question = 0.2 }
 max_new_tokens = 224
-think_cost = 0.002          # advantage lost per thinking token by a right answer, unnormalized (rl_math.py)
 temperature = 1.0
 lr = 2e-4                   # at 1e-4 the follow-ups on long totals lagged (92% vs 97%)
 warmup = 10
@@ -94,7 +93,7 @@ log_every = 5
 steps = 300
 prompts_per_step = 32
 digits = [1, 2, 3, 4, 5]
-chat_digits = [1, 2, 3]
+chat_digits = [1, 2, 3, 4, 5]    # follow-ups, new questions: same lengths as the chat data
 mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05, story = 0.05, long_followup = 0.05, switch = 0.05, mixed = 0.05, word = 0.05, code = 0.25 }
 teachers = { add = "rl_math", tool = "rl_math", long_followup = "rl_math", new_question = "rl_math" }   # every other kind: the SFT model
 code_pool = 2000            # agent transcripts to cut turns from (not the SFT set's)
