@@ -52,6 +52,8 @@ def metrics(result: dict, cfg: dict) -> dict[str, tuple[float, int, bool]]:
         "story": ("story_topic", len(tasks.TOPICS) * len(tasks.STORY_EVAL_REQUESTS)),
         "chat": ("chat", ec.get("n_chat", 200)),
         "format": ("format", 100),  # hundreds of turns: the 2-point floor applies
+        "sm lo": ("sm_low", 600), "sm med": ("sm_medium", 600), "sm hi": ("sm_high", 600),  # story problems, 6 x 100
+        "sm 6st": ("sm_6st", 100),
     }
     out |= {name: (result[key], n, True) for name, (key, n) in candidates.items() if result.get(key) is not None}
     for kind, value in result.get("instructions", {}).items():

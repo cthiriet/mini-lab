@@ -186,3 +186,105 @@ def test_gate_blocks_regressions_unless_waived(model_and_tok, tmp_path: Path):
     out = release(run, "rl_math", "mini-b", models, waived)
     assert json.loads((out / "gate.json").read_text())["waived"] == {"bpc": "a test"}
     assert "## Release gate" in (out / "MODEL_CARD.md").read_text()
+
+
+# ---- story problems ----------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def story_model(model_and_tok):
+    """The test tokenizer with a context long enough for a story problem."""
+    _, tok = model_and_tok
+    torch.manual_seed(0)
+    return GPT(GPTConfig(vocab_size=tok.vocab_size, block_size=1024, n_layer=1, n_head=2, n_embd=32)).eval(), tok
+
+
+def _completion(tok, answer: str, reasoning: str | None = None, closed: bool = True) -> list[int]:
+    S = tok.special
+    think = [S("<|think_start|>"), *tok.encode(reasoning), *([S("<|think_end|>")] if closed else [])] if reasoning else []
+    return think + tok.encode(answer) + [S("<|assistant_end|>")]
+
+
+def test_story_math_grade(model_and_tok):
+    _, tok = model_and_tok
+    p = tasks.make_problem("story_math", random.Random(0), [3, 4])
+    assert p["kind"] == "story_math" and p["steps"] in (3, 4) and p["digits"] == p["steps"]
+    assert tasks.make_problem("story_math", random.Random(0), [8], held_out=True)["steps"] == 8
+    right = f"The answer is {p['answer']}."
+    assert tasks.check_answer(right, p) and not tasks.check_answer(f"{p['answer']}", p)
+    assert tasks.grade(tok, _completion(tok, right), p)
+    assert tasks.grade(tok, _completion(tok, right, "1 + 1 = 2"), p)
+    assert not tasks.grade(tok, _completion(tok, f"The answer is {p['answer'] + 1}."), p)
+    assert not tasks.grade(tok, _completion(tok, f"The answer is {p['answer'] + 1}.", "1 + 1 = 2"), p)
+    assert not tasks.grade(tok, _completion(tok, right, "1 + 1 = 2", closed=False), p)  # a thought never closed
+
+
+def test_eval_story_math(story_model):
+    model, tok = story_model
+    problems = [tasks.make_problem("story_math", random.Random(i), [1, 2, 3]) for i in range(6)]
+    for level, think in [("medium", None), ("low", True), ("high", True), ("high", None), ("medium", False)]:
+        records = tasks.eval_story_math(model, tok, problems, 6, level, think)
+        assert len(records) == 6
+        for r, p in zip(records, problems):
+            assert set(r) == {"k", "digits", "bucket", "correct", "thinking", "reasoning_tokens", "style_ok", "finished"}
+            assert r["k"] == p["steps"] and r["bucket"] == p["bucket"]
+            assert r["thinking"] == (r["reasoning_tokens"] > 0) and (r["thinking"] or not r["style_ok"])
+            if think:
+                assert r["thinking"]
+            if think is False:
+                assert not r["thinking"] and r["reasoning_tokens"] == 0
+
+
+def test_evaluate_story_math(story_model):
+    model, tok = story_model
+    cfg = tomllib.loads(CONFIG)
+    cfg["data"]["reason"] = {"eval_seed": 1004}
+    cfg["eval"]["story_math"] = {"n_per_step": 4, "steps": [1, 6], "max_new_tokens": 6}
+    result = eval_run.evaluate_story_math(model, tok, cfg, n_per_step=2)
+    sm = result["story_math"]
+    modes = {f"{kind} {level}" for kind in ("adaptive", "forced") for level in eval_run.LEVELS} | {"off"}
+    assert set(sm["accuracy"]) == set(sm["think_rate"]) == set(sm["tokens"]) == modes
+    assert set(sm["accuracy"]["off"]) == {"1", "6"} and sm["think_rate"]["off"] == {"1": 0, "6": 0}
+    assert all(v == 1 for v in sm["think_rate"]["forced high"].values())
+    assert set(sm["style_ok"]) == set(sm["direct_acc"]) == set(sm["regret"]) == set(eval_run.LEVELS)
+    assert set(sm["regret"]["medium"]) == {"1", "6"}
+    assert result["sm_6st"] == sm["accuracy"]["adaptive medium"]["6"]
+    assert result["sm_low"] == pytest.approx(sum(sm["accuracy"]["adaptive low"].values()) / 2)
+    assert set(sm["heldout"]) == {"steps78", "objects", "ops", "distract"}
+    assert set(sm["heldout"]["ops"]) == {"adaptive medium", "adaptive high", "off"}
+    json.dumps(result)
+
+
+def test_heldout_story_sets():
+    half = lambda p: any(op == "half" for op, _ in p["ops"])
+    assert {p["steps"] for p in eval_run._heldout_problems(1, "steps78", 0.1)} == {7, 8}
+    assert not any(map(half, eval_run._heldout_problems(1, "objects", 0.5)))
+    assert all(map(half, eval_run._heldout_problems(1, "ops", 0.5)))
+    assert all(p["ignore"] for p in eval_run._heldout_problems(1, "distract", 0.2))
+    assert eval_run._heldout_problems(1, "ops", 0.2) == eval_run._heldout_problems(1, "ops", 0.2)  # fixed sets
+
+
+def test_table_story_math_columns():
+    old = {"stage": "sft", "mode": "chat", "val_ppl": 2.0, "arithmetic": {"1": 1.0}, "train_digits": [1]}
+    rate = {f"adaptive {level}": {"1": v, "2": v} for level, v in zip(eval_run.LEVELS, (0.1, 0.4, 0.7))}
+    new = {**old, "sm_low": 0.5, "sm_medium": 0.6, "sm_high": 0.7, "sm_6st": 0.4,
+           "story_math": {"think_rate": rate, "tokens": {m: {"1": 10 * (i + 1)} for i, m in enumerate(rate)},
+                          "heldout": {"steps78": {"adaptive medium": {"accuracy": 0.3}},
+                                      "objects": {"adaptive medium": {"accuracy": 0.55}}}}}
+    cols, rows = eval_run._table_cells([new], None)
+    row = dict(zip(cols, rows[0]))
+    assert row["sm lo"] == "50%" and row["sm 6st"] == "40%" and row["think L/M/H"] == "10/40/70%"
+    assert row["tok L/M/H"] == "10/20/30" and row["sm 7-8*"] == "30%" and row["sm obj*"] == "55%"
+    assert "sm med" not in eval_run._table_cells([old], None)[0]
+    cols, rows = eval_run._table_cells([old, new], None)  # an old eval.json next to a new one
+    assert dict(zip(cols, rows[0]))["sm med"] == "-"
+    assert "sm hi" in eval_run.table([new]) and "sm hi" not in eval_run.table([old])
+
+
+def test_gate_story_math():
+    cfg = {"data": {"digits": [1]}, "eval": {"n_per_digit": 100, "n_sampled": 100, "n_tool": 50}}
+    old = {"val_bpc": 0.6, "arithmetic": {"1": 1.0}}
+    new = {**old, "sm_low": 0.4, "sm_medium": 0.5, "sm_high": 0.6, "sm_6st": 0.2}
+    assert {c.metric for c in gate.compare(new, old, cfg)} == {"bpc", "1d"}  # an old eval.json has no story problems
+    assert {c.metric for c in gate.compare(old, new, cfg)} == {"bpc", "1d"}
+    worse = gate.compare({**new, "sm_low": 0.3, "sm_6st": 0.19}, new, cfg)
+    assert {c.metric for c in worse if c.regressed} == {"sm lo"}  # -10 points on 600 prompts; -1 point on 100 is noise
