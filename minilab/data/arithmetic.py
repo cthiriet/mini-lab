@@ -22,10 +22,14 @@ the result found so far. The last line holds the full answer:
 
 In chat, an addition is worked out in the scratchpad, then answered "The answer is
 405." A system prompt asking for the number only changes the visible answer ("405"),
-not the reasoning -- like a reasoning model's hidden thoughts. In DIRECT_FRAC of the chat
-answers the scratchpad is left out, whatever the length: the model learns both ways to
-answer, and RL then learns which one each problem needs (adaptive thinking, see
-minilab.train.rl_math).
+not the reasoning -- like a reasoning model's hidden thoughts.
+
+The scratchpad is left out, by a deterministic rule, when both operands have at most
+DIRECT_MAX_DIGITS (2) digits: `thinks(a, b)`. Why: without a scratchpad, in greedy mode,
+the model is 98-100% right up to 2 digits, then 76-92% at 3 digits and under 50% at 4-5
+digits. Carries hardly matter, length does. So the thinking is adaptive to what the model
+can do in one forward pass, and it never learns to bluff: a direct answer is only ever
+shown on problems it can really solve that way (see minilab.train.rl_math for the RL).
 """
 
 from __future__ import annotations
@@ -58,7 +62,7 @@ QUESTIONS = [
 FOLLOWUPS = ["And add {c} to that?", "Now add {c} to the result.", "What if you add {c} more?",
              "Plus {c}?", "Add {c} to it.", "And if I add {c}?"]
 NAMES = ["Lily", "Tom", "Mia", "Ben", "Sue", "Max", "Anna", "Sam", "Lucy", "Tim"]
-DIRECT_FRAC = 0.25  # chat answers given without the scratchpad
+DIRECT_MAX_DIGITS = 2  # additions whose operands are both this short are answered without the scratchpad
 THINGS = ["apples", "toys", "stickers", "balls", "cookies", "flowers", "books", "shells", "stars", "coins"]
 WORD_PROBLEM = "{name} has {a} {things}. {name} gets {b} more {things}. How many {things} does {name} have now?"
 SENTENCES = [
@@ -108,6 +112,11 @@ def answer_text(a: int, b: int) -> str:
     which the model garbled, and which competed with "Answer with the number only."
     (the model copied the first operand instead of the sum)."""
     return f"The answer is {a + b}."
+
+
+def thinks(a: int, b: int) -> bool:
+    """Whether the chat answer to a + b has a scratchpad (False: answered directly)."""
+    return max(len(str(a)), len(str(b))) > DIRECT_MAX_DIGITS
 
 
 def question(rng: random.Random, a: int, b: int) -> str:
@@ -195,8 +204,7 @@ def exchange(rng: random.Random, digits: list[int], tools: bool,
              number_only: bool = False) -> tuple[list[dict], int]:
     """A question and the assistant's full answer, plus the sum (for follow-ups)."""
     a, b = sample_problem(rng, sample_digits(rng, digits))
-    think = rng.random() >= DIRECT_FRAC
-    return [{"role": "user", "content": question(rng, a, b)}, *reply(a, b, tools, number_only, think)], a + b
+    return [{"role": "user", "content": question(rng, a, b)}, *reply(a, b, tools, number_only, thinks(a, b))], a + b
 
 
 def without_reasoning(messages: list[dict]) -> list[dict]:
@@ -217,8 +225,7 @@ def client_history(messages: list[dict], compact: bool = False) -> list[dict]:
 def followup(rng: random.Random, total: int, digits: list[int], tools: bool) -> tuple[list[dict], int]:
     """A follow-up about the previous result ("And add 25 to that?") and its answer."""
     c = sample_number(rng, rng.choice(digits))
-    think = rng.random() >= DIRECT_FRAC
-    return [{"role": "user", "content": rng.choice(FOLLOWUPS).format(c=c)}, *reply(total, c, tools, think=think)], total + c
+    return [{"role": "user", "content": rng.choice(FOLLOWUPS).format(c=c)}, *reply(total, c, tools, think=thinks(total, c))], total + c
 
 
 def prompt(rng: random.Random, digits: int, tools: bool = False, after_tool: bool = False) -> dict:
