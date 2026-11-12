@@ -38,7 +38,7 @@ EVENTS = {
             ("{O} gives {Q} {n}.", "gets {n} from {O}"), ("Then {m} receives {n} more.", "receives {n}"),
             ("{S} is given {n} more by {O}.", "is given {n} by {O}"), ("{O} brings {Q} {n} more.", "gets {n} from {O}")],
     "sub": [("{S} gives {n} to {O}.", "gives {n} to {O}"), ("Then {m} eats {n}.", "eats {n}"),
-            ("{S} loses {n}.", "loses {n}"), ("{S} sells {n}.", "sells {n}"), ("{S} breaks {n}.", "breaks {n}"),
+            ("{S} loses {n}.", "loses {n}"), ("{S} sells {n}.", "sells {n}"),
             ("{O} takes {n} from {Q}.", "loses {n} to {O}"), ("{S} drops {n}.", "drops {n}"),
             ("{S} gives {O} {n}.", "gives {O} {n}")],
     "dbl": [("Then {P} pile doubles.", "doubles {P} {t}"), ("{S} doubles {P} {t}.", "doubles {P} {t}"),
@@ -99,10 +99,11 @@ def make(rng: random.Random, k: int, split: str = "train", distractor: bool | No
     hero, thing = rng.choice(heroes), rng.choice(things)
     others = [o for o in others if o != hero]
     _, obj, poss = _pronouns(hero)
-    states, ops, sentences, clauses = [rng.randint(2, 20)], [], [], []
+    states, ops, sentences, clauses, fields = [rng.randint(2, 20)], [], [], [], []
     for _ in range(k):
         s = states[-1]
-        weights = {"add": 4 * (s <= 98), "sub": 4 * (s >= 1), "dbl": 2 * (1 <= s <= 40),
+        again = bool(ops) and ops[-1][0] == "dbl"  # two doublings in a row read like one said twice
+        weights = {"add": 4 * (s <= 98), "sub": 4 * (s >= 1), "dbl": 2 * (1 <= s <= 40 and not again),
                    "half": 2 * (held and s >= 2 and s % 2 == 0)}
         op = rng.choices(list(weights), list(weights.values()))[0]
         n = rng.randint(1, min(20, 99 - s)) if op == "add" else rng.randint(1, s) if op == "sub" else None
@@ -113,6 +114,7 @@ def make(rng: random.Random, k: int, split: str = "train", distractor: bool | No
         f = dict(S=S, m=m, O=rng.choice(others), Q=obj, P=poss, Pc=poss.capitalize(), n=n, t=thing[1])
         sentences.append(sentence.format(**f))
         clauses.append(clause.format(**f))
+        fields.append(f)
     at, ignore = None, None
     if (rng.random() < (1 if held else 0.35)) if distractor is None else distractor:
         who, other = rng.sample(others, 2)
@@ -123,6 +125,10 @@ def make(rng: random.Random, k: int, split: str = "train", distractor: bool | No
                                        (f"{who} gives {other} {count(n, stuff)}.", owned),
                                        *[(s, (w, "does")) for s, w in WEATHER]])
         at = rng.randint(0, k)  # before the event of that index (k: after the last)
+        if at < k:  # the event after it starts with the hero's name: "She" or "his" could mean the distractor's person
+            op, f = ops[at][0], fields[at] | {"S": hero}
+            sentence, clause = rng.choice([e for e in EVENTS[op] if e[0].startswith("{S}")])
+            sentences[at], clauses[at] = sentence.format(**f), clause.format(**f)
         sentences.insert(at, sentence)
     question = rng.choice(QUESTIONS).format(t=thing[1], H=hero, P=poss)
     content = " ".join([f"{hero} has {count(states[0], thing)}.", *sentences, question])
@@ -215,7 +221,7 @@ def style_ok(level: str, text: str) -> bool:
                 and not sentences[-1].startswith("So ")
                 and all(len(s.split()) <= 14 and s.count("=") == 1 for s in sentences[1:]))
     return (any(s.startswith("Check:") and "=" in s for s in sentences)
-            and re.fullmatch(r"So \w+ has \d+ \w+\.", sentences[-1]) is not None)
+            and re.fullmatch(r"So \w+ has \d+ \w+( left| now| in all| then)?\.", sentences[-1]) is not None)
 
 
 def verify_trace(problem: dict, text: str, level: str, tok=None) -> str | None:
@@ -244,7 +250,8 @@ def verify_trace(problem: dict, text: str, level: str, tok=None) -> str | None:
         return "style"
     if level == "high":
         sentences = _sentences(text)
-        if sentences[-1] not in (f"So {problem['hero']} has {answer} {t}." for t in problem["thing"]):
+        if not re.fullmatch(rf"So {problem['hero']} has {answer} ({'|'.join(problem['thing'])})( left| now| in all| then)?\.",
+                            sentences[-1]):
             return "wrong conclusion"
         if problem["ignore"] and not NOT_MATTER.search(text):
             return "the distractor is not set aside"

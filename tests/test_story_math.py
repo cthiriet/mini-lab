@@ -150,3 +150,14 @@ def test_lengths_in_tokens(capsys):
     ok = [sm.verify_trace(p, t, "high", tok) is None
           for p in problems(300) for t in [sm.trace_program(p, "high", rng)]]
     assert sum(ok) / len(ok) > 0.95
+
+
+def test_problems_read_unambiguously():
+    """No two doublings in a row; the event after a distractor names the hero (not "She")."""
+    rng = random.Random(7)
+    for _ in range(2000):
+        p = sm.make(rng, rng.randint(2, 8), rng.choice(["train", "heldout"]), distractor=True)
+        assert all(not (a == b == "dbl") for (a, _), (b, _) in zip(p["ops"], p["ops"][1:]))
+        if p["at"] < p["steps"]:
+            after = sm._sentences(p["messages"][0]["content"])[p["at"] + 2]
+            assert after.startswith(p["hero"] + " ")
