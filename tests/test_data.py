@@ -263,12 +263,12 @@ def story_math_convs(reason: Reason, n: int, seed: int = 0) -> list[dict]:
 def test_story_math_follows_the_policy(tmp_path, made):
     # buckets alternate between certain (p = 1.0: direct at every level) and a coin flip (p = 0.5:
     # below every threshold, so never direct at any level)
-    table = {f"{k},{d}": 1.0 if (k + d) % 2 else 0.5 for k in (1, 2, 3) for d in (0, 1)}
+    table = {f"{k},{d}": 1.0 if (k + d) % 2 else 0.5 for k in (2, 3) for d in (0, 1)} | {"1,add": 1.0, "1,sub": 0.5, "1,dbl": 1.0}
     tau = {"low": 0.80, "medium": 0.92, "high": 0.95}  # think() adds 0.03: with high = 0.99 nothing is direct at high
     story_math_convs(reason_with(tmp_path, table, tau=tau), 600)
     efforts = {True: set(), False: set()}
     for m in made:
-        certain = table["%d,%d" % story_math.bucket(m["problem"])] == 1.0
+        certain = table.get(story_math.bucket(m["problem"]), 0.5) == 1.0
         assert ("reasoning" not in m["conv"]["messages"][1]) == certain
         efforts[certain].add(m["conv"]["effort"])
     assert efforts[True] == efforts[False] == {None, "low", "high"}  # at every level

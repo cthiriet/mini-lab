@@ -24,7 +24,8 @@ def test_problems_are_valid(split, ks):
         assert len(states) == p["steps"] + 1 and p["steps"] in ks
         assert all(0 <= s <= 99 for s in states) and states[0] >= 2
         assert p["answer"] == states[-1]
-        assert p["bucket"] == sm.bucket(p) == (p["steps"], int(any(op == "dbl" for op, _ in p["ops"])))
+        ops = [op for op, _ in p["ops"]]
+        assert p["bucket"] == sm.bucket(p) == (f"1,{ops[0]}" if p["steps"] == 1 else f"{p['steps']},{int('dbl' in ops)}")
         assert (split == "heldout") or all(op != "half" for op, _ in p["ops"])
 
 
@@ -108,7 +109,7 @@ def test_normalize_and_dedupe():
 
 
 def test_think_follows_the_threshold():
-    policy = {"tau": {"low": 0.8, "medium": 0.92, "high": 0.99}, "p": {"1,0": 0.99, "2,0": 0.85, "3,0": 0.5}, "n": 300}
+    policy = {"tau": {"low": 0.8, "medium": 0.92, "high": 0.99}, "p": {"1,add": 0.99, "2,0": 0.85, "3,0": 0.5}, "n": 300}
     mk = lambda k: {"steps": k, "ops": [("add", 1)] * k}  # noqa: E731
     assert not sm.think("low", mk(1), policy) and not sm.think("medium", mk(1), policy)
     assert sm.think("high", mk(1), policy)  # 0.99 is not 0.03 above 0.99

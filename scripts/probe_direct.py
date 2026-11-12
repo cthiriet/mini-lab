@@ -24,37 +24,35 @@ MIN_N = 30
 LEVELS = ["low", "medium", "high"]
 
 
-def measure(model, tok, seed: int, steps: list[int], n: int) -> dict[tuple[int, int], list[bool]]:
+def measure(model, tok, seed: int, steps: list[int], n: int) -> dict[str, list[bool]]:
     """Direct (no reasoning) correctness of n problems per k, by bucket."""
     results = defaultdict(list)
     for k in steps:
         rng = random.Random(f"{seed}-{k}")
         problems = [sm.make(rng, k, "train") for _ in range(n)]
         for r in tasks.eval_story_math(model, tok, problems, 32, "medium", think=False):
-            results[tuple(r["bucket"])].append(r["correct"])
+            results[r["bucket"]].append(r["correct"])
     return results
 
 
 def policy(results: dict, tau: dict, source: str, seed: int) -> dict:
-    n = {f"{k},{d}": len(v) for (k, d), v in sorted(results.items())}
-    p = {f"{k},{d}": sum(v) / len(v) for (k, d), v in sorted(results.items()) if len(v) >= MIN_N}
+    n = {key: len(v) for key, v in sorted(results.items())}
+    p = {key: sum(v) / len(v) for key, v in sorted(results.items()) if len(v) >= MIN_N}
     return {"tau": tau, "p": p, "n": n, "source": source, "seed": seed}
 
 
 def table(pol: dict) -> str:
     lines = ["bucket  n     p      +-1.96se  " + "  ".join(f"{lv:<6}" for lv in LEVELS)]
     for key, n in pol["n"].items():
-        k, dbl = map(int, key.split(","))
-        problem = {"steps": k, "ops": [("dbl", None)] if dbl else []}
         p = pol["p"].get(key)
         acc = f"{p:.3f}  +-{1.96 * (p * (1 - p) / n) ** 0.5:.3f}" if p is not None else "-      (n too small)"
-        decisions = "  ".join(f"{'think' if sm.think(lv, problem, pol) else 'direct':<6}" for lv in LEVELS)
+        decisions = "  ".join(f"{'think' if sm.decide(lv, key, pol) else 'direct':<6}" for lv in LEVELS)
         lines.append(f"{key:<7} {n:<5} {acc:<19}{decisions}")
     return "\n".join(lines)
 
 
 def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(description="Direct accuracy of the probe per (steps, doubling) bucket.")
+    ap = argparse.ArgumentParser(description="Direct accuracy of the probe per bucket (story_math.bucket).")
     ap.add_argument("--run", required=True)
     ap.add_argument("--stage", required=True, choices=STAGES)
     ap.add_argument("--config", help="TOML config (default: <run>/config.toml)")

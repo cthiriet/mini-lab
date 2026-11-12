@@ -42,6 +42,6 @@ def test_half_right_probe_thinks(monkeypatch, tmp_path):
 
 
 def test_small_bucket_is_left_out():
-    out = pd.policy({(9, 0): [True] * 10, (1, 0): [True] * 40}, TAU, "s", 1)
+    out = pd.policy({"9,0": [True] * 10, "1,0": [True] * 40}, TAU, "s", 1)
     assert out["n"] == {"1,0": 40, "9,0": 10} and list(out["p"]) == ["1,0"]
     assert "n too small" in pd.table(out)

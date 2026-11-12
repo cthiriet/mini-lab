@@ -142,9 +142,11 @@ def answer_text(n: int) -> str:
     return f"The answer is {n}."
 
 
-def bucket(problem: dict) -> tuple[int, int]:
-    """The difficulty class: (steps, 1 if a step doubles)."""
-    return problem["steps"], int(any(op == "dbl" for op, _ in problem["ops"]))
+def bucket(problem: dict) -> str:
+    """The difficulty class, as the policy's key: "1,<op>" for one event (E1: a probe answers 92 % of
+    doublings at once, 16 % of subtractions), else "<steps>,<1 if a step doubles>"."""
+    k, ops = problem["steps"], [op for op, _ in problem["ops"]]
+    return f"1,{ops[0]}" if k == 1 else f"{k},{int('dbl' in ops)}"
 
 
 # ---- traces written by a program ----------------------------------------------
@@ -278,7 +280,7 @@ def dedupe_skeletons(traces: list[str], max_frac: float = 0.01) -> list[str]:
 # ---- policy -------------------------------------------------------------------
 
 def load_policy(path) -> dict:
-    """{"tau": {level: threshold}, "p": {"k,dbl": direct accuracy}, "n": problems per bucket}"""
+    """{"tau": {level: threshold}, "p": {bucket: direct accuracy}, "n": {bucket: problems measured}}"""
     with open(path) as f:
         return json.load(f)
 
@@ -286,7 +288,12 @@ def load_policy(path) -> dict:
 def think(level: str, problem: dict, policy: dict) -> bool:
     """Reason unless answering at once is reliable enough for this level: the direct accuracy of the
     problem's bucket must beat the level's threshold by 0.03. An unmeasured bucket thinks."""
+    return decide(level, bucket(problem), policy)
+
+
+def decide(level: str, key: str, policy: dict) -> bool:
+    """think() for a bucket key."""
     if level == "none":
         return False
-    p = policy["p"].get("%d,%d" % bucket(problem))
+    p = policy["p"].get(key)
     return p is None or p < min(policy["tau"][level] + 0.03, 1.0)  # high: a perfect bucket may answer at once
