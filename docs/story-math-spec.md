@@ -198,7 +198,7 @@ Un trace est **gardée** si et seulement si :
    - low : regex `^(\d+[+\-x]\d+=\d+)(\n\d+[+\-x]\d+=\d+)*$`, une ligne par événement utile (≤ k + 0) ;
    - medium : sans saut de ligne ; une première phrase de départ ; ≤ 14 mots par phrase ; une équation par phrase ; pas de phrase « Check » ; pas de conclusion ;
    - high : ≥ 1 phrase « Check: » avec un calcul qui retombe sur `answer` ; dernière phrase de la forme `So <hero> has <answer> <things>.` ; si le problème a un distracteur, une phrase qui dit qu'il ne compte pas (heuristique : contient « not matter », « does not change », « has nothing to do »).
-4. **Longueur** (tokens, tokenizer du modèle) : low ≤ 8k + 6 ; medium ≤ 24k + 12 ; high entre 30k + 20 et 48k + 40. Un high plus court que le medium du même problème est rejeté.
+4. **Longueur** (tokens, tokenizer du modèle) : low ≤ 8k + 6 ; medium ≤ 24k + 12 ; high entre 20k + 20 et 48k + 40 (révisé par le coordinateur : 30k + 20 forçait du remplissage). Un high plus court que le medium du même problème est rejeté.
 5. **Variété** : « squelette » = trace avec chaque nombre remplacé par `#` ; un même squelette ne peut dépasser 1 % du jeu d'un niveau ; sinon on jette les surplus.
 
 Les échecs sont rejoués une fois (même prompt, température 1,0) ; au-delà, le problème perd cette trace. La décision `think/direct` vient de la politique, pas de la trace.
