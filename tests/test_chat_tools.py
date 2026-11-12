@@ -72,3 +72,47 @@ def test_prompt_budget_leaves_room_for_the_answer():
     assert prompt_budget(1024, None) == 768   # a quarter of the context for the answer by default
     assert prompt_budget(1024, 100) == 924
     assert prompt_budget(1024, 5000) == 512   # never more than half
+
+
+def _effort_tok():
+    from minilab.tokenizer.bpe import Tokenizer
+    return Tokenizer.train("tools: calculator, effort: low high. What is 2 + 2? You are helpful.", vocab_size=400)
+
+
+EFFORT_CONVERSATIONS = [
+    ([{"role": "user", "content": "hi"}], None),
+    ([{"role": "system", "content": "Be brief."}, {"role": "user", "content": "What is 2 + 2?"}], ["calculator"]),
+    ([{"role": "user", "content": "2 + 2?"},
+      {"role": "assistant", "content": "4", "reasoning": "2 + 2 = 4"},
+      {"role": "user", "content": "and 3 + 3?"}], ["calculator"]),
+]
+
+
+def test_effort_header_only_for_low_and_high():
+    from minilab.tokenizer.chat import render_conversation, render_prompt
+    tok = _effort_tok()
+    S = tok.special
+    for messages, tools in EFFORT_CONVERSATIONS:
+        default = render_prompt(tok, messages, tools)
+        for effort in ("medium", "none", None):
+            assert render_prompt(tok, messages, tools, effort=effort) == default
+            assert render_conversation(tok, messages, tools, effort=effort) == render_conversation(tok, messages, tools)
+        for effort in ("low", "high"):
+            line = [S("<|system_start|>"), *tok.encode(f"effort: {effort}"), S("<|system_end|>")]
+            ids = render_prompt(tok, messages, tools, effort=effort)
+            n = len(line)
+            at = 1 + (len(tok.encode("tools: calculator")) + 2 if tools else 0)  # after bos and the tools line
+            assert ids[at:at + n] == line and ids[:at] + ids[at + n:] == default
+            assert render_prompt(tok, messages, tools, budget=500, effort=effort) == ids
+            full, mask = render_conversation(tok, messages, tools, effort=effort)
+            assert full[at:at + n] == line and mask[at:at + n] == [0] * n
+
+
+def test_default_rendering_is_unchanged():
+    """The header without effort is bos + the tools line, as before the effort line existed."""
+    from minilab.tokenizer.chat import render_prompt
+    tok = _effort_tok()
+    S = tok.special
+    expected = [tok.bos_id, S("<|system_start|>"), *tok.encode("tools: calculator"), S("<|system_end|>"),
+                S("<|user_start|>"), *tok.encode("hi"), S("<|user_end|>"), S("<|assistant_start|>")]
+    assert render_prompt(tok, [{"role": "user", "content": "hi"}], ["calculator"]) == expected

@@ -116,6 +116,7 @@ value (`MINILAB_INTERNAL_TOKEN`) before exposing the services.
 | `stop` | a string or up to 4 strings; generation stops before them |
 | `tools` | function tools. Only their **names** reach the model (it was trained on `tools: calculator`, not on JSON schemas). The model writes every argument as text: the gateway types them with the tools' JSON schemas (`"true"` becomes `true` where `parameters` says boolean) |
 | `tool_choice` | `auto` (default) or `none` (the model doesn't see the tools) |
+| `reasoning_effort` | `none`, `minimal`, `low`, `medium` (default), `high`, `xhigh` or `max`, case-insensitive. `minimal` counts as `low`, `xhigh` and `max` as `high`, any other value as `medium`. `none` switches thinking off: the sampler never emits `<|think_start|>`, a hard guarantee. The three other levels stay adaptive: the model decides whether to think, the level only moves its threshold (`low` thinks less, `high` more). `low` and `high` add an `effort:` line to the prompt, `medium` adds nothing |
 | `stream` | send the answer as server-sent events |
 | `stream_options.include_usage` | add a last chunk with the token usage |
 

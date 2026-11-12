@@ -157,6 +157,15 @@ def _text(content: str | list[dict] | None) -> str | None:
     return content
 
 
+_EFFORTS = {"none": "none", "minimal": "low", "low": "low", "medium": "medium",
+            "high": "high", "xhigh": "high", "max": "high"}
+
+
+def normalize_effort(value: str | None) -> str:
+    """reasoning_effort as one of none, low, medium, high; clients' other levels mean medium."""
+    return _EFFORTS.get(str(value).strip().lower(), "medium") if value is not None else "medium"
+
+
 def to_inference(req: ChatCompletionRequest, default_temperature: float = 1.0) -> dict:
     """Build the POST /generate body of the internal inference API (see docs/architecture.md).
     Without a temperature in the request, the model's default (release.json) is used."""
@@ -173,6 +182,7 @@ def to_inference(req: ChatCompletionRequest, default_temperature: float = 1.0) -
     # The model only needs tool *names*: it was trained on "tools: calculator", not JSON schemas.
     tools = [t.function.name for t in req.tools or []] if req.tool_choice != "none" else []
     stops = [req.stop] if isinstance(req.stop, str) else (req.stop or [])
+    effort = normalize_effort(req.reasoning_effort)
     return {
         "model": req.model,
         "messages": messages,
@@ -184,7 +194,8 @@ def to_inference(req: ChatCompletionRequest, default_temperature: float = 1.0) -
         "seed": req.seed,
         "stop": [s for s in stops if s] or None,
         "steer": [s.model_dump() for s in req.steer] if req.steer else None,
-        "think": req.reasoning_effort != "none",
+        "effort": effort,
+        "think": effort != "none",
         "stream": bool(req.stream),
     }
 

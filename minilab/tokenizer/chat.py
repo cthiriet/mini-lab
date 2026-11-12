@@ -4,6 +4,7 @@ A rendered conversation looks like this (one line per turn for readability):
 
     <|bos|>
     <|system_start|>tools: calculator<|system_end|>            # only if tools are enabled
+    <|system_start|>effort: high<|system_end|>                 # only for effort low or high
     <|system_start|>You are a helpful assistant.<|system_end|>  # optional system message
     <|user_start|>What is 347 + 58?<|user_end|>
     <|assistant_start|><|tool_call_start|>calculator<|arg|>expression=347 + 58<|tool_call_end|><|assistant_end|>
@@ -145,12 +146,14 @@ def prepare_messages(messages: list[dict]) -> list[dict]:
 
 # ---- rendering ------------------------------------------------------------------------
 
-def _render_header(tok: Tokenizer, tools) -> list[int]:
+def _render_header(tok: Tokenizer, tools, effort: str | None = None) -> list[int]:
     S = tok.special
     ids = [tok.bos_id]
     names = _tool_names(tools)
     if names:
         ids += [S("<|system_start|>"), *tok.encode("tools: " + ", ".join(names)), S("<|system_end|>")]
+    if effort in ("low", "high"):  # medium, none and unset: no line
+        ids += [S("<|system_start|>"), *tok.encode("effort: " + effort), S("<|system_end|>")]
     return ids
 
 
@@ -181,14 +184,14 @@ def _render_message(tok: Tokenizer, msg: dict) -> tuple[list[int], list[int]]:
 
 
 def render_conversation(
-    tok: Tokenizer, messages: list[dict], tools=None
+    tok: Tokenizer, messages: list[dict], tools=None, effort: str | None = None
 ) -> tuple[list[int], list[int]]:
     """Render a full conversation for training.
 
     Returns (ids, mask) where mask[i] == 1 for tokens the model should learn to
     produce (assistant turns, including their <|assistant_end|>), 0 otherwise.
     """
-    ids = _render_header(tok, tools)
+    ids = _render_header(tok, tools, effort)
     mask = [0] * len(ids)
     for msg in prepare_messages(messages):
         i, m = _render_message(tok, msg)
@@ -203,21 +206,24 @@ def prompt_budget(context_length: int, max_tokens: int | None) -> int:
     return context_length - min(max_tokens or context_length // 4, context_length // 2)
 
 
-def render_prompt(tok: Tokenizer, messages: list[dict], tools=None, budget: int | None = None) -> list[int]:
+def render_prompt(
+    tok: Tokenizer, messages: list[dict], tools=None, budget: int | None = None, effort: str | None = None
+) -> list[int]:
     """Render messages for inference: the result ends with <|assistant_start|>.
+    `effort` "low" or "high" adds the header line "effort: ..." after the tools line.
 
     With a budget (the server's context management), the prompt is at most `budget` tokens:
     see fit_messages()."""
     messages = prepare_messages(messages)
     if budget is not None:
-        messages = fit_messages(tok, messages, tools, budget - 1)
-    ids = _render_header(tok, tools)
+        messages = fit_messages(tok, messages, tools, budget - 1, effort)
+    ids = _render_header(tok, tools, effort)
     for msg in messages:
         ids += _render_message(tok, msg)[0]
     return ids + [tok.special("<|assistant_start|>")]
 
 
-def fit_messages(tok: Tokenizer, messages: list[dict], tools, budget: int) -> list[dict]:
+def fit_messages(tok: Tokenizer, messages: list[dict], tools, budget: int, effort: str | None = None) -> list[dict]:
     """The messages whose rendering fits in `budget` tokens, already prepared (prepare_messages).
 
     Kept, in this order: the system messages and the current request (the last user message and
@@ -229,7 +235,7 @@ def fit_messages(tok: Tokenizer, messages: list[dict], tools, budget: int) -> li
     rest = [m for m in messages if m["role"] not in ("system", "developer")]
     starts = [i for i, m in enumerate(rest) if m["role"] == "user"] or [0]
     size = {id(m): len(_render_message(tok, m)[0]) for m in rest}
-    fixed = len(_render_header(tok, tools)) + sum(len(_render_message(tok, m)[0]) for m in system)
+    fixed = len(_render_header(tok, tools, effort)) + sum(len(_render_message(tok, m)[0]) for m in system)
 
     current = [dict(m) for m in rest[starts[-1]:]]
     for m in current:

@@ -48,6 +48,7 @@ class GenerateRequest(BaseModel):
     stop: str | list[str] | None = None
     steer: list[Steer] | None = Field(None, max_length=8)   # features pushed at every token (engine.py)
     think: bool = True                               # False: no reasoning (reasoning_effort "none")
+    effort: str = "medium"                           # none, low, medium or high (api/schemas.py)
     stream: bool = False
 
 
@@ -156,7 +157,7 @@ def _render(runner, body: GenerateRequest) -> list[int]:
     old turns if needed: see tokenizer/chat.py."""
     budget = prompt_budget(runner.n_ctx, body.max_tokens)
     try:
-        return render_prompt(runner.tokenizer, body.messages, body.tools, budget=budget)
+        return render_prompt(runner.tokenizer, body.messages, body.tools, budget=budget, effort=body.effort)
     except PromptTooLong as e:
         raise ApiError(400, "context_length_exceeded",
                        f"This model's maximum context length is {runner.n_ctx} tokens: {e}.") from e

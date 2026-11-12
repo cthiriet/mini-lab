@@ -777,3 +777,33 @@ def test_reasoning_effort_none_turns_thinking_off():
     usage = {"prompt_tokens": 5, "completion_tokens": 9, "completion_tokens_details": {"reasoning_tokens": 6}}
     out = completion_json("id", 0, "m", {"content": "4", "reasoning": "2+2=4", "usage": usage}, [])
     assert out["usage"]["completion_tokens_details"] == {"reasoning_tokens": 6}
+
+
+def test_reasoning_effort_is_normalized():
+    from minilab.api.schemas import normalize_effort, parse_chat_request, to_inference
+    expected = {None: "medium", "none": "none", "minimal": "low", "low": "low", "medium": "medium",
+                "high": "high", "xhigh": "high", "max": "high", "HIGH": "high", "None": "none",
+                "turbo": "medium", "": "medium"}
+    for value, effort in expected.items():
+        assert normalize_effort(value) == effort
+    body = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    for value, effort in expected.items():
+        out = to_inference(parse_chat_request({**body, "reasoning_effort": value}))
+        assert out["effort"] == effort and out["think"] is (effort != "none")
+
+
+def test_effort_reaches_the_rendered_prompt():
+    from minilab.inference.server import GenerateRequest, _render
+    from minilab.tokenizer.bpe import Tokenizer
+
+    class Runner:
+        n_ctx = 1024
+        tokenizer = Tokenizer.train("effort: low high. hi", vocab_size=300)
+
+    tok = Runner.tokenizer
+    messages = [{"role": "user", "content": "hi"}]
+    ids = {e: _render(Runner, GenerateRequest(model="m", messages=messages, effort=e))
+           for e in ("none", "low", "medium", "high")}
+    assert ids["none"] == ids["medium"]
+    assert len({tuple(v) for v in ids.values()}) == 3
+    assert tok.encode("effort: high") == ids["high"][2:2 + len(tok.encode("effort: high"))]
