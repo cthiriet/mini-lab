@@ -3,10 +3,10 @@ import random
 
 import pytest
 
-from minilab.data import arithmetic
-from minilab.data.conversations import (INSTRUCTIONS, StoryPool, first_sentence, instruction_conversation,
+from minilab.data import arithmetic, conversations, story_math
+from minilab.data.conversations import (INSTRUCTIONS, Reason, StoryPool, first_sentence, instruction_conversation,
                                         is_refusal, mentions, midtrain_stream, sft_conversation, sft_dataset,
-                                        mixed_conversation, switch_conversation)
+                                        midtrain_conversation, mixed_conversation, switch_conversation)
 from minilab.data.loader import chat_batch, epochs, packed_batches, pretrain_documents
 from minilab.data.tinystories import clean
 from minilab.tokenizer.bpe import Tokenizer
@@ -219,3 +219,139 @@ def test_epochs_reshuffle_a_fixed_set():
     it = epochs(list(range(5)), seed=0)
     first, second = [next(it) for _ in range(5)], [next(it) for _ in range(5)]
     assert sorted(first) == sorted(second) == list(range(5)) and first != second
+
+
+# ---- story_math: policy, teacher bank, effort header (docs/story-math-spec.md) ----------------------
+
+RC = {"steps": [1, 2, 3], "k_weights": [1, 1, 1], "efforts": {"low": 0.3, "medium": 0.4, "high": 0.3},
+      "header_frac": 0.15, "tau": {"low": 0.80, "medium": 0.92, "high": 0.99}}
+MIX_MID = {"arithmetic": 0.35, "story_math": 0.30, "story": 0.20, "greeting": 0.15}
+MIX_SFT = {"plain": 0.3, "new_question": 0.2, "refusal": 0.1, "reason": 0.4}
+
+
+@pytest.fixture
+def made(monkeypatch):
+    """Every story_math conversation made, in order, with the problem behind it."""
+    out = []
+    make, conv = story_math.make, conversations.story_math_conversation
+
+    def spy_make(*args, **kw):
+        out.append({"problem": make(*args, **kw)})
+        return out[-1]["problem"]
+
+    def spy_conv(rng, reason):
+        out[-1]["conv"] = conv(rng, reason)
+        return out[-1]["conv"]
+
+    monkeypatch.setattr(story_math, "make", spy_make)
+    monkeypatch.setattr(conversations, "story_math_conversation", spy_conv)
+    return out
+
+
+def reason_with(tmp_path, p=None, **rc) -> Reason:
+    """A Reason with a probe table {"k,dbl": accuracy} (none: no policy file) and extra [data.reason] keys."""
+    if p is not None:
+        (tmp_path / "policy.json").write_text(json.dumps({"tau": {}, "p": p, "n": 300}))
+    return Reason({**RC, "policy": str(tmp_path / "policy.json"), "traces": str(tmp_path / "traces.jsonl"), **rc})
+
+
+def story_math_convs(reason: Reason, n: int, seed: int = 0) -> list[dict]:
+    rng = random.Random(seed)
+    return [conversations.story_math_conversation(rng, reason) for _ in range(n)]
+
+
+def test_story_math_follows_the_policy(tmp_path, made):
+    # buckets alternate between certain (p = 1.0: direct at every level) and a coin flip (p = 0.5:
+    # below every threshold, so never direct at any level)
+    table = {f"{k},{d}": 1.0 if (k + d) % 2 else 0.5 for k in (1, 2, 3) for d in (0, 1)}
+    tau = {"low": 0.80, "medium": 0.92, "high": 0.95}  # think() adds 0.03: with high = 0.99 nothing is direct at high
+    story_math_convs(reason_with(tmp_path, table, tau=tau), 600)
+    efforts = {True: set(), False: set()}
+    for m in made:
+        certain = table["%d,%d" % story_math.bucket(m["problem"])] == 1.0
+        assert ("reasoning" not in m["conv"]["messages"][1]) == certain
+        efforts[certain].add(m["conv"]["effort"])
+    assert efforts[True] == efforts[False] == {None, "low", "high"}  # at every level
+
+
+def test_story_math_without_a_policy_file_always_thinks(tmp_path):
+    convs = story_math_convs(reason_with(tmp_path), 100)
+    assert all(c["messages"][1].get("reasoning") and c["tools"] is None for c in convs)
+    assert all(c["messages"][1]["content"].startswith("The answer is ") for c in convs)
+
+
+def test_story_math_direct_mode(tmp_path, made):
+    reason, pool, rng = reason_with(tmp_path, mode="direct"), StoryPool(STORIES), random.Random(1)
+    convs = [midtrain_conversation(rng, MIX_MID, [1, 2, 3], pool, 0.3, reason) for _ in range(300)]
+    convs += [sft_conversation(rng, MIX_SFT, [1, 2, 3], pool, 0.3, reason) for _ in range(300)]
+    assert len(made) > 100
+    assert all("reasoning" not in m["conv"]["messages"][1] for m in made)
+    assert all(c.get("effort") is None for c in convs)  # no header on any kind
+
+
+def test_midtrain_stream_share_and_headers(tmp_path, made):
+    reason, pool = reason_with(tmp_path), StoryPool(STORIES)
+    stream = midtrain_stream(0, {"mix": MIX_MID, "tool_frac": 0.3}, [1, 2, 3], pool, reason)
+    convs = [next(stream) for _ in range(3000)]
+    assert abs(len(made) / len(convs) - 0.30) < 0.03
+    math_ids = {id(m["conv"]) for m in made}
+    others = [c for c in convs if id(c) not in math_ids]
+    assert abs(sum("effort" in c for c in others) / len(others) - 0.15) < 0.03
+    assert {c["effort"] for c in others if "effort" in c} == {"low", "high"}
+    assert {m["conv"]["effort"] for m in made} == {None, "low", "high"}
+
+
+def test_sft_reason_kind_and_histories(tmp_path, made):
+    reason, pool = reason_with(tmp_path), StoryPool(STORIES)
+    convs = sft_dataset(0, 2000, {"mix": MIX_SFT, "tool_frac": 0.3}, [1, 2, 3], pool, reason)
+    asked = {m["conv"]["messages"][0]["content"] for m in made}
+    reasoned = [c for c in convs if c["messages"][-2]["content"] in asked]  # ends on a story problem
+    assert abs(len(reasoned) / len(convs) - 0.4) < 0.05
+    with_history = [c for c in reasoned if len(c["messages"]) > 2]
+    assert 0.04 < len(with_history) / len(reasoned) < 0.16
+    assert all(c["train_on"] == "last" and not any("reasoning" in m for m in c["messages"][:-1]) for c in with_history)
+    # new_question can carry a story problem in its history, answered without the thoughts
+    earlier = [c for c in convs if c not in reasoned and any(m["content"] in asked for m in c["messages"][:-2])]
+    assert earlier and all(not any("reasoning" in m for m in c["messages"][:-1]) for c in earlier)
+
+
+def test_story_math_teacher_bank(tmp_path):
+    rng, rows = random.Random(5), []
+    for i, level in enumerate(["medium", "high", "high", "medium"]):
+        problem = story_math.make(rng, 2 + i % 2, "train")
+        rows.append({"id": f"t-{i}", "level": level, "text": f"TRACE {i} {level}", "ok": i != 3,
+                     "problem": {**problem, "id": f"t-{i}"}})
+    (tmp_path / "traces.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
+    reason = reason_with(tmp_path, teacher=True, efforts={"medium": 0.5, "high": 0.5})
+    text_of = {r["text"]: r["problem"]["messages"][0]["content"] for r in rows}
+    seen = set()
+    for question, reply in (c["messages"] for c in story_math_convs(reason, 100)):
+        assert text_of[reply["reasoning"]] == question["content"]  # the trace belongs to this very problem
+        seen.add(reply["reasoning"])
+    assert seen == {"TRACE 0 medium", "TRACE 1 high", "TRACE 2 high"}  # the rejected row is never drawn
+    # teacher = false, or a level the bank lacks: the program writes the thoughts
+    for rc in ({"teacher": False}, {"teacher": True, "efforts": {"low": 1.0}}):
+        assert all("TRACE" not in c["messages"][1]["reasoning"] for c in story_math_convs(reason_with(tmp_path, **rc), 30))
+
+
+def test_story_math_without_a_trace_file_is_plan_b(tmp_path):
+    reason = reason_with(tmp_path, teacher=True)  # no traces.jsonl in tmp_path
+    assert reason.bank == {}
+    assert all(c["messages"][1]["reasoning"] for c in story_math_convs(reason, 30))
+
+
+def test_story_math_is_deterministic(tmp_path):
+    reason, pool = reason_with(tmp_path), StoryPool(STORIES)
+    mid = {"mix": MIX_MID, "tool_frac": 0.3}
+    s1, s2 = midtrain_stream(4, mid, [1, 2, 3], pool, reason), midtrain_stream(4, mid, [1, 2, 3], pool, reason)
+    assert [next(s1) for _ in range(100)] == [next(s2) for _ in range(100)]
+    sft = {"mix": MIX_SFT, "tool_frac": 0.3}
+    assert sft_dataset(2, 100, sft, [1, 2, 3], pool, reason) == sft_dataset(2, 100, sft, [1, 2, 3], pool, reason)
+
+
+def test_story_math_rendering_has_the_effort_line(tok, tmp_path):
+    conv = story_math_convs(reason_with(tmp_path, efforts={"high": 1.0}), 1)[0]
+    ids, _ = render_conversation(tok, conv["messages"], conv["tools"], conv["effort"])
+    assert "effort: high" in tok.decode(ids) and "effort" not in tok.decode(render_conversation(tok, conv["messages"])[0])
+    x, _ = chat_batch(tok, [conv], 1024)  # the loader renders it with the header too
+    assert x[0][:len(ids) - 1].tolist() == ids[:-1]

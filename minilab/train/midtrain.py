@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Iterator
 
 from minilab.checkpoint import load_checkpoint
-from minilab.data.conversations import StoryPool, midtrain_stream
+from minilab.data.conversations import Reason, StoryPool, midtrain_stream
 from minilab.data.loader import packed_batches, pretrain_documents
 from minilab.data.tinystories import load_stories
 from minilab.tokenizer.chat import render_conversation
@@ -36,10 +36,11 @@ def main() -> None:
 
     stories = load_stories("train", d["train_mb"])
     pool = StoryPool(stories, d.get("story_max_chars", 700))
+    reason = Reason(d["reason"])
 
     def documents(seed: int, text_frac: float) -> Iterator[list[int]]:
         rng = random.Random(seed)
-        convs = midtrain_stream(seed, sc, d["digits"], pool)
+        convs = midtrain_stream(seed, sc, d["digits"], pool, reason)
         text = pretrain_documents(tok, stories, d["digits"], cfg["pretrain"]["arith_frac"], seed,
                                   cfg["pretrain"]["code_frac"])
         while True:
@@ -47,7 +48,7 @@ def main() -> None:
                 yield next(text)
             else:
                 conv = next(convs)
-                yield render_conversation(tok, conv["messages"], conv["tools"])[0]
+                yield render_conversation(tok, conv["messages"], conv["tools"], conv.get("effort"))[0]
 
     T, B = model.config.block_size, sc["batch_size"]
     batches = packed_batches(documents(seed + 1, sc["text_frac"]), B, T)

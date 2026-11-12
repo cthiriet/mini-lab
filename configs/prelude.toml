@@ -27,6 +27,8 @@ header_frac = 0.15          # share of the other conversations with an effort he
 tau = { low = 0.80, medium = 0.92, high = 0.99 }    # answer at once only if the probe's accuracy on the bucket beats it by 0.03
 traces = "data/reason/traces.jsonl"                 # the teacher's traces (scripts/teacher_traces.py)
 policy = "data/reason/policy.json"                  # the probe's accuracy per (steps, doubling) (scripts/probe_direct.py)
+teacher = false             # medium and high traces from the teacher's file (true) or from the program (false), until E3 decides
+mode = "policy"             # "direct": story problems with no thoughts and no header anywhere (the probe of E1, spec 3.3)
 
 [tokenizer]
 vocab_size = 4096
@@ -65,15 +67,13 @@ weight_decay = 0.1
 digits = [1, 2, 3]          # chat data only demonstrates short additions: RL does the rest
 text_frac = 0.25            # share of pretraining documents (Python included), against forgetting
 tool_frac = 0.3             # share of conversations with the calculator enabled
-mix = { arithmetic = 0.6, story = 0.2, greeting = 0.2 }
-# mix = { arithmetic = 0.35, story_math = 0.30, story = 0.20, greeting = 0.15 }   # once conversations.py knows story_math
+mix = { arithmetic = 0.35, story_math = 0.30, story = 0.20, greeting = 0.15 }
 eval_every = 200
 log_every = 25
 
 [sft]                       # chat conversations and agent transcripts, one row each
 size = 16000                # chat conversations (1.8 epochs)
-mix = { plain = 0.13, instruction = 0.33, followup = 0.12, new_question = 0.12, switch = 0.08, mixed = 0.1, refusal = 0.08, identity = 0.04 }
-# mix = { plain = 0.104, instruction = 0.264, followup = 0.096, new_question = 0.096, switch = 0.064, mixed = 0.08, refusal = 0.064, identity = 0.032, reason = 0.20 }   # once conversations.py knows reason
+mix = { plain = 0.104, instruction = 0.264, followup = 0.096, new_question = 0.096, switch = 0.064, mixed = 0.08, refusal = 0.064, identity = 0.032, reason = 0.20 }
 digits = [1, 2, 3]
 tool_frac = 0.3
 code_size = 80000           # agent transcripts, generated once (every tool call runs for real) -> data/code/

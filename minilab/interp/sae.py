@@ -38,7 +38,7 @@ import torch.nn.functional as F
 
 from minilab.checkpoint import load_checkpoint
 from minilab.data import arithmetic, code
-from minilab.data.conversations import StoryPool, sft_dataset
+from minilab.data.conversations import Reason, StoryPool, sft_dataset
 from minilab.data.tinystories import load_stories
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
@@ -77,14 +77,14 @@ def stream(tok: Tokenizer, cfg: dict, seed: int) -> Iterator[tuple[list[int], st
     rng = random.Random(seed)
     d = cfg["data"]
     stories = load_stories("train", d["train_mb"])
-    chats = sft_dataset(seed, min(4000, cfg["sft"]["size"]), cfg["sft"], d["digits"], StoryPool(stories, d.get("story_max_chars", 700)))
+    chats = sft_dataset(seed, min(4000, cfg["sft"]["size"]), cfg["sft"], d["digits"], StoryPool(stories, d.get("story_max_chars", 700)), Reason(d["reason"]))
     agent = code.sft_set(cfg, cfg.get("seed", 0) + 2)
     python = code.pretrain_documents(seed + 1)
     while True:
         source = rng.choices(list(SOURCES), list(SOURCES.values()))[0]
         if source in ("chat", "agent"):
             conv = rng.choice(chats if source == "chat" else agent)
-            ids = render_conversation(tok, conv["messages"], conv.get("tools"))[0]
+            ids = render_conversation(tok, conv["messages"], conv.get("tools"), conv.get("effort"))[0]
         else:
             text = {"story": lambda: rng.choice(stories), "worksheet": lambda: arithmetic.pretrain_document(rng, d["digits"]),
                     "python": lambda: next(python)}[source]()
