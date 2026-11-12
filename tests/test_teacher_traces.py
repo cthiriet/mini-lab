@@ -121,9 +121,9 @@ def test_model_without_zdr_endpoint_stops_before_any_call(tmp_path):
         raise AssertionError("no paid call without a ZDR endpoint")
     argv = ["--n", "5", "--out", str(tmp_path / "t.jsonl"), "--model", "a/b"]
     with pytest.raises(SystemExit):
-        tt.main(argv, post=post, endpoints=[{"name": "River | c/d"}])
+        tt.main(argv, post=post, endpoints=[{"model_id": "c/d"}])
     assert not (tmp_path / "t.jsonl").exists()
-    assert tt.has_zdr([{"name": "River | a/b"}], "a/b") and tt.has_zdr([{"model_id": "a/b"}], "a/b")
+    assert tt.has_zdr([{"model_id": "a/b"}], "a/b") and not tt.has_zdr([{"model_id": "a/b-1017"}], "a/b")
 
 
 def test_request_body_is_private_and_exact():

@@ -111,9 +111,8 @@ def fetch_zdr() -> list[dict]:
 
 
 def has_zdr(endpoints: list[dict], model: str) -> bool:
-    """Does one of the zero-data-retention endpoints serve `model`? (Matches any field that is the model id,
-    or "<provider> | <model id>".)"""
-    return any(v == model or v.endswith(f" | {model}") for e in endpoints for v in e.values() if isinstance(v, str))
+    """Does one of the zero-data-retention endpoints serve `model`?"""
+    return any(e.get("model_id") == model for e in endpoints)
 
 
 def call(post, payload: dict) -> tuple[int, dict]:
