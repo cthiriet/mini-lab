@@ -22,8 +22,8 @@ from minilab.api.errors import APIError, invalid_request
 from minilab.api.metering import Meter
 from minilab.api.ratelimit import estimate_prompt_tokens
 from minilab.api.schemas import (ChatCompletionRequest, cached_tokens, chunk_json, completion_json, finish_reason,
-                                 new_completion_id, parse_chat_request, to_inference, tool_calls_json,
-                                 usage_chunk_json, usage_json)
+                                 new_completion_id, parse_chat_request, reasoning_tokens, to_inference,
+                                 tool_calls_json, usage_chunk_json, usage_json)
 from minilab.api.upstream import stream_events
 
 router = APIRouter()
@@ -184,7 +184,7 @@ class StreamRelay:
             yield self._chunk({"tool_calls": [{"index": i, **call}]})
         yield self._chunk({}, finish_reason(done))
         if req.include_usage:
-            yield _sse(usage_chunk_json(m.id, m.created, req.model, usage_json(p, c, cached_tokens(usage))))
+            yield _sse(usage_chunk_json(m.id, m.created, req.model, usage_json(p, c, cached_tokens(usage), reasoning_tokens(usage))))
         yield "data: [DONE]\n\n"
 
 

@@ -8,6 +8,10 @@ grader are shared with RL: the RL reward *is* the eval's grade().
   generalization.
 - arithmetic_sampled: the hardest in-distribution digit count at temperature 1, the
   API default. One unlucky token in a long scratchpad ruins the answer.
+- thinking (adaptive thinking): per digit count, how often the model writes its scratchpad and
+  how many tokens it spends, and the accuracy when thinking is forced (the prompt ends with
+  <|think_start|>) or turned off (<|think_start|> never sampled: reasoning_effort "none").
+  Adaptive is right when it matches the better of the two at a fraction of the tokens.
 - tool use: with the calculator enabled, the first turn must be a calculator call
   whose expression evaluates to the right result; we run the tool, and the second
   turn must state the right answer.
@@ -38,7 +42,7 @@ from minilab.data.conversations import (GREETINGS, IDENTITY, INSTRUCTIONS, NAME,
 from minilab.data.loader import story_batches
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
-from minilab.tokenizer.chat import ARG, parse_completion, prompt_budget, render_prompt
+from minilab.tokenizer.chat import ARG, parse_completion, prompt_budget, reasoning_length, render_prompt
 from minilab.train.trainer import evaluate_loss
 
 EVAL_SEED = 1234
@@ -58,7 +62,7 @@ CHAT_PROMPTS = [  # scored for format only, and kept as samples in eval.json
 
 
 def generate(model: GPT, prompts: list[list[int]], max_new_tokens: int, stop_ids: set[int],
-             temperature: float = 0.0, seed: int = 0, batch_size: int = 64) -> list[list[int]]:
+             temperature: float = 0.0, seed: int = 0, batch_size: int = 64, banned: list[int] = ()) -> list[list[int]]:
     """Batched sampling. A prompt that doesn't fit the context gets an empty completion (a failure)."""
     device = model.wte.weight.device
     gen = torch.Generator(device=device).manual_seed(seed)
@@ -67,7 +71,7 @@ def generate(model: GPT, prompts: list[list[int]], max_new_tokens: int, stop_ids
     for start in range(0, len(fits), batch_size):
         rows = fits[start:start + batch_size]
         completions = model.generate([prompts[i] for i in rows], max_new_tokens, temperature=temperature,
-                                     stop_ids=stop_ids, generator=gen)
+                                     stop_ids=stop_ids, generator=gen, banned=banned)
         for i, c in zip(rows, completions):
             out[i] = c
     return out
@@ -269,15 +273,20 @@ def check_answer(content: str, problem: dict) -> bool:
 
 
 def eval_arithmetic_chat(model: GPT, tok: Tokenizer, problems: list[dict], max_new_tokens: int,
-                         temperature: float = 0.0) -> list[dict]:
+                         temperature: float = 0.0, think: bool | None = None) -> list[dict]:
+    """think: None lets the model decide (adaptive), True forces the scratchpad (the prompt ends
+    with <|think_start|>), False forbids it (<|think_start|> is never sampled)."""
     stop = {tok.special("<|assistant_end|>")}
-    prompts = [render_prompt(tok, p["messages"], p["tools"]) for p in problems]
-    outs = generate(model, prompts, max_new_tokens, stop, temperature, seed=EVAL_SEED)
+    start = [tok.special("<|think_start|>")] if think else []
+    prompts = [render_prompt(tok, p["messages"], p["tools"]) + start for p in problems]
+    outs = generate(model, prompts, max_new_tokens, stop, temperature, seed=EVAL_SEED,
+                    banned=[tok.special("<|think_start|>")] if think is False else [])
     records = []
     for p, out in zip(problems, outs):
+        out = start + out
         c = parse_completion(tok, out)
         records.append({"digits": p["digits"], "correct": grade(tok, out, p), "format_ok": turn_ok(tok, out, False),
-                        "refused": is_refusal(c.content)})
+                        "refused": is_refusal(c.content), "thinking": reasoning_length(tok, out)})
     return records
 
 

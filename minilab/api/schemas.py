@@ -83,6 +83,9 @@ class ChatCompletionRequest(_Lenient):
     stream_options: StreamOptions | None = None
     # not in OpenAI's API: push features of the model's dictionary at every token (docs/api.md)
     steer: list[Steer] | None = Field(None, max_length=8)
+    # OpenAI's knob. The model decides when to think (adaptive): "none" turns thinking off, the
+    # other levels leave it to the model, as Claude's adaptive thinking does with effort.
+    reasoning_effort: str | None = None  # any value: clients send their own levels
 
     @property
     def include_usage(self) -> bool:
@@ -181,6 +184,7 @@ def to_inference(req: ChatCompletionRequest, default_temperature: float = 1.0) -
         "seed": req.seed,
         "stop": [s for s in stops if s] or None,
         "steer": [s.model_dump() for s in req.steer] if req.steer else None,
+        "think": req.reasoning_effort != "none",
         "stream": bool(req.stream),
     }
 
@@ -208,15 +212,21 @@ def finish_reason(result: dict) -> str:
     return result.get("finish_reason") or "stop"
 
 
-def usage_json(prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0) -> dict:
-    """OpenAI's usage object; cached_tokens are the prompt tokens read from the prefix cache."""
+def usage_json(prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0, reasoning_tokens: int = 0) -> dict:
+    """OpenAI's usage object; cached_tokens are the prompt tokens read from the prefix cache,
+    reasoning_tokens the completion tokens spent thinking (billed as output, like OpenAI's)."""
     return {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
             "total_tokens": prompt_tokens + completion_tokens,
-            "prompt_tokens_details": {"cached_tokens": cached_tokens}}
+            "prompt_tokens_details": {"cached_tokens": cached_tokens},
+            "completion_tokens_details": {"reasoning_tokens": reasoning_tokens}}
 
 
 def cached_tokens(usage: dict) -> int:
     return (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+
+
+def reasoning_tokens(usage: dict) -> int:
+    return (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
 
 
 def completion_json(id: str, created: int, model: str, result: dict, tool_calls: list[dict]) -> dict:
@@ -234,7 +244,8 @@ def completion_json(id: str, created: int, model: str, result: dict, tool_calls:
     return {
         "id": id, "object": "chat.completion", "created": created, "model": model,
         "choices": [{"index": 0, "message": message, "logprobs": None, "finish_reason": finish_reason(result)}],
-        "usage": usage_json(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0), cached_tokens(usage)),
+        "usage": usage_json(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0), cached_tokens(usage),
+                            reasoning_tokens(usage)),
         "system_fingerprint": None,
     }
 

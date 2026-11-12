@@ -763,3 +763,17 @@ def test_steer_extension_reaches_inference():
         with pytest.raises(APIError) as e:
             parse_chat_request({**body, "steer": bad})
         assert e.value.status == 400 and "steer" in e.value.param
+
+
+def test_reasoning_effort_none_turns_thinking_off():
+    """Thinking is adaptive (the model decides); reasoning_effort "none" turns it off, any other
+    level (and clients' own levels) leaves it to the model."""
+    from minilab.api.schemas import completion_json, parse_chat_request, to_inference
+    body = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    assert to_inference(parse_chat_request(body))["think"] is True
+    assert to_inference(parse_chat_request({**body, "reasoning_effort": "none"}))["think"] is False
+    for level in ("minimal", "low", "medium", "high", "xhigh", "max"):
+        assert to_inference(parse_chat_request({**body, "reasoning_effort": level}))["think"] is True
+    usage = {"prompt_tokens": 5, "completion_tokens": 9, "completion_tokens_details": {"reasoning_tokens": 6}}
+    out = completion_json("id", 0, "m", {"content": "4", "reasoning": "2+2=4", "usage": usage}, [])
+    assert out["usage"]["completion_tokens_details"] == {"reasoning_tokens": 6}

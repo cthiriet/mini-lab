@@ -124,7 +124,8 @@ def prepare_messages(messages: list[dict]) -> list[dict]:
     cwd = working_directory(messages)
 
     def rel(text: str) -> str:
-        return text.replace(cwd + "/", "").replace(cwd, ".") if cwd else text
+        # cwd itself only as a whole path: /home/u/proj2 is not under /home/u/proj
+        return re.sub(re.escape(cwd) + r"(?![\w-]|\.\w)", ".", text.replace(cwd + "/", "")) if cwd else text
 
     out = []
     for m in messages:
@@ -307,6 +308,17 @@ def parse_completion(tok: Tokenizer, ids: list[int]) -> ParsedCompletion:
     out.content = tok.decode(content)
     out.reasoning = tok.decode(reasoning) if reasoning is not None else None
     return out
+
+
+def reasoning_length(tok: Tokenizer, ids: list[int]) -> int:
+    """How many of the generated tokens are thinking: <|think_start|> to <|think_end|>, both included."""
+    start, end = tok.special("<|think_start|>"), tok.special("<|think_end|>")
+    n, inside = 0, False
+    for t in ids:
+        inside = inside or t == start
+        n += inside
+        inside = inside and t != end
+    return n
 
 
 def _parse_tool_call(tok: Tokenizer, ids: list[int]) -> dict:

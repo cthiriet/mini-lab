@@ -10,8 +10,20 @@ practices additions (and the calculator); distillation then merges it with the S
    reward is the eval's grader, and it has to be strict: RL is very good at finding
    loopholes (see minilab.eval.tasks.grade);
 3. advantage = reward normalized within its group: (r - mean) / (std + eps). Attempts
-   that beat their siblings are pushed up, the others down. A group where every
-   attempt got the same reward carries no signal and is skipped;
+   that beat their siblings are pushed up, the others down. Then adaptive thinking: a
+   right answer pays `think_cost` per token of thinking, and that cost is added to the
+   advantage *unnormalized*. Normalized, it would weigh as much as being right: in a group
+   where every attempt is right, the shortest would get +1 however small the cost, and RL
+   learned to skip the scratchpad where it was needed (3-5 digits: 74-90% instead of 100%).
+   Unnormalized, thinking is only dropped where the answers stay right without it. And both
+   ways are tried on every addition asked without tools: half of each group thinks (its
+   answer starts with <|think_start|>), half doesn't (<|think_start|> is never sampled), so
+   RL compares them on the same problem and improves both. Left to sample its own choice,
+   the model was locked in by its start: SFT can't think through 4-5 digits yet (0% right,
+   46% answering directly), so a high cost never found out thinking would get there, and a
+   low one let thinking take over everywhere, 1-digit sums too. The first token learns which
+   way wins (as AdaptThink does). Forcing the scratchpad on stories or calculator calls too
+   broke the model (long forced answers, all wrong, all pushed down). A group where every attempt got the same advantage carries no signal and is skipped;
 4. policy-gradient loss: -advantage * log p(token), averaged over all completion tokens.
 
 Like nanochat's simplified GRPO: fully on-policy (one update per batch of samples),
@@ -40,14 +52,26 @@ from minilab.data import code
 from minilab.eval.tasks import grade, make_problem
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
-from minilab.tokenizer.chat import render_prompt
+from minilab.tokenizer.chat import reasoning_length, render_prompt
 from minilab.train.trainer import Logger, load_config, lr_at, make_optimizer, parse_args, save_stage, setup
+
+
+THINKABLE = ("add", "word", "long_followup", "new_question")  # problems where both ways make sense
 
 
 def reward(tok: Tokenizer, completion: list[int], problem: dict) -> float:
     """1 if the assistant turn is ended and does what was asked. This is the eval's grader:
     a reward that checks less gets hacked (see minilab.eval.tasks.grade)."""
     return float(grade(tok, completion, problem))
+
+
+def advantages(rewards: torch.Tensor, thinking: torch.Tensor, think_cost: float = 0.0) -> torch.Tensor:
+    """(P, G) rewards and thinking lengths -> (P, G) advantages: the rewards normalized within
+    their group, minus the thinking cost of the right answers relative to the group's mean
+    (unnormalized: see the module docstring)."""
+    adv = (rewards - rewards.mean(1, keepdim=True)) / (rewards.std(1, keepdim=True) + 1e-4)
+    cost = think_cost * thinking * rewards
+    return adv - (cost - cost.mean(1, keepdim=True))
 
 
 def sample_problem(rng: random.Random, sc: dict, code_pool: list[dict] | None = None) -> dict:
@@ -64,7 +88,8 @@ def sample_problem(rng: random.Random, sc: dict, code_pool: list[dict] | None = 
 
 
 def rl_step(model: GPT, tok: Tokenizer, opt: torch.optim.Optimizer, problems: list[dict], group_size: int,
-            max_new_tokens: int, temperature: float, generator: torch.Generator, grad_clip: float = 1.0) -> dict:
+            max_new_tokens: int, temperature: float, generator: torch.Generator, grad_clip: float = 1.0,
+            think_cost: float = 0.0) -> dict:
     """One GRPO step on a batch of problems (dicts with "messages", "tools", "answer", ...)."""
     device = model.wte.weight.device
     stop = {tok.special("<|assistant_end|>")}
@@ -75,17 +100,28 @@ def rl_step(model: GPT, tok: Tokenizer, opt: torch.optim.Optimizer, problems: li
     problems, prompts = [p for p, _ in rendered], [ids for _, ids in rendered]
     P, G = len(problems), group_size
     if not problems:
-        return {"reward": 0.0, "informative": 0.0, "completion_len": 0.0, "loss": 0.0, "tokens": 0}
+        return {"reward": 0.0, "informative": 0.0, "thinking": 0.0, "completion_len": 0.0, "loss": 0.0, "tokens": 0}
     model.eval()
-    completions = model.generate([p for p in prompts for _ in range(G)], max_new_tokens,
-                                 temperature=temperature, stop_ids=stop, generator=generator)
+    # adaptive thinking: on an addition without tools, half of the group thinks, half answers directly
+    think = [tok.special("<|think_start|>")]
+    both = [bool(think_cost) and not p["tools"] and p["kind"] in THINKABLE for p in problems]
+    way = ["think" if both[i // G] and i % G < G // 2 else "direct" if both[i // G] else "free" for i in range(P * G)]
+    completions: list[list[int]] = [[] for _ in range(P * G)]
+    for w, prefix, banned in (("think", think, []), ("direct", [], think), ("free", [], [])):
+        rows = [i for i in range(P * G) if way[i] == w]
+        if rows:
+            out = model.generate([prompts[i // G] + prefix for i in rows], max_new_tokens - len(prefix),
+                                 temperature=temperature, stop_ids=stop, generator=generator, banned=banned)
+            for i, c in zip(rows, out):
+                completions[i] = prefix + c
 
     # 2) rewards and group-normalized advantages
     rewards = torch.tensor([reward(tok, c, problems[i // G]) for i, c in enumerate(completions)])
-    r = rewards.view(P, G)
-    adv = ((r - r.mean(1, keepdim=True)) / (r.std(1, keepdim=True) + 1e-4)).view(-1)
+    thinking = torch.tensor([reasoning_length(tok, c) for c in completions], dtype=torch.float)
+    adv = advantages(rewards.view(P, G), thinking.view(P, G), think_cost).view(-1)
     keep = [i for i in range(P * G) if adv[i] != 0]
     stats = {"reward": rewards.mean().item(), "informative": len(keep) / (P * G),
+             "thinking": thinking.mean().item(),
              "completion_len": sum(map(len, completions)) / len(completions), "loss": 0.0, "tokens": 0}
     if not keep:
         return stats
@@ -131,7 +167,7 @@ def main() -> None:
             group["lr"] = lr
         problems = [sample_problem(rng, sc) for _ in range(sc["prompts_per_step"])]
         stats = rl_step(model, tok, opt, problems, sc["group_size"], sc["max_new_tokens"],
-                        sc.get("temperature", 1.0), gen, sc.get("grad_clip", 1.0))
+                        sc.get("temperature", 1.0), gen, sc.get("grad_clip", 1.0), sc.get("think_cost", 0.0))
         tokens += stats.pop("tokens")
         if (step + 1) % sc.get("log_every", 1) == 0 or step == steps - 1:
             log.log(step=step + 1, **stats, lr=lr, elapsed=round(time.time() - t0, 1))

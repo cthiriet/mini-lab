@@ -52,6 +52,15 @@ def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
         max_new = ec.get("max_new_tokens", 200)
         records = tasks.eval_arithmetic_chat(model, tok, problems, max_new)
         result["arithmetic"] = _by_digits(records)
+        forced = tasks.eval_arithmetic_chat(model, tok, problems, max_new, think=True)
+        off = tasks.eval_arithmetic_chat(model, tok, problems, max_new, think=False)
+        for r in records:
+            r["thinks"] = r["thinking"] > 0
+        result["thinking"] = {  # adaptive thinking, per digit count (see eval/tasks.py)
+            "rate": _by_digits(records, "thinks"), "tokens": _by_digits(records, "thinking"),
+            "accuracy_forced": _by_digits(forced, "correct"), "accuracy_off": _by_digits(off, "correct"),
+            "tokens_forced": _by_digits(forced, "thinking")}
+        result["think_saved"] = 1 - _mean(r["thinking"] for r in records) / max(_mean(r["thinking"] for r in forced), 1)
         hardest = tasks.arithmetic_problems(max(train_digits), ec["n_sampled"])
         sampled = tasks.eval_arithmetic_chat(model, tok, hardest, max_new, temperature=1.0)
         result["arithmetic_sampled"] = _mean(r["correct"] for r in sampled)
@@ -88,6 +97,7 @@ def _pct(v) -> str:
 
 
 TABLE_FOOTNOTE = ("* held-out digit counts (length generalization). base = raw-text prompt \"a + b =\". "
+                  "think saved = thinking tokens the model skips on additions, against always thinking. "
                   "instr = instruction following, chat = whole conversations right. agent = coding tasks done end "
                   "to end in opencode's format, valid calls = tool calls opencode accepts (see eval.json).")
 
@@ -98,15 +108,15 @@ def _table_cells(results: list[dict], times: dict[str, float] | None) -> tuple[l
     heldout = set(results[0].get("heldout_digits", []))
     cols = ["stage", "ppl"] + [f"{n}d" + ("*" if n in heldout else "") for n in digits]
     hardest = max(results[0].get("train_digits", [0]))
-    cols += [f"{hardest}d@T=1", "tool call", "tool ans", "story", "instr", "chat", "format"]
+    cols += [f"{hardest}d@T=1", "think saved", "tool call", "tool ans", "story", "instr", "chat", "format"]
     coding = "code" in results[0]
     cols += (["agent", "valid calls"] if coding else []) + (["train time"] if times else [])
     rows = []
     for r in results:
         row = [r["stage"] + (" (base)" if r["mode"] == "completion" else ""), f"{r['val_ppl']:.2f}"]
         row += [_pct(r["arithmetic"].get(str(n))) for n in digits]
-        row += [_pct(r.get(k)) for k in ("arithmetic_sampled", "tool_call", "tool_answer", "story_topic", "instr", "chat",
-                                         "format")]
+        row += [_pct(r.get(k)) for k in ("arithmetic_sampled", "think_saved", "tool_call", "tool_answer", "story_topic",
+                                         "instr", "chat", "format")]
         if coding:
             row += [_pct(code_eval.get(r, "code.agent")), _pct(code_eval.get(r, "code.valid_calls"))]
         if times:
@@ -166,6 +176,11 @@ def main() -> None:
     result = evaluate(model, tok, cfg, args.stage)
     (run / args.stage / "eval.json").write_text(json.dumps(result, indent=2))
     print(table([result]))
+    if "thinking" in result:
+        th = result["thinking"]
+        print("thinking (per digit count): " + "; ".join(
+            f"{n}d {_pct(th['rate'][n])} think, {th['tokens'][n]:.0f} tok, forced {_pct(th['accuracy_forced'][n])}, "
+            f"off {_pct(th['accuracy_off'][n])}" for n in th["rate"]))
     if "instructions" in result:
         print("instructions: " + ", ".join(f"{k} {_pct(v)}" for k, v in result["instructions"].items()))
     if result.get("code", {}).get("tasks"):

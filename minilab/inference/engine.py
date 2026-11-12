@@ -92,6 +92,7 @@ class SamplingParams:
     seed: int | None = None        # same seed + same prompt -> same completion
     stop: list[str] = field(default_factory=list)  # stop strings, matched on visible content
     steer: list[tuple[int, float]] = field(default_factory=list)  # (feature, strength): features pushed at every token
+    think: bool = True             # False: <|think_start|> is never sampled (reasoning_effort "none")
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +124,7 @@ class StreamParser:
         self.content = ""               # visible content so far (sent + held back)
         self.sent = 0                   # how much of self.content was already emitted
         self.reasoning: str | None = None
+        self.reasoning_tokens = 0       # tokens inside <|think_start|>...<|think_end|>, markers included
         self.finished = False           # saw <|assistant_end|>
         self.stopped = False            # hit a stop string
         self._content_dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
@@ -130,6 +132,7 @@ class StreamParser:
 
     def feed(self, t: int) -> list[dict]:
         # Same state machine, same order of checks as parse_completion.
+        self.reasoning_tokens += self.in_think or t == self.THINK
         if t == self.END:
             self.finished = True
         elif t == self.THINK:
@@ -445,6 +448,9 @@ class ModelRunner:
         # shares the batch with it.
         for req, row in zip(reqs, logits):
             p = req.params
+            if not p.think:
+                row = row.clone()
+                row[req.parser.THINK] = float("-inf")
             try:
                 token = int(sample_next(row[None], p.temperature, p.top_k, p.top_p, req.generator))
             except Exception as e:  # one bad request fails alone, not everyone in the batch
@@ -474,7 +480,8 @@ class ModelRunner:
             "tool_calls": tool_calls,
             "finish_reason": "tool_calls" if tool_calls else reason,
             "usage": {"prompt_tokens": len(req.prompt), "completion_tokens": len(req.tokens),
-                      "prompt_tokens_details": {"cached_tokens": req.cached_tokens}},
+                      "prompt_tokens_details": {"cached_tokens": req.cached_tokens},
+                      "completion_tokens_details": {"reasoning_tokens": req.parser.reasoning_tokens}},
         })
         LATENCY.observe(time.perf_counter() - req.submitted, model=self.info.id)
         self._release(req)

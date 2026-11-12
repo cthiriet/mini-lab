@@ -119,6 +119,10 @@ def test_prepare_messages_trims_what_the_model_cant_use():
     assert out[1]["content"] == "Read calc.py"
     assert out[2]["content"] == "src/a.py\nb.py"
     assert out[3]["content"] == "Error: File not found: x.py"
+    # only whole paths: a sibling directory whose name starts like the working directory stays as is
+    out = prepare_messages([{"role": "system", "content": "x.\nWorking directory: /home/u/proj"},
+                            {"role": "tool", "content": "/home/u/proj2/x.py /home/u/proj /home/u/proj.bak cd /home/u/proj."}])
+    assert out[1]["content"] == "/home/u/proj2/x.py . /home/u/proj.bak cd .."  # the sentence keeps its period
 
 
 def test_fit_messages_keeps_the_current_request(tok):

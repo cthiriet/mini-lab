@@ -47,6 +47,7 @@ class GenerateRequest(BaseModel):
     seed: int | None = None
     stop: str | list[str] | None = None
     steer: list[Steer] | None = Field(None, max_length=8)   # features pushed at every token (engine.py)
+    think: bool = True                               # False: no reasoning (reasoning_effort "none")
     stream: bool = False
 
 
@@ -123,6 +124,7 @@ def create_app(engine: Engine | None = None) -> FastAPI:
                 seed=body.seed,
                 stop=[body.stop] if isinstance(body.stop, str) else list(body.stop or []),
                 steer=[(s.feature, s.strength) for s in body.steer or []],
+                think=body.think,
             )
             req = runner.submit(prompt, params, stream=body.stream)
 

@@ -220,8 +220,9 @@ class GPT(nn.Module):
     @torch.no_grad()
     def generate(self, prompts: list[list[int]], max_new_tokens: int, temperature: float = 1.0,
                  top_k: int | None = None, top_p: float | None = None, stop_ids: set[int] | frozenset = frozenset(),
-                 generator: torch.Generator | None = None) -> list[list[int]]:
-        """Simple batched sampling. Returns new tokens per prompt (including the stop token if hit)."""
+                 generator: torch.Generator | None = None, banned: list[int] = ()) -> list[list[int]]:
+        """Simple batched sampling. Returns new tokens per prompt (including the stop token if hit).
+        `banned` tokens are never sampled (<|think_start|>: an answer without thinking)."""
         device = self.wte.weight.device
         cache = KVCache(self.config, batch_size=len(prompts), device=device, dtype=self.wte.weight.dtype)
         logits = torch.cat([
@@ -231,6 +232,8 @@ class GPT(nn.Module):
         outputs: list[list[int]] = [[] for _ in prompts]
         active = list(range(len(prompts)))
         for _ in range(max_new_tokens):
+            if banned:
+                logits[:, list(banned)] = float("-inf")
             next_ids = sample_next(logits, temperature, top_k, top_p, generator)
             still_active, feed = [], []
             for row, slot in enumerate(active):

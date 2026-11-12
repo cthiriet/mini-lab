@@ -359,6 +359,12 @@ def test_finish_reasons_with_scripted_model(release, make_runner):
     assert done["content"] == streamed == "Let me check."
     assert done["reasoning"] == "need math"
     assert done["usage"]["completion_tokens"] == len(tool_script)
+    assert done["usage"]["completion_tokens_details"]["reasoning_tokens"] == len(tok.encode("need math")) + 2
+
+    # think=False (reasoning_effort "none"): <|think_start|> is never sampled, even when it is all the model wants
+    off, _, done = asyncio.run(main(tool_script[:1], max_tokens=5, think=False))
+    assert S("<|think_start|>") not in off.tokens and done["reasoning"] is None
+    assert done["usage"]["completion_tokens_details"]["reasoning_tokens"] == 0
 
     _, streamed, done = asyncio.run(main(answer_script))
     assert (done["content"], done["finish_reason"], done["tool_calls"], done["reasoning"]) == ("4", "stop", [], None)
