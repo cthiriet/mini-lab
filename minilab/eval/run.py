@@ -67,7 +67,7 @@ def evaluate_story_math(model: GPT, tok: Tokenizer, cfg: dict, n_per_step: int |
     max_new = ec.get("max_new_tokens", 450)  # a high-effort reasoning on 8 events is up to ~430 tokens
     problems = []
     for k in ec["steps"]:
-        rng = random.Random(seed)
+        rng = random.Random(f"{seed}-{k}")
         problems += [story_math.make(rng, k, "train") for _ in range(n)]
     modes = {f"{kind} {level}": (level, think) for level in LEVELS for kind, think in (("adaptive", None), ("forced", True))}
     modes["off"] = ("medium", False)
