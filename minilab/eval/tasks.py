@@ -35,7 +35,7 @@ import re
 
 import torch
 
-from minilab.data import arithmetic
+from minilab.data import arithmetic, story_math
 from minilab.data.conversations import (GREETINGS, IDENTITY, INSTRUCTIONS, NAME, OUT_OF_SCOPE, OUT_OF_SCOPE_EVAL,
                                         REFUSALS, STORY_REQUESTS, TOPIC_REQUESTS, TOPICS, assistant, fill, is_refusal,
                                         mentions, user)
@@ -92,6 +92,8 @@ def make_problem(kind: str, rng: random.Random, digits: list[int], held_out: boo
     def system(name: str) -> list[dict]:
         return [{"role": "system", "content": INSTRUCTIONS[name]}]
 
+    if kind == "story_math":  # digits: the numbers of events; held_out: the held-out split
+        return story_math.make(rng, rng.choice(digits), "heldout" if held_out else "train")
     if kind in ("add", "tool"):
         after_tool = kind == "tool" and rng.random() < 0.5
         return arithmetic.prompt(rng, arithmetic.sample_digits(rng, digits), kind == "tool", after_tool)
@@ -253,6 +255,8 @@ def check_answer(content: str, problem: dict) -> bool:
     kind = problem["kind"]
     if kind in ("add", "tool", "no_calculator", "followup", "long_followup", "new_question"):  # "tool": after the result
         return content == arithmetic.answer_text(problem["a"], problem["b"])
+    if kind == "story_math":
+        return content == story_math.answer_text(problem["answer"])
     if kind == "number_only":
         return content == str(problem["answer"])
     if kind == "sure":
@@ -287,6 +291,25 @@ def eval_arithmetic_chat(model: GPT, tok: Tokenizer, problems: list[dict], max_n
         c = parse_completion(tok, out)
         records.append({"digits": p["digits"], "correct": grade(tok, out, p), "format_ok": turn_ok(tok, out, False),
                         "refused": is_refusal(c.content), "thinking": reasoning_length(tok, out)})
+    return records
+
+
+def eval_story_math(model: GPT, tok: Tokenizer, problems: list[dict], max_new_tokens: int, level: str,
+                    think: bool | None = None) -> list[dict]:
+    """Story problems at effort `level` (low, medium, high). think: None lets the model decide, True forces
+    the reasoning (the prompt ends with <|think_start|>), False forbids it (level "medium" then: no header)."""
+    stop, think_start = {tok.special("<|assistant_end|>")}, tok.special("<|think_start|>")
+    start = [think_start] if think else []
+    prompts = [render_prompt(tok, p["messages"], p["tools"], effort=level) + start for p in problems]
+    outs = generate(model, prompts, max_new_tokens, stop, seed=EVAL_SEED, banned=[think_start] if think is False else [])
+    records = []
+    for p, out in zip(problems, outs):
+        out = start + out
+        c = parse_completion(tok, out)
+        n = reasoning_length(tok, out)
+        records.append({"k": p["steps"], "digits": p["digits"], "bucket": p["bucket"], "correct": grade(tok, out, p), "thinking": n > 0,
+                        "reasoning_tokens": n, "finished": c.finished,
+                        "style_ok": n > 0 and story_math.style_ok(level, story_math.normalize(c.reasoning or ""))})
     return records
 
 
