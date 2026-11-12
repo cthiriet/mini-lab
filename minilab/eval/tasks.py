@@ -40,6 +40,7 @@ from minilab.data.conversations import (GREETINGS, IDENTITY, INSTRUCTIONS, NAME,
                                         REFUSALS, STORY_REQUESTS, TOPIC_REQUESTS, TOPICS, assistant, fill, is_refusal,
                                         mentions, user)
 from minilab.data.loader import story_batches
+from minilab.inference.calculator import think_force
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
 from minilab.tokenizer.chat import ARG, parse_completion, prompt_budget, reasoning_length, render_prompt
@@ -62,16 +63,19 @@ CHAT_PROMPTS = [  # scored for format only, and kept as samples in eval.json
 
 
 def generate(model: GPT, prompts: list[list[int]], max_new_tokens: int, stop_ids: set[int],
-             temperature: float = 0.0, seed: int = 0, batch_size: int = 64, banned: list[int] = ()) -> list[list[int]]:
-    """Batched sampling. A prompt that doesn't fit the context gets an empty completion (a failure)."""
+             temperature: float = 0.0, seed: int = 0, batch_size: int = 64, banned: list[int] = (),
+             calculator: Tokenizer | None = None) -> list[list[int]]:
+    """Batched sampling. A prompt that doesn't fit the context gets an empty completion (a failure).
+    With a tokenizer as `calculator`, the reasoning's sums are computed for the model (inference/calculator.py)."""
     device = model.wte.weight.device
     gen = torch.Generator(device=device).manual_seed(seed)
     fits = [i for i, p in enumerate(prompts) if len(p) < model.config.block_size]
     out: list[list[int]] = [[] for _ in prompts]
     for start in range(0, len(fits), batch_size):
         rows = fits[start:start + batch_size]
-        completions = model.generate([prompts[i] for i in rows], max_new_tokens, temperature=temperature,
-                                     stop_ids=stop_ids, generator=gen, banned=banned)
+        batch = [prompts[i] for i in rows]
+        completions = model.generate(batch, max_new_tokens, temperature=temperature, stop_ids=stop_ids, generator=gen,
+                                     banned=banned, force=calculator and think_force(calculator, batch))
         for i, c in zip(rows, completions):
             out[i] = c
     return out
@@ -295,13 +299,15 @@ def eval_arithmetic_chat(model: GPT, tok: Tokenizer, problems: list[dict], max_n
 
 
 def eval_story_math(model: GPT, tok: Tokenizer, problems: list[dict], max_new_tokens: int, level: str,
-                    think: bool | None = None) -> list[dict]:
+                    think: bool | None = None, calculator: bool = True) -> list[dict]:
     """Story problems at effort `level` (low, medium, high). think: None lets the model decide, True forces
-    the reasoning (the prompt ends with <|think_start|>), False forbids it (level "medium" then: no header)."""
+    the reasoning (the prompt ends with <|think_start|>), False forbids it (level "medium" then: no header).
+    calculator: the reasoning's sums are computed for the model (inference/calculator.py)."""
     stop, think_start = {tok.special("<|assistant_end|>")}, tok.special("<|think_start|>")
     start = [think_start] if think else []
     prompts = [render_prompt(tok, p["messages"], p["tools"], effort=level) + start for p in problems]
-    outs = generate(model, prompts, max_new_tokens, stop, seed=EVAL_SEED, banned=[think_start] if think is False else [])
+    outs = generate(model, prompts, max_new_tokens, stop, seed=EVAL_SEED, banned=[think_start] if think is False else [],
+                   calculator=tok if calculator else None)
     records = []
     for p, out in zip(problems, outs):
         out = start + out

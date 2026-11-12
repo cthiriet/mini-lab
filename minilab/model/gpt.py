@@ -16,6 +16,7 @@ per step once compiled.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
@@ -220,9 +221,12 @@ class GPT(nn.Module):
     @torch.no_grad()
     def generate(self, prompts: list[list[int]], max_new_tokens: int, temperature: float = 1.0,
                  top_k: int | None = None, top_p: float | None = None, stop_ids: set[int] | frozenset = frozenset(),
-                 generator: torch.Generator | None = None, banned: list[int] = ()) -> list[list[int]]:
+                 generator: torch.Generator | None = None, banned: list[int] = (),
+                 force: Callable[[int, list[int], int], list[int]] | None = None) -> list[list[int]]:
         """Simple batched sampling. Returns new tokens per prompt (including the stop token if hit).
-        `banned` tokens are never sampled (<|think_start|>: an answer without thinking)."""
+        `banned` tokens are never sampled (<|think_start|>: an answer without thinking).
+        `force(slot, outputs, token)` is called after each sampled token (`outputs` includes it) and returns
+        tokens to write next instead of sampling (a calculator's result): they go through the cache as usual."""
         device = self.wte.weight.device
         cache = KVCache(self.config, batch_size=len(prompts), device=device, dtype=self.wte.weight.dtype)
         logits = torch.cat([
@@ -231,14 +235,21 @@ class GPT(nn.Module):
         ])
         outputs: list[list[int]] = [[] for _ in prompts]
         active = list(range(len(prompts)))
+        forced: dict[int, list[int]] = {}  # slot -> tokens still to write
         for _ in range(max_new_tokens):
             if banned:
                 logits[:, list(banned)] = float("-inf")
             next_ids = sample_next(logits, temperature, top_k, top_p, generator)
             still_active, feed = [], []
             for row, slot in enumerate(active):
-                t = int(next_ids[row])
-                outputs[slot].append(t)
+                if forced.get(slot):
+                    t = forced[slot].pop(0)
+                    outputs[slot].append(t)
+                else:
+                    t = int(next_ids[row])
+                    outputs[slot].append(t)
+                    if force and (extra := force(slot, outputs[slot], t)):
+                        forced[slot] = list(extra)
                 if t not in stop_ids and int(cache.lengths[slot]) < cache.max_len:
                     still_active.append(slot)
                     feed.append(t)

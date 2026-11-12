@@ -38,6 +38,7 @@ import ast
 import json
 import operator
 import random
+import re
 
 QUESTIONS = [
     "What is {a} + {b}?",
@@ -173,6 +174,21 @@ def calculator(expression: str) -> str:
     except (SyntaxError, ValueError, ZeroDivisionError, TypeError, OverflowError, RecursionError):
         return "error"
     return str(int(value)) if float(value).is_integer() else f"{value:.6g}"
+
+
+_EQUATION = re.compile(r"([\d(][\d()+\-x ]*[\d)])\s*=$")
+
+
+def think_result(text: str) -> str | None:
+    """What to write after the "=" that ends `text`, a reasoning (a calculator for the thoughts): " 38" after
+    "70 - 32 =", "38" after "70-32=". None unless the expression before it (numbers, + - x, parentheses,
+    spaces) has an operator and a result that is an integer >= 0. Only the end of the line matters: pass
+    the last ~64 characters, not the whole reasoning."""
+    m = _EQUATION.search(text)
+    if not m or not re.search(r"[+\-x]", m[1]):
+        return None
+    result = calculator(m[1].replace("x", "*"))
+    return (" " if text.endswith(" =") else "") + result if result.isdigit() else None
 
 
 def tool_call(a: int, b: int) -> dict:

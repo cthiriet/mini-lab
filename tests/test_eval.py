@@ -241,7 +241,7 @@ def test_evaluate_story_math(story_model):
     cfg["eval"]["story_math"] = {"n_per_step": 4, "steps": [1, 6], "max_new_tokens": 6}
     result = eval_run.evaluate_story_math(model, tok, cfg, n_per_step=2)
     sm = result["story_math"]
-    modes = {f"{kind} {level}" for kind in ("adaptive", "forced") for level in eval_run.LEVELS} | {"off"}
+    modes = {f"{kind} {level}" for kind in ("adaptive", "forced") for level in eval_run.LEVELS} | {"off", "adaptive medium nocalc"}
     assert set(sm["accuracy"]) == set(sm["think_rate"]) == set(sm["tokens"]) == modes
     assert set(sm["accuracy"]["off"]) == {"1", "6"} and sm["think_rate"]["off"] == {"1": 0, "6": 0}
     assert all(v == 1 for v in sm["think_rate"]["forced high"].values())
@@ -249,6 +249,7 @@ def test_evaluate_story_math(story_model):
     assert set(sm["regret"]["medium"]) == {"1", "6"}
     assert result["sm_6st"] == sm["accuracy"]["adaptive medium"]["6"]
     assert result["sm_low"] == pytest.approx(sum(sm["accuracy"]["adaptive low"].values()) / 2)
+    assert result["sm_medium_nocalc"] == pytest.approx(sum(sm["accuracy"]["adaptive medium nocalc"].values()) / 2)
     assert set(sm["heldout"]) == {"steps78", "objects", "ops", "distract"}
     assert set(sm["heldout"]["ops"]) == {"adaptive medium", "adaptive high", "off"}
     json.dumps(result)

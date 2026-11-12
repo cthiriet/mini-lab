@@ -192,6 +192,16 @@ position, row by row: a steered sequence shares the batch with plain ones, which
 keys and values depend on the steering, so it neither reads a cached prefix nor leaves one. A
 model without a dictionary, or a feature it doesn't have, is a 400.
 
+## Calculator in the reasoning
+
+Inside `<|think_start|>...<|think_end|>`, when the model samples ` =` or `=` right after an
+arithmetic expression (`70 - 32 =`, `(19 + 20 - 31) x 2 =`), the engine computes the result
+(`think_result`, `data/arithmetic.py`) and writes its tokens at the next steps instead of sampling:
+they are streamed, counted in `reasoning_tokens` and go through the KV cache like any other token.
+As in GSM8K (Cobbe et al. 2021), no training is involved. Per request, `ThinkCalculator`
+(`inference/calculator.py`) keeps the last 64 bytes of reasoning only. `think_calculator: false`
+turns it off; the eval uses the same code (`GPT.generate(force=...)`), except where it measures the model alone.
+
 ## Cancellation
 
 If the client of a streaming request disconnects, Starlette cancels the response

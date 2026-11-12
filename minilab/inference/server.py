@@ -48,6 +48,7 @@ class GenerateRequest(BaseModel):
     stop: str | list[str] | None = None
     steer: list[Steer] | None = Field(None, max_length=8)   # features pushed at every token (engine.py)
     think: bool = True                               # False: no reasoning (reasoning_effort "none")
+    think_calculator: bool = True                    # the reasoning's sums are computed (inference/calculator.py)
     effort: str = "medium"                           # none, low, medium or high (api/schemas.py)
     stream: bool = False
 
@@ -126,6 +127,7 @@ def create_app(engine: Engine | None = None) -> FastAPI:
                 stop=[body.stop] if isinstance(body.stop, str) else list(body.stop or []),
                 steer=[(s.feature, s.strength) for s in body.steer or []],
                 think=body.think,
+                think_calculator=body.think_calculator,
             )
             req = runner.submit(prompt, params, stream=body.stream)
 

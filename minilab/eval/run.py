@@ -60,7 +60,8 @@ def _heldout_problems(seed: int, name: str, scale: float) -> list[dict]:
 
 def evaluate_story_math(model: GPT, tok: Tokenizer, cfg: dict, n_per_step: int | None = None) -> dict:
     """The story problems (eval/tasks.py:eval_story_math): 7 modes by number of events k, then the held-out
-    sets. Returns eval.json's "story_math" and its scalars. n_per_step (default: the config's) scales every
+    sets. Returns eval.json's "story_math" and its scalars. The reasoning's sums are computed for the
+    model (inference/calculator.py), except in the "adaptive medium nocalc" reference. n_per_step (default: the config's) scales every
     set, for a quicker look."""
     ec, seed = cfg["eval"]["story_math"], cfg["data"]["reason"]["eval_seed"]
     n = n_per_step or ec["n_per_step"]
@@ -72,6 +73,7 @@ def evaluate_story_math(model: GPT, tok: Tokenizer, cfg: dict, n_per_step: int |
     modes = {f"{kind} {level}": (level, think) for level in LEVELS for kind, think in (("adaptive", None), ("forced", True))}
     modes["off"] = ("medium", False)
     records = {m: tasks.eval_story_math(model, tok, problems, max_new, level, think) for m, (level, think) in modes.items()}
+    records["adaptive medium nocalc"] = tasks.eval_story_math(model, tok, problems, max_new, "medium", calculator=False)  # reference
     sm = {key: {m: _by_digits(r, field) for m, r in records.items()}
           for key, field in (("accuracy", "correct"), ("think_rate", "thinking"), ("tokens", "reasoning_tokens"))}
     sm["style_ok"], sm["direct_acc"], sm["regret"] = {}, {}, {}
@@ -89,6 +91,7 @@ def evaluate_story_math(model: GPT, tok: Tokenizer, cfg: dict, n_per_step: int |
             sm["heldout"][name][m] = {"accuracy": _mean(r["correct"] for r in rs), "think_rate": _mean(r["thinking"] for r in rs),
                                       "tokens": _mean(r["reasoning_tokens"] for r in rs)}
     scalars = {f"sm_{level}": _mean(sm["accuracy"][f"adaptive {level}"].values()) for level in LEVELS}
+    scalars["sm_medium_nocalc"] = _mean(sm["accuracy"]["adaptive medium nocalc"].values())
     return {"story_math": sm, **scalars, "sm_6st": sm["accuracy"]["adaptive medium"].get("6")}
 
 

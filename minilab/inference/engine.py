@@ -42,6 +42,7 @@ from typing import AsyncIterator
 import torch
 
 from minilab.checkpoint import load_checkpoint
+from minilab.inference.calculator import ThinkCalculator
 from minilab.model.gpt import GPT, KVCache, sample_next
 from minilab.obs.metrics import Counter, Gauge, Histogram
 from minilab.registry import ModelInfo, list_models
@@ -93,6 +94,7 @@ class SamplingParams:
     stop: list[str] = field(default_factory=list)  # stop strings, matched on visible content
     steer: list[tuple[int, float]] = field(default_factory=list)  # (feature, strength): features pushed at every token
     think: bool = True             # False: <|think_start|> is never sampled (reasoning_effort "none")
+    think_calculator: bool = True  # the sums of the reasoning ("70 - 32 =") are computed, not sampled
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +223,8 @@ class Request:
         self.steer: torch.Tensor | None = None  # the steering vector, (C,), made at prefill
         self.cached_tokens = 0  # prompt tokens whose keys/values the slot already held
         self.tokens: list[int] = []
+        self.calculator = ThinkCalculator(runner.tokenizer, prompt) if params.think_calculator else None
+        self.forced: list[int] = []  # tokens the calculator wrote, still to be emitted
         self.parser = StreamParser(runner.tokenizer, params.stop)
         # Every request has its own RNG: sampling never depends on who else is in the batch.
         self.generator = torch.Generator()
@@ -448,15 +452,20 @@ class ModelRunner:
         # shares the batch with it.
         for req, row in zip(reqs, logits):
             p = req.params
-            if not p.think:
-                row = row.clone()
-                row[req.parser.THINK] = float("-inf")
-            try:
-                token = int(sample_next(row[None], p.temperature, p.top_k, p.top_p, req.generator))
-            except Exception as e:  # one bad request fails alone, not everyone in the batch
-                log.exception("sampling failed")
-                self._fail(req, f"Sampling failed: {e}")
-                continue
+            if req.forced:
+                token = req.forced.pop(0)
+            else:
+                if not p.think:
+                    row = row.clone()
+                    row[req.parser.THINK] = float("-inf")
+                try:
+                    token = int(sample_next(row[None], p.temperature, p.top_k, p.top_p, req.generator))
+                except Exception as e:  # one bad request fails alone, not everyone in the batch
+                    log.exception("sampling failed")
+                    self._fail(req, f"Sampling failed: {e}")
+                    continue
+                if req.calculator:
+                    req.forced = req.calculator.feed(token)
             self._on_token(req, token)
 
     def _on_token(self, req: Request, token: int) -> None:
