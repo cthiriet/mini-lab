@@ -61,7 +61,7 @@ MEDIUM = {"add": [*_COMMON, "{n} more, so {eq}.", "Plus {n}: {eq}.", "Add {n}: {
 # High: full sentences, then a check and a conclusion ({tb} = the things, after the event).
 HIGH_INTROS = ["{H} begins with {c}.", "{H} starts out with {c}.", "To begin, {H} has {c}.", "At first, {H} has {c}."]
 HIGH = ["{S} {clause}, so {m} now has {eq} {tb}.", "After that, {m} {clause}. Now {m} has {eq} {tb}.",
-        "{S} {clause}, and that gives {m} {eq} {tb}.", "Next, {m} {clause}, which gives {eq} {tb}.",
+        "{S} {clause}, and that makes {eq} {tb}.", "Next, {m} {clause}, which gives {eq} {tb}.",
         "{S} {clause}. That makes {eq} {tb}.", "Then {m} {clause}, and now {m} has {eq} {tb}."]
 CHECKS = ["Check: going through the story again, {chain} = {a}.", "Check: all the steps in a single line, {chain} = {a}."]
 IGNORE = ["{who} {be} not matter.", "{who} {be} not change anything."]
@@ -289,4 +289,4 @@ def think(level: str, problem: dict, policy: dict) -> bool:
     if level == "none":
         return False
     p = policy["p"].get("%d,%d" % bucket(problem))
-    return p is None or p < policy["tau"][level] + 0.03
+    return p is None or p < min(policy["tau"][level] + 0.03, 1.0)  # high: a perfect bucket may answer at once

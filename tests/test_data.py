@@ -326,8 +326,12 @@ def test_story_math_teacher_bank(tmp_path):
     text_of = {r["text"]: r["problem"]["messages"][0]["content"] for r in rows}
     seen = set()
     for question, reply in (c["messages"] for c in story_math_convs(reason, 100)):
-        assert text_of[reply["reasoning"]] == question["content"]  # the trace belongs to this very problem
-        seen.add(reply["reasoning"])
+        if reply["reasoning"] in text_of:
+            assert text_of[reply["reasoning"]] == question["content"]  # the trace belongs to this very problem
+            seen.add(reply["reasoning"])
+        else:  # one event: the teacher wrote none, the program does
+            assert question["content"].count(".") <= 3 and story_math.style_ok("medium", reply["reasoning"]) or \
+                story_math.style_ok("high", reply["reasoning"])
     assert seen == {"TRACE 0 medium", "TRACE 1 high", "TRACE 2 high"}  # the rejected row is never drawn
     # teacher = false, or a level the bank lacks: the program writes the thoughts
     for rc in ({"teacher": False}, {"teacher": True, "efforts": {"low": 1.0}}):
