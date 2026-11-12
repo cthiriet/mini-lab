@@ -22,7 +22,7 @@ from pathlib import Path
 
 from minilab.checkpoint import load_checkpoint
 from minilab.data import code
-from minilab.data.conversations import StoryPool, sft_dataset
+from minilab.data.conversations import Reason, StoryPool, sft_dataset
 from minilab.data.loader import chat_batch, chat_batches, epochs, mixture, pretrain_documents
 from minilab.data.tinystories import load_stories
 from minilab.train.trainer import Logger, evaluate_loss, load_config, parse_args, save_stage, setup, train_loop
@@ -37,9 +37,10 @@ def main() -> None:
     model, tok, prev = load_checkpoint(run / "midtrain", device=device)
     stories = load_stories("train", d["train_mb"])
     pool = StoryPool(stories, d.get("story_max_chars", 700))
+    reason = Reason(d["reason"])
     T, B = model.config.block_size, sc["batch_size"]
-    train = sft_dataset(seed + 2, sc["size"], sc, d["digits"], pool)
-    val = sft_dataset(seed + 1002, B * sc.get("val_batches", 10), sc, d["digits"], pool)
+    train = sft_dataset(seed + 2, sc["size"], sc, d["digits"], pool, reason)
+    val = sft_dataset(seed + 1002, B * sc.get("val_batches", 10), sc, d["digits"], pool, reason)
     val_batches = [chat_batch(tok, val[i:i + B], T) for i in range(0, len(val), B)]
     agent = code.sft_set(cfg, seed + 2)
     code_set = code.sft_set(cfg, seed + 1002, size=B * sc.get("val_batches", 10))

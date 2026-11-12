@@ -82,7 +82,7 @@ def chat_batch(tok: Tokenizer, conversations: list[dict], block_size: int) -> Ba
             ids = conv["ids"][:block_size + 1]
             rows.append((ids[:-1], ids[1:]))
             continue
-        ids, mask = render_conversation(tok, conv["messages"], conv.get("tools"))
+        ids, mask = render_conversation(tok, conv["messages"], conv.get("tools"), conv.get("effort"))
         if conv.get("train_on") == "last":
             last = len(ids) - 1 - ids[::-1].index(tok.special("<|user_start|>"))
             mask = [0] * last + mask[last:]

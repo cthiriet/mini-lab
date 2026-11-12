@@ -15,16 +15,24 @@ never shows:
 They are mixed with plain conversations like midtraining's, so that the model
 doesn't start refusing in-scope requests or obeying instructions nobody gave.
 
-A conversation is a dict {"messages": [...OpenAI format...], "tools": [...] | None}.
+A conversation is a dict {"messages": [...OpenAI format...], "tools": [...] | None}, plus
+"effort" ("low" | "high") when the rendering carries the header line "effort: ...".
+
+The story problems (story_math, docs/story-math-spec.md) are the only conversations whose answer
+depends on the effort; every other kind gets the header in header_frac of the cases, with its
+answer unchanged, so that the model learns that the header concerns the story problems alone.
 """
 
 from __future__ import annotations
 
+import functools
+import json
+import os
 import random
 import re
 from typing import Iterator
 
-from minilab.data import arithmetic
+from minilab.data import arithmetic, story_math
 
 NAME = "prelude"
 # (user messages, assistant replies): any user message can get any reply of its group.
@@ -130,7 +138,58 @@ class StoryPool:
         return rng.choice(STORY_REQUESTS), rng.choice(self.stories)
 
 
-def single_turn(rng: random.Random, kind: str, digits: list[int], stories: StoryPool, tools: bool) -> list[dict]:
+@functools.cache
+def teacher_bank(path: str) -> dict[str, list[dict]]:
+    """The accepted teacher traces (scripts/teacher_traces.py) by level; {} if there is no file."""
+    bank: dict[str, list[dict]] = {}
+    if os.path.isfile(path):
+        with open(path) as f:
+            for row in map(json.loads, f):
+                if row["ok"]:
+                    bank.setdefault(row["level"], []).append(row)
+    return bank
+
+
+class Reason:
+    """What the story_math conversations read: the [data.reason] section, the policy (no file: every
+    bucket thinks) and, with `teacher`, the teacher's traces (none: the program writes them).
+    mode "direct" is the probe (spec 3.3): story problems answered at once, no header anywhere."""
+
+    def __init__(self, rc: dict):
+        self.rc, self.direct = rc, rc.get("mode", "policy") == "direct"
+        path = rc.get("policy", "")
+        self.policy = {"p": {}, **(story_math.load_policy(path) if os.path.isfile(path) else {}), "tau": rc["tau"]}
+        self.bank = teacher_bank(rc.get("traces", "")) if rc.get("teacher", False) and not self.direct else {}
+        self.header_frac = 0.0 if self.direct else rc["header_frac"]
+
+
+def story_math_conversation(rng: random.Random, reason: Reason) -> dict:
+    """A story problem at a random level of effort; the thoughts come first unless the policy says
+    that answering at once is reliable enough. A teacher trace brings its own problem along."""
+    rc = reason.rc
+    level = rng.choices(list(rc["efforts"]), list(rc["efforts"].values()))[0]
+    k = rng.choices(rc["steps"], rc["k_weights"])[0]
+    if k > 1 and reason.bank.get(level):  # the teacher wrote no trace for one event (scripts/teacher_traces.py --min-k)
+        row = rng.choice(reason.bank[level])
+        problem, trace = row["problem"], row["text"]
+    else:
+        problem, trace = story_math.make(rng, k, "train"), None
+    reply = assistant(story_math.answer_text(problem["answer"]))
+    if not reason.direct and story_math.think(level, problem, reason.policy):
+        reply["reasoning"] = trace or story_math.trace_program(problem, level, rng)
+    effort = None if reason.direct or level == "medium" else level
+    return {"messages": [dict(problem["messages"][0]), reply], "tools": None, "effort": effort}
+
+
+def with_header(rng: random.Random, conv: dict, reason: Reason | None) -> dict:
+    """The effort header on header_frac of the conversations that have none (the target stays)."""
+    if reason and "effort" not in conv and rng.random() < reason.header_frac:
+        conv["effort"] = rng.choice(["low", "high"])
+    return conv
+
+
+def single_turn(rng: random.Random, kind: str, digits: list[int], stories: StoryPool, tools: bool,
+                reason: Reason | None = None) -> list[dict]:
     """One question and its answer: the midtraining building block."""
     if kind == "arithmetic":
         return arithmetic.exchange(rng, digits, tools)[0]
@@ -140,14 +199,19 @@ def single_turn(rng: random.Random, kind: str, digits: list[int], stories: Story
     if kind == "greeting":
         users, replies = rng.choice(GREETINGS)
         return [user(rng.choice(users)), assistant(rng.choice(replies))]
+    if kind == "story_math" and reason:
+        return story_math_conversation(rng, reason)["messages"]
     raise ValueError(f"unknown conversation kind: {kind}")
 
 
 def midtrain_conversation(rng: random.Random, mix: dict[str, float], digits: list[int], stories: StoryPool,
-                          tool_frac: float) -> dict:
+                          tool_frac: float, reason: Reason | None = None) -> dict:
     tools = rng.random() < tool_frac
     kind = rng.choices(list(mix), weights=list(mix.values()))[0]
-    return {"messages": single_turn(rng, kind, digits, stories, tools), "tools": ["calculator"] if tools else None}
+    if kind == "story_math" and reason:  # no calculator: the header, if any, is the only line before the question
+        return story_math_conversation(rng, reason)
+    conv = {"messages": single_turn(rng, kind, digits, stories, tools), "tools": ["calculator"] if tools else None}
+    return with_header(rng, conv, reason)
 
 
 def instruction_conversation(rng: random.Random, instruction: str, digits: list[int], stories: StoryPool) -> dict:
@@ -171,15 +235,19 @@ def instruction_conversation(rng: random.Random, instruction: str, digits: list[
     return {"messages": [{"role": "system", "content": INSTRUCTIONS[instruction]}, *messages], "tools": tools}
 
 
-def new_question_conversation(rng: random.Random, digits: list[int], stories: StoryPool, tools: bool) -> dict:
+def new_question_conversation(rng: random.Random, digits: list[int], stories: StoryPool, tools: bool,
+                              reason: Reason | None = None) -> dict:
     """A new, unrelated addition after an earlier answer: it has its own operands. Every other
     multi-turn conversation is a follow-up that builds on the last total, and with only those
     the model learned that a second addition always starts from it ("766 + 989" after "The
     answer is 405." became 405 + 989). One to three earlier turns."""
     history = []
     for _ in range(rng.choice([1, 1, 2, 3])):
-        first = rng.choices(["arithmetic", "story", "greeting"], weights=[0.6, 0.2, 0.2])[0]
-        turn = single_turn(rng, first, digits, stories, tools)
+        kinds, weights = ["arithmetic", "story", "greeting"], [0.6, 0.2, 0.2]
+        if reason:  # a story problem, without its thoughts: the client never sends them back
+            kinds, weights = [*kinds, "story_math"], [*weights, 0.15]
+        first = rng.choices(kinds, weights)[0]
+        turn = single_turn(rng, first, digits, stories, tools, reason)
         if first == "story":  # a short one, so the new question still fits the context
             turn[-1] = assistant(" ".join(re.findall(r"[^.!?]+[.!?]", turn[-1]["content"])[:2]).strip()
                                  or turn[-1]["content"])
@@ -239,8 +307,24 @@ def mixed_conversation(rng: random.Random, stories: StoryPool, tools: bool) -> d
             "tools": ["calculator"] if tools else None, "train_on": "last"}
 
 
+def reason_conversation(rng: random.Random, digits: list[int], stories: StoryPool, reason: Reason) -> dict:
+    """A story problem; one time in ten after one or two earlier turns, as a client sends them."""
+    conv = story_math_conversation(rng, reason)
+    if rng.random() < 0.1:
+        history = [m for _ in range(rng.choice([1, 2]))
+                   for m in single_turn(rng, rng.choice(["arithmetic", "story", "greeting"]), digits, stories, False)]
+        conv = {**conv, "messages": arithmetic.client_history(history, compact=rng.random() < 0.5) + conv["messages"],
+                "train_on": "last"}
+    return conv
+
+
 def sft_conversation(rng: random.Random, mix: dict[str, float], digits: list[int], stories: StoryPool,
-                     tool_frac: float) -> dict:
+                     tool_frac: float, reason: Reason | None = None) -> dict:
+    return with_header(rng, _sft_conversation(rng, mix, digits, stories, tool_frac, reason), reason)
+
+
+def _sft_conversation(rng: random.Random, mix: dict[str, float], digits: list[int], stories: StoryPool,
+                      tool_frac: float, reason: Reason | None) -> dict:
     tools = rng.random() < tool_frac
     kind = rng.choices(list(mix), weights=list(mix.values()))[0]
     if kind == "plain":  # like midtraining, sometimes under a neutral system prompt
@@ -260,12 +344,14 @@ def sft_conversation(rng: random.Random, mix: dict[str, float], digits: list[int
         # the history's answers have no scratchpad: context to read, not answers to imitate
         return {"messages": messages, "tools": ["calculator"] if tools else None, "train_on": "last"}
     if kind == "new_question":
-        return new_question_conversation(rng, digits, stories, tools)
+        return new_question_conversation(rng, digits, stories, tools, reason)
     if kind == "switch":
         return switch_conversation(rng, digits, stories, tools)
     if kind == "mixed":
         return mixed_conversation(rng, stories, tools)
-    elif kind == "refusal":
+    if kind == "reason" and reason:
+        return reason_conversation(rng, digits, stories, reason)
+    if kind == "refusal":
         messages = [user(fill(rng, rng.choice(OUT_OF_SCOPE))), assistant(rng.choice(REFUSALS))]
     elif kind == "identity":
         users, replies = rng.choice(IDENTITY)
@@ -275,15 +361,17 @@ def sft_conversation(rng: random.Random, mix: dict[str, float], digits: list[int
     return {"messages": messages, "tools": ["calculator"] if tools else None}
 
 
-def midtrain_stream(seed: int, sc: dict, digits: list[int], stories: StoryPool) -> Iterator[dict]:
+def midtrain_stream(seed: int, sc: dict, digits: list[int], stories: StoryPool,
+                    reason: Reason | None = None) -> Iterator[dict]:
     """Endless, deterministic stream of midtraining conversations (sc: the config section)."""
     rng = random.Random(seed)
     while True:
-        yield midtrain_conversation(rng, sc["mix"], sc.get("digits", digits), stories, sc.get("tool_frac", 0.3))
+        yield midtrain_conversation(rng, sc["mix"], sc.get("digits", digits), stories, sc.get("tool_frac", 0.3), reason)
 
 
-def sft_dataset(seed: int, size: int, sc: dict, digits: list[int], stories: StoryPool) -> list[dict]:
+def sft_dataset(seed: int, size: int, sc: dict, digits: list[int], stories: StoryPool,
+                reason: Reason | None = None) -> list[dict]:
     """The fixed SFT set: `size` conversations, generated once (sc: the config section)."""
     rng = random.Random(seed)
-    return [sft_conversation(rng, sc["mix"], sc.get("digits", digits), stories, sc.get("tool_frac", 0.3))
+    return [sft_conversation(rng, sc["mix"], sc.get("digits", digits), stories, sc.get("tool_frac", 0.3), reason)
             for _ in range(size)]
