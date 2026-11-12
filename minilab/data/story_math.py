@@ -35,13 +35,19 @@ THINGS = [("apple", "apples"), ("toy", "toys"), ("sticker", "stickers"), ("ball"
           ("egg", "eggs"), ("cake", "cakes"), ("bottle", "bottles"), ("brush", "brushes"), ("penny", "pennies"),
           ("puppy", "puppies"), ("bike", "bikes"), ("card", "cards"), ("crayon", "crayons"), ("doll", "dolls"),
           ("cube", "cubes"), ("block", "blocks"), ("sock", "socks"), ("nut", "nuts"), ("bean", "beans")]
-HELD_HEROES = ["Ruby", "Finn", "Cleo", "Ivan", "Maya", "Hugo"]
-HELD_OTHERS = ["Omar", "Vera", "Hana", "Luca"]
+HELD_HEROES = ["Ruby", "Finn", "Cleo", "Ivan", "Maya", "Hugo", "Bella", "Derek", "Fiona", "Grant", "Holly", "Jasper",
+               "Kyle", "Leah", "Mason", "Naomi", "Piper", "Reid", "Sasha", "Tara"]
+HELD_OTHERS = ["Omar", "Vera", "Hana", "Luca", "Dana", "Eric", "Gail", "Ines", "Jules", "Kurt", "Lola", "Milo", "Nell",
+               "Otto", "Pam", "Quinn", "Rudy", "Sven", "Tess", "Vince"]
 HELD_THINGS = [("marble", "marbles"), ("pear", "pears"), ("kite", "kites"), ("button", "buttons"),
-               ("feather", "feathers"), ("acorn", "acorns")]
+               ("feather", "feathers"), ("acorn", "acorns"), ("lamp", "lamps"), ("spoon", "spoons"),
+               ("candle", "candles"), ("mitten", "mittens"), ("ribbon", "ribbons"), ("basket", "baskets"),
+               ("pillow", "pillows"), ("whistle", "whistles"), ("jar", "jars"), ("magnet", "magnets"),
+               ("crown", "crowns"), ("sandwich", "sandwiches"), ("daisy", "daisies"), ("pebble", "pebbles")]
 FEMALE = {"Lily", "Mia", "Sue", "Anna", "Lucy", "Zoe", "Ella", "Nina", "Ruby", "Cleo", "Maya", "Nora", "Ivy", "Elsa",
           "Greta", "Hazel", "Isla", "Jade", "Kira", "Lena", "Maria", "Olga", "Petra", "Rita", "Selma", "Tessa", "Uma",
-          "Wanda", "Yara", "Alice", "Chloe", "Diana", "Olivia", "Rosa"}
+          "Wanda", "Yara", "Alice", "Chloe", "Diana", "Olivia", "Rosa", "Bella", "Fiona", "Holly", "Leah", "Naomi", "Piper",
+          "Sasha", "Tara"}
 WEATHER = [("The sun is warm.", "The sun"), ("It is a sunny day.", "The day"), ("The sky is blue.", "The sky")]
 SYMBOL = {"add": "+", "sub": "-", "dbl": "x", "half": "/"}
 
@@ -106,12 +112,29 @@ def _subject(rng: random.Random, hero: str) -> tuple[str, str]:
     return s, s.lower()
 
 
-def make(rng: random.Random, k: int, split: str = "train", distractor: bool | None = None) -> dict:
+def _pseudo(rng: random.Random, name: bool) -> str:
+    """A made-up word of 2-3 syllables, unlike every real name and thing here (a name is capitalized)."""
+    taken = {w.lower() for w in [*HEROES, *OTHERS, *HELD_HEROES, *HELD_OTHERS, *(w for t in [*THINGS, *HELD_THINGS] for w in t)]}
+    while True:
+        word = "".join(rng.choice("bdfgklmnprstvzh") + rng.choice("aeiou") for _ in range(rng.randint(2, 3)))
+        word += rng.choice("kmnrstx") if not name else ""
+        if word not in taken and word + "s" not in taken:
+            return word.capitalize() if name else word
+
+
+def make(rng: random.Random, k: int, split: str = "train", distractor: bool | None = None, pseudo: float = 0.0) -> dict:
     """A problem with k events. The held-out split has names and things the training never shows,
-    the operation `half`, and a distractor every time (unless `distractor` says otherwise)."""
+    the operation `half`, and a distractor every time (unless `distractor` says otherwise).
+    pseudo: the chance, for the thing and for the hero separately, of being a made-up word (training data)."""
     held = split == "heldout"
     heroes, others, things = (HELD_HEROES, HELD_OTHERS, HELD_THINGS) if held else (HEROES, OTHERS, THINGS)
     hero, thing = rng.choice(heroes), rng.choice(things)
+    if pseudo:
+        if rng.random() < pseudo:
+            word = _pseudo(rng, name=False)
+            thing = (word, word + "s")
+        if rng.random() < pseudo:
+            hero = _pseudo(rng, name=True)
     others = [o for o in others if o != hero]
     _, obj, poss = _pronouns(hero)
     states, ops, sentences, clauses, fields = [rng.randint(2, 20)], [], [], [], []
@@ -199,6 +222,24 @@ def trace_program(problem: dict, level: str, rng: random.Random) -> str:
             sentence = sentence.replace(", so ", ": ")
         sentences.append(sentence)
     return " ".join(sentences)
+
+
+# ---- the event count, written first (low and medium) ---------------------------
+
+def anchor(problem: dict, level: str, text: str) -> str:
+    """`text`, a trace that passed verify_trace, with the number of events first: "3 events:" and numbered
+    equations at low, "3 events. " at medium; high is unchanged."""
+    k = problem["steps"]
+    if level == "low":
+        return f"{k} events:\n" + "\n".join(f"{i}: {line}" for i, line in enumerate(text.split("\n"), 1))
+    return f"{k} events. {text}" if level == "medium" else text
+
+
+def strip_anchor(level: str, text: str) -> str:
+    """Inverse of `anchor`; `text` unchanged where there is none."""
+    if level == "low":
+        return re.sub(r"^\d+: ", "", re.sub(r"^\d+ events:\n", "", text), flags=re.M)
+    return re.sub(r"^\d+ events\. ", "", text) if level == "medium" else text
 
 
 # ---- checks -------------------------------------------------------------------

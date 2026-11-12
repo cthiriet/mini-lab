@@ -164,6 +164,7 @@ class Reason:
         self.teacher_levels = rc.get("teacher_levels", ["medium"])
         self.bank = teacher_bank(rc.get("traces", "")) if self.teacher_frac and not self.direct else {}
         self.header_frac = 0.0 if self.direct else rc["header_frac"]
+        self.anchor, self.pseudo_frac = bool(rc.get("anchor", False)), float(rc.get("pseudo_frac", 0.0))
 
 
 def story_math_conversation(rng: random.Random, reason: Reason) -> dict:
@@ -176,10 +177,12 @@ def story_math_conversation(rng: random.Random, reason: Reason) -> dict:
         row = rng.choice(reason.bank[level])
         problem, trace = row["problem"], row["text"]
     else:
-        problem, trace = story_math.make(rng, k, "train"), None
+        problem, trace = story_math.make(rng, k, "train", pseudo=reason.pseudo_frac), None
     reply = assistant(story_math.answer_text(problem["answer"]))
     if not reason.direct and story_math.think(level, problem, reason.policy):
         reply["reasoning"] = trace or story_math.trace_program(problem, level, rng)
+        if reason.anchor:
+            reply["reasoning"] = story_math.anchor(problem, level, reply["reasoning"])
     effort = None if reason.direct or level == "medium" else level
     return {"messages": [dict(problem["messages"][0]), reply], "tools": None, "effort": effort}
 

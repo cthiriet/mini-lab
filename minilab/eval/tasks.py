@@ -315,7 +315,7 @@ def eval_story_math(model: GPT, tok: Tokenizer, problems: list[dict], max_new_to
         n = reasoning_length(tok, out)
         records.append({"k": p["steps"], "digits": p["digits"], "bucket": p["bucket"], "correct": grade(tok, out, p), "thinking": n > 0,
                         "reasoning_tokens": n, "finished": c.finished,
-                        "style_ok": n > 0 and story_math.style_ok(level, story_math.normalize(c.reasoning or ""))})
+                        "style_ok": n > 0 and story_math.style_ok(level, story_math.strip_anchor(level, story_math.normalize(c.reasoning or "")))})
     return records
 
 

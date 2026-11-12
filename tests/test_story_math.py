@@ -41,7 +41,7 @@ def test_problem_sentences():
 
 def test_heldout_is_disjoint_from_train():
     def words(split):
-        return {w for p in problems(1000, split) for w in re.findall(r"[A-Za-z']+", p["messages"][0]["content"])}
+        return {w for p in problems(5000, split) for w in re.findall(r"[A-Za-z']+", p["messages"][0]["content"])}
     held, train = words("heldout"), words("train")
     held_only = set(sm.HELD_HEROES + sm.HELD_OTHERS) | {w for t in sm.HELD_THINGS for w in t}
     train_only = set(sm.HEROES + sm.OTHERS) | {w for t in sm.THINGS for w in t}
@@ -53,11 +53,11 @@ def test_heldout_is_disjoint_from_train():
 def test_heldout_problems_are_frozen():
     """The eval's problems must not move (no new draw, no new sentence): two of them, written out."""
     assert sm.make(random.Random(0), 4, "heldout")["messages"][0]["content"] == (
-        "Ivan has 3 buttons. The sky is blue. Ivan picks up 17 more. He shares half of his buttons with Vera. "
-        "Then he eats 5. The number of his buttons doubles. How many buttons will Ivan have then?")
+        "Kyle has 3 whistles. Kurt brings him 17 more. He shares half of his whistles with Gail. Hana has 9 crowns. "
+        "Kyle drops 5. He drops 5. How many whistles does Kyle have in all?")
     assert sm.make(random.Random(1), 4, "heldout")["messages"][0]["content"] == (
-        "Finn has 4 feathers. Luca brings him 16 more. Then his pile doubles. Finn drops 1. Finn loses 7. "
-        "Omar has 7 pears. How many feathers does Finn have left?")
+        "Maya has 4 daisies. Nell brings her 16 more. Then her pile doubles. Maya drops 1. Maya loses 7. "
+        "Omar has 7 lamps. How many daisies does Maya have left?")
 
 
 def test_same_seed_same_problem():
@@ -200,3 +200,54 @@ def test_problems_read_unambiguously():
         if p["at"] < p["steps"]:
             after = sm._sentences(p["messages"][0]["content"])[p["at"] + 2]
             assert after.startswith(p["hero"] + " ")
+
+
+def test_heldout_lists_are_wide():
+    assert min(len(sm.HELD_HEROES), len(sm.HELD_OTHERS), len(sm.HELD_THINGS)) >= 20
+    assert all(plural == thing + ("es" if thing.endswith(("ch", "sh")) else "s") or plural.endswith("ies")
+               for thing, plural in sm.HELD_THINGS)
+
+
+@pytest.mark.parametrize("level", LEVELS)
+def test_anchor_round_trip(level):
+    rng = random.Random(2)
+    for p in problems(200, ks=range(1, 7)):
+        text = sm.trace_program(p, level, rng)
+        anchored = sm.anchor(p, level, text)
+        assert sm.strip_anchor(level, anchored) == text and sm.strip_anchor(level, text) == text
+        assert (anchored == text) == (level == "high")
+        assert sm.style_ok(level, sm.strip_anchor(level, anchored))
+
+
+def test_anchor_format():
+    p = sm.make(random.Random(0), 2)
+    assert sm.anchor(p, "low", "11-2=9\n9+4=13") == "2 events:\n1: 11-2=9\n2: 9+4=13"
+    assert sm.anchor(p, "medium", "Tom has 3. He finds 2.") == "2 events. Tom has 3. He finds 2."
+    assert sm.strip_anchor("low", "2 events:\n1: 11-2=9\n2: 9+4=13") == "11-2=9\n9+4=13"
+
+
+def test_calculator_triggers_after_an_anchor():
+    from minilab.data.arithmetic import think_result
+    assert think_result("2 events:\n1: 11-2=") == "9" and think_result("2 events:\n1: 11-2=9\n2: 9+4=") == "13"
+
+
+def test_pseudo_is_off_by_default_and_frozen():
+    assert sm.make(random.Random(0), 4, "train")["messages"][0]["content"] == (
+        "Kai has 3 plums. The sky is blue. Kai picks up 17 more. Then he has twice as many plums as before. "
+        "Then he eats 19. The number of his plums doubles. How many plums will Kai have then?")
+    for seed in range(5):
+        a, b = random.Random(seed), random.Random(seed)
+        assert sm.make(a, 5, "train", pseudo=0.0) == sm.make(b, 5, "train") and a.random() == b.random()
+
+
+def test_pseudo_words_and_names():
+    rng = random.Random(3)
+    real = {*sm.HEROES, *sm.OTHERS, *sm.HELD_HEROES, *sm.HELD_OTHERS, *(w for t in sm.THINGS + sm.HELD_THINGS for w in t)}
+    ps = [sm.make(rng, 3, "train", pseudo=1.0) for _ in range(300)]
+    assert all(p["hero"] not in real and p["thing"][0] not in real and p["thing"][1] == p["thing"][0] + "s" for p in ps)
+    assert all(p["hero"].istitle() and p["thing"][1] in p["messages"][0]["content"] for p in ps)
+    some = [sm.make(rng, 3, "train", pseudo=0.5) for _ in range(300)]
+    assert 0.3 < sum(p["thing"][0] not in real for p in some) / 300 < 0.7
+    assert 0.3 < sum(p["hero"] not in real for p in some) / 300 < 0.7
+    for level in LEVELS:
+        assert all(sm.verify_trace(p, sm.trace_program(p, level, rng), level) is None for p in ps)

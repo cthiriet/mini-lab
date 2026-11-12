@@ -1,4 +1,5 @@
 import json
+import re
 import random
 
 import pytest
@@ -272,6 +273,24 @@ def test_story_math_follows_the_policy(tmp_path, made):
         assert ("reasoning" not in m["conv"]["messages"][1]) == certain
         efforts[certain].add(m["conv"]["effort"])
     assert efforts[True] == efforts[False] == {None, "low", "high"}  # at every level
+
+
+def test_story_math_anchor_switch(tmp_path):
+    for on in (True, False):
+        convs = story_math_convs(reason_with(tmp_path, anchor=on), 300)
+        by = {c["effort"]: [] for c in convs}
+        for c in convs:
+            by[c["effort"]].append(c["messages"][1]["reasoning"])
+        assert all(re.match(r"\d events:\n1: ", t) is not None for t in by["low"]) == on
+        assert all(re.match(r"\d events\. ", t) is not None for t in by[None]) == on
+        assert not any(re.match(r"\d events", t) for t in by["high"])
+
+
+def test_story_math_pseudo_frac(tmp_path):
+    thing = lambda c: re.search(r"has \d+ (\w+)", c["messages"][0]["content"])[1]
+    real = {w for t in story_math.THINGS for w in t}
+    assert all(thing(c) in real for c in story_math_convs(reason_with(tmp_path), 200))
+    assert not all(thing(c) in real for c in story_math_convs(reason_with(tmp_path, pseudo_frac=1.0), 200))
 
 
 def test_story_math_without_a_policy_file_always_thinks(tmp_path):

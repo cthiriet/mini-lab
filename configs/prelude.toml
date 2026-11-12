@@ -29,6 +29,8 @@ traces = "data/reason/traces.jsonl"                 # the teacher's traces (scri
 policy = "data/reason/policy.json"                  # the probe's accuracy per (steps, doubling) (scripts/probe_direct.py)
 teacher_frac = 0.5          # share of the traces of teacher_levels taken from the teacher's file, the rest from the program
 teacher_levels = ["medium"] # high always comes from the program (the story read again, sentence by sentence)
+anchor = true               # low and medium start with the number of events ("3 events:", numbered equations)
+pseudo_frac = 0.08          # share of the problems whose thing, and independently whose hero, is a made-up word
 mode = "policy"             # "direct": story problems with no thoughts and no header anywhere (the probe of E1, spec 3.3)
 
 [tokenizer]
