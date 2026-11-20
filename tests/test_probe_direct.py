@@ -10,14 +10,14 @@ spec = importlib.util.spec_from_file_location("probe_direct", Path(__file__).par
 pd = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pd)
 
-TAU = {"low": 0.80, "medium": 0.92, "high": 0.99}
-LEVELS = ["low", "medium", "high"]
+TAU = {"low": 0.80, "high": 0.99}
+LEVELS = ["low", "high"]
 
 
 def measured(monkeypatch, tmp_path, correct):
     """The policy file measured with a fake model that is right on a share `correct` of the problems."""
     def fake(model, tok, problems, max_new, level, think=None):
-        assert level == "medium" and think is False
+        assert level == "high" and think is False
         return [{"bucket": p["bucket"], "correct": i < correct * len(problems)} for i, p in enumerate(problems)]
     monkeypatch.setattr(tasks, "eval_story_math", fake)
     pol = pd.policy(pd.measure(None, None, 1002, [1, 2, 3], 200), TAU, "runs/x/midtrain", 1002)
@@ -31,7 +31,7 @@ def test_perfect_probe_answers_at_once(monkeypatch, tmp_path):
     assert pol["p"] and set(pol["p"].values()) == {1.0} and pol["source"] == "runs/x/midtrain"
     for k in (1, 2, 3):
         problem = sm.make(random.Random(k), k)
-        assert [sm.think(level, problem, pol) for level in LEVELS] == [False] * 3
+        assert [sm.think(level, problem, pol) for level in LEVELS] == [False] * 2
 
 
 def test_half_right_probe_thinks(monkeypatch, tmp_path):

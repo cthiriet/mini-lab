@@ -157,13 +157,13 @@ def _text(content: str | list[dict] | None) -> str | None:
     return content
 
 
-_EFFORTS = {"none": "none", "minimal": "low", "low": "low", "medium": "medium",
+_EFFORTS = {"none": "none", "minimal": "low", "low": "low", "medium": "high",
             "high": "high", "xhigh": "high", "max": "high"}
 
 
 def normalize_effort(value: str | None) -> str:
-    """reasoning_effort as one of none, low, medium, high; clients' other levels mean medium."""
-    return _EFFORTS.get(str(value).strip().lower(), "medium") if value is not None else "medium"
+    """reasoning_effort as one of none, low or high; medium, unset and clients' other levels mean high."""
+    return _EFFORTS.get(str(value).strip().lower(), "high") if value is not None else "high"
 
 
 def to_inference(req: ChatCompletionRequest, default_temperature: float = 1.0) -> dict:

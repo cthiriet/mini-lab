@@ -145,12 +145,12 @@ def test_normalize_and_dedupe():
 
 
 def test_think_follows_the_threshold():
-    policy = {"tau": {"low": 0.8, "medium": 0.92, "high": 0.99}, "p": {"1,add": 0.99, "2,0": 0.85, "3,0": 0.5}, "n": 300}
+    policy = {"tau": {"low": 0.8, "high": 0.99}, "p": {"1,add": 0.99, "2,0": 0.85, "3,0": 0.5}, "n": 300}
     mk = lambda k: {"steps": k, "ops": [("add", 1)] * k}  # noqa: E731
-    assert not sm.think("low", mk(1), policy) and not sm.think("medium", mk(1), policy)
+    assert not sm.think("low", mk(1), policy)
     assert sm.think("high", mk(1), policy)  # 0.99 is not 0.03 above 0.99
     assert not sm.think("low", mk(2), policy)  # 0.85 >= 0.80 + 0.03
-    assert sm.think("medium", mk(2), policy)  # under the threshold
+    assert sm.think("high", mk(2), policy)  # under the threshold
     assert sm.think("low", {"steps": 2, "ops": [("add", 1), ("dbl", None)]}, policy)  # bucket (2, 1) is absent
     assert sm.think("low", mk(3), policy) and sm.think("high", mk(3), policy)
     assert not any(sm.think("none", mk(k), policy) for k in (1, 2, 3, 6))

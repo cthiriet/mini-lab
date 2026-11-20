@@ -35,14 +35,14 @@ def _by_digits(records: list[dict], key: str = "correct") -> dict[str, float]:
     return {str(n): _mean(r[key] for r in records if r["digits"] == n) for n in digits}
 
 
-LEVELS = ["low", "medium", "high"]
+LEVELS = ["low", "high"]
 # Held-out story sets (docs/story-math-spec.md §7.2): name -> (problems, events, split, `half` in the problem?, distractor)
 HELDOUT_SETS = {"steps78": (200, [7, 8], "heldout", None, None),
                 "objects": (200, [1, 2, 3, 4, 5, 6], "heldout", False, None),  # new names and things, no `half`
                 "ops": (100, [2, 3, 4, 5], "heldout", True, None),              # `half` appears
                 "distract": (200, [3, 4, 5, 6], "train", None, True)}           # always a distractor
 # Modes of the held-out sets: name -> (level, think)
-HELDOUT_MODES = {"adaptive medium": ("medium", None), "adaptive high": ("high", None), "off": ("medium", False)}
+HELDOUT_MODES = {"adaptive high": ("high", None), "off": ("high", False)}
 
 
 def _heldout_problems(seed: int, name: str, scale: float) -> list[dict]:
@@ -61,7 +61,7 @@ def _heldout_problems(seed: int, name: str, scale: float) -> list[dict]:
 def evaluate_story_math(model: GPT, tok: Tokenizer, cfg: dict, n_per_step: int | None = None) -> dict:
     """The story problems (eval/tasks.py:eval_story_math): 7 modes by number of events k, then the held-out
     sets. Returns eval.json's "story_math" and its scalars. The reasoning's sums are computed for the
-    model (inference/calculator.py), except in the "adaptive medium nocalc" reference. n_per_step (default: the config's) scales every
+    model (inference/calculator.py), except in the "adaptive high nocalc" reference. n_per_step (default: the config's) scales every
     set, for a quicker look."""
     ec, seed = cfg["eval"]["story_math"], cfg["data"]["reason"]["eval_seed"]
     n = n_per_step or ec["n_per_step"]
@@ -71,9 +71,9 @@ def evaluate_story_math(model: GPT, tok: Tokenizer, cfg: dict, n_per_step: int |
         rng = random.Random(f"{seed}-{k}")
         problems += [story_math.make(rng, k, "train") for _ in range(n)]
     modes = {f"{kind} {level}": (level, think) for level in LEVELS for kind, think in (("adaptive", None), ("forced", True))}
-    modes["off"] = ("medium", False)
+    modes["off"] = ("high", False)
     records = {m: tasks.eval_story_math(model, tok, problems, max_new, level, think) for m, (level, think) in modes.items()}
-    records["adaptive medium nocalc"] = tasks.eval_story_math(model, tok, problems, max_new, "medium", calculator=False)  # reference
+    records["adaptive high nocalc"] = tasks.eval_story_math(model, tok, problems, max_new, "high", calculator=False)  # reference
     sm = {key: {m: _by_digits(r, field) for m, r in records.items()}
           for key, field in (("accuracy", "correct"), ("think_rate", "thinking"), ("tokens", "reasoning_tokens"))}
     sm["style_ok"], sm["direct_acc"], sm["regret"] = {}, {}, {}
@@ -91,8 +91,8 @@ def evaluate_story_math(model: GPT, tok: Tokenizer, cfg: dict, n_per_step: int |
             sm["heldout"][name][m] = {"accuracy": _mean(r["correct"] for r in rs), "think_rate": _mean(r["thinking"] for r in rs),
                                       "tokens": _mean(r["reasoning_tokens"] for r in rs)}
     scalars = {f"sm_{level}": _mean(sm["accuracy"][f"adaptive {level}"].values()) for level in LEVELS}
-    scalars["sm_medium_nocalc"] = _mean(sm["accuracy"]["adaptive medium nocalc"].values())
-    return {"story_math": sm, **scalars, "sm_6st": sm["accuracy"]["adaptive medium"].get("6")}
+    scalars["sm_high_nocalc"] = _mean(sm["accuracy"]["adaptive high nocalc"].values())
+    return {"story_math": sm, **scalars, "sm_6st": sm["accuracy"]["adaptive high"].get("6")}
 
 
 def evaluate(model: GPT, tok: Tokenizer, cfg: dict, stage: str) -> dict:
@@ -162,14 +162,14 @@ def _pct(v) -> str:
 
 TABLE_FOOTNOTE = ("* held-out digit counts (length generalization). base = raw-text prompt \"a + b =\". "
                   "think saved = thinking tokens the model skips on additions, against always thinking. "
-                  "sm = story problems (adaptive at low/medium/high effort, 6st = 6 events, think/tok = thinking rate and "
+                  "sm = story problems (adaptive at low/high effort, 6st = 6 events, think/tok = thinking rate and "
                   "tokens, 7-8 and obj = held-out events and names). "
                   "instr = instruction following, chat = whole conversations right. agent = coding tasks done end "
                   "to end in opencode's format, valid calls = tool calls opencode accepts (see eval.json).")
 
 
 def _levels(result: dict, key: str, scale: int = 1, suffix: str = "") -> str:
-    """The story problems' `key` (think_rate, tokens), adaptive, averaged over k, at low/medium/high: "12/38/71%"."""
+    """The story problems' `key` (think_rate, tokens), adaptive, averaged over k, at low/high: "12/71%"."""
     sm = result.get("story_math")
     values = [_mean(sm[key][f"adaptive {level}"].values()) if sm else None for level in LEVELS]
     return "-" if sm is None else "/".join("-" if v is None else f"{scale * v:.0f}" for v in values) + suffix
@@ -184,7 +184,7 @@ def _table_cells(results: list[dict], times: dict[str, float] | None) -> tuple[l
     cols += [f"{hardest}d@T=1", "think saved"]
     sm = any("story_math" in r for r in results)  # an older eval.json has none
     held = sm and any("heldout" in r.get("story_math", {}) for r in results)
-    cols += (["sm lo", "sm med", "sm hi", "sm 6st", "think L/M/H", "tok L/M/H"] if sm else []) + (["sm 7-8*", "sm obj*"] if held else [])
+    cols += (["sm lo", "sm hi", "sm 6st", "think L/H", "tok L/H"] if sm else []) + (["sm 7-8*", "sm obj*"] if held else [])
     cols += ["tool call", "tool ans", "story", "instr", "chat", "format"]
     coding = "code" in results[0]
     cols += (["agent", "valid calls"] if coding else []) + (["train time"] if times else [])
@@ -194,10 +194,10 @@ def _table_cells(results: list[dict], times: dict[str, float] | None) -> tuple[l
         row += [_pct(r["arithmetic"].get(str(n))) for n in digits]
         row += [_pct(r.get(k)) for k in ("arithmetic_sampled", "think_saved")]
         if sm:
-            row += [_pct(r.get(k)) for k in ("sm_low", "sm_medium", "sm_high", "sm_6st")]
+            row += [_pct(r.get(k)) for k in ("sm_low", "sm_high", "sm_6st")]
             row += [_levels(r, "think_rate", 100, "%"), _levels(r, "tokens")]
         if held:
-            row += [_pct(r.get("story_math", {}).get("heldout", {}).get(name, {}).get("adaptive medium", {}).get("accuracy"))
+            row += [_pct(r.get("story_math", {}).get("heldout", {}).get(name, {}).get("adaptive high", {}).get("accuracy"))
                     for name in ("steps78", "objects")]
         row += [_pct(r.get(k)) for k in ("tool_call", "tool_answer", "story_topic", "instr", "chat", "format")]
         if coding:

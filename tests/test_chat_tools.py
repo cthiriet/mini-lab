@@ -88,16 +88,16 @@ EFFORT_CONVERSATIONS = [
 ]
 
 
-def test_effort_header_only_for_low_and_high():
+def test_effort_header_only_for_low():
     from minilab.tokenizer.chat import render_conversation, render_prompt
     tok = _effort_tok()
     S = tok.special
     for messages, tools in EFFORT_CONVERSATIONS:
         default = render_prompt(tok, messages, tools)
-        for effort in ("medium", "none", None):
+        for effort in ("high", "medium", "none", None):
             assert render_prompt(tok, messages, tools, effort=effort) == default
             assert render_conversation(tok, messages, tools, effort=effort) == render_conversation(tok, messages, tools)
-        for effort in ("low", "high"):
+        for effort in ("low",):
             line = [S("<|system_start|>"), *tok.encode(f"effort: {effort}"), S("<|system_end|>")]
             ids = render_prompt(tok, messages, tools, effort=effort)
             n = len(line)

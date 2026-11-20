@@ -2,8 +2,8 @@
 
 A hero starts with a few things and goes through k events (+, -, x2, and in the held-out
 split half), among sentences that change nothing. The answer is the last state. The
-module also holds what the reasoning must look like: three levels of effort
-(low: bare equations, medium: short sentences, high: the story read again sentence by sentence), a
+module also holds what the reasoning must look like: two levels of effort
+(low: bare equations, high: the story read again sentence by sentence), a
 program that writes them (the plan without a teacher model), the checks every trace
 must pass (a teacher's too), and the rule that decides whether to think.
 """

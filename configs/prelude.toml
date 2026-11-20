@@ -15,23 +15,23 @@ digits = [1, 2, 3, 4, 5]    # operand lengths in the pretraining worksheets (and
 heldout_digits = [6]        # never trained on: length generalization
 story_max_chars = 700       # stories told in chat must fit the context
 
-[data.reason]               # story problems (minilab/data/story_math.py): one counter, k events, three levels of effort
+[data.reason]               # story problems (minilab/data/story_math.py): one counter, k events, two levels of effort (low, high)
 probe_seed = 1001           # seed A: the probe's training problems (answers only)
 policy_seed = 1002          # seed B: the problems that measure it (the probe never saw them)
 train_seed = 1003
 eval_seed = 1004
 steps = [1, 2, 3, 4, 5, 6]  # events per problem in training (the held-out split also has 7 and 8)
 k_weights = [0.10, 0.15, 0.20, 0.20, 0.20, 0.15]
-efforts = { low = 0.3, medium = 0.4, high = 0.3 }   # medium: no header line
+efforts = { low = 0.4, high = 0.6 }   # high: no header line; medium is no longer trained (it means high)
 header_frac = 0.15          # share of the other conversations with an effort header (the target does not change)
-tau = { low = 0.80, medium = 0.92, high = 0.99 }    # answer at once only if the probe's accuracy on the bucket beats it by 0.03
+tau = { low = 0.80, high = 0.99 }                   # answer at once only if the probe's accuracy on the bucket beats it by 0.03
 traces = "data/reason/traces.jsonl"                 # the teacher's traces (scripts/teacher_traces.py)
 policy = "data/reason/policy.json"                  # the probe's accuracy per (steps, doubling) (scripts/probe_direct.py)
-teacher_frac = 0.5          # share of the traces of teacher_levels taken from the teacher's file, the rest from the program
-teacher_levels = ["medium"] # high always comes from the program (the story read again, sentence by sentence)
-anchor = true               # low and medium start with the number of events ("3 events:", numbered equations)
-pseudo_frac = 0.25          # share of the problems whose thing, and independently whose hero and one other name, are made-up words
-wide = true                 # draw heroes, others and things from the wide training lexicon (~200 names, ~250 things) as well
+teacher_frac = 0.0          # share of the traces of teacher_levels taken from the teacher's file (it only served medium): the program writes them all
+teacher_levels = []         # high and low always come from the program
+anchor = true               # low starts with the number of events ("3 events:", numbered equations)
+pseudo_frac = 0.08          # share of the problems whose thing, and independently whose hero and one other name, are made-up words
+wide = false                # draw heroes, others and things from the wide training lexicon (~200 names, ~250 things) as well
 mode = "policy"             # "direct": story problems with no thoughts and no header anywhere (the probe of E1, spec 3.3)
 
 [tokenizer]

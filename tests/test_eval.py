@@ -221,7 +221,7 @@ def test_story_math_grade(model_and_tok):
 def test_eval_story_math(story_model):
     model, tok = story_model
     problems = [tasks.make_problem("story_math", random.Random(i), [1, 2, 3]) for i in range(6)]
-    for level, think in [("medium", None), ("low", True), ("high", True), ("high", None), ("medium", False)]:
+    for level, think in [("high", None), ("low", True), ("high", True), ("low", None), ("high", False)]:
         records = tasks.eval_story_math(model, tok, problems, 6, level, think)
         assert len(records) == 6
         for r, p in zip(records, problems):
@@ -241,17 +241,17 @@ def test_evaluate_story_math(story_model):
     cfg["eval"]["story_math"] = {"n_per_step": 4, "steps": [1, 6], "max_new_tokens": 6}
     result = eval_run.evaluate_story_math(model, tok, cfg, n_per_step=2)
     sm = result["story_math"]
-    modes = {f"{kind} {level}" for kind in ("adaptive", "forced") for level in eval_run.LEVELS} | {"off", "adaptive medium nocalc"}
+    modes = {f"{kind} {level}" for kind in ("adaptive", "forced") for level in eval_run.LEVELS} | {"off", "adaptive high nocalc"}
     assert set(sm["accuracy"]) == set(sm["think_rate"]) == set(sm["tokens"]) == modes
     assert set(sm["accuracy"]["off"]) == {"1", "6"} and sm["think_rate"]["off"] == {"1": 0, "6": 0}
     assert all(v == 1 for v in sm["think_rate"]["forced high"].values())
     assert set(sm["style_ok"]) == set(sm["direct_acc"]) == set(sm["regret"]) == set(eval_run.LEVELS)
-    assert set(sm["regret"]["medium"]) == {"1", "6"}
-    assert result["sm_6st"] == sm["accuracy"]["adaptive medium"]["6"]
+    assert set(sm["regret"]["high"]) == {"1", "6"}
+    assert result["sm_6st"] == sm["accuracy"]["adaptive high"]["6"]
     assert result["sm_low"] == pytest.approx(sum(sm["accuracy"]["adaptive low"].values()) / 2)
-    assert result["sm_medium_nocalc"] == pytest.approx(sum(sm["accuracy"]["adaptive medium nocalc"].values()) / 2)
+    assert result["sm_high_nocalc"] == pytest.approx(sum(sm["accuracy"]["adaptive high nocalc"].values()) / 2)
     assert set(sm["heldout"]) == {"steps78", "objects", "ops", "distract"}
-    assert set(sm["heldout"]["ops"]) == {"adaptive medium", "adaptive high", "off"}
+    assert set(sm["heldout"]["ops"]) == {"adaptive high", "off"}
     json.dumps(result)
 
 
@@ -266,25 +266,25 @@ def test_heldout_story_sets():
 
 def test_table_story_math_columns():
     old = {"stage": "sft", "mode": "chat", "val_ppl": 2.0, "arithmetic": {"1": 1.0}, "train_digits": [1]}
-    rate = {f"adaptive {level}": {"1": v, "2": v} for level, v in zip(eval_run.LEVELS, (0.1, 0.4, 0.7))}
-    new = {**old, "sm_low": 0.5, "sm_medium": 0.6, "sm_high": 0.7, "sm_6st": 0.4,
+    rate = {f"adaptive {level}": {"1": v, "2": v} for level, v in zip(eval_run.LEVELS, (0.1, 0.7))}
+    new = {**old, "sm_low": 0.5, "sm_high": 0.7, "sm_6st": 0.4,
            "story_math": {"think_rate": rate, "tokens": {m: {"1": 10 * (i + 1)} for i, m in enumerate(rate)},
-                          "heldout": {"steps78": {"adaptive medium": {"accuracy": 0.3}},
-                                      "objects": {"adaptive medium": {"accuracy": 0.55}}}}}
+                          "heldout": {"steps78": {"adaptive high": {"accuracy": 0.3}},
+                                      "objects": {"adaptive high": {"accuracy": 0.55}}}}}
     cols, rows = eval_run._table_cells([new], None)
     row = dict(zip(cols, rows[0]))
-    assert row["sm lo"] == "50%" and row["sm 6st"] == "40%" and row["think L/M/H"] == "10/40/70%"
-    assert row["tok L/M/H"] == "10/20/30" and row["sm 7-8*"] == "30%" and row["sm obj*"] == "55%"
-    assert "sm med" not in eval_run._table_cells([old], None)[0]
+    assert row["sm lo"] == "50%" and row["sm 6st"] == "40%" and row["think L/H"] == "10/70%"
+    assert row["tok L/H"] == "10/20" and row["sm 7-8*"] == "30%" and row["sm obj*"] == "55%"
+    assert "sm hi" not in eval_run._table_cells([old], None)[0]
     cols, rows = eval_run._table_cells([old, new], None)  # an old eval.json next to a new one
-    assert dict(zip(cols, rows[0]))["sm med"] == "-"
+    assert dict(zip(cols, rows[0]))["sm hi"] == "-"
     assert "sm hi" in eval_run.table([new]) and "sm hi" not in eval_run.table([old])
 
 
 def test_gate_story_math():
     cfg = {"data": {"digits": [1]}, "eval": {"n_per_digit": 100, "n_sampled": 100, "n_tool": 50}}
     old = {"val_bpc": 0.6, "arithmetic": {"1": 1.0}}
-    new = {**old, "sm_low": 0.4, "sm_medium": 0.5, "sm_high": 0.6, "sm_6st": 0.2}
+    new = {**old, "sm_low": 0.4, "sm_high": 0.6, "sm_6st": 0.2}
     assert {c.metric for c in gate.compare(new, old, cfg)} == {"bpc", "1d"}  # an old eval.json has no story problems
     assert {c.metric for c in gate.compare(old, new, cfg)} == {"bpc", "1d"}
     worse = gate.compare({**new, "sm_low": 0.3, "sm_6st": 0.19}, new, cfg)

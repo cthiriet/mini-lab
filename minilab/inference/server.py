@@ -49,7 +49,7 @@ class GenerateRequest(BaseModel):
     steer: list[Steer] | None = Field(None, max_length=8)   # features pushed at every token (engine.py)
     think: bool = True                               # False: no reasoning (reasoning_effort "none")
     think_calculator: bool = True                    # the reasoning's sums are computed (inference/calculator.py)
-    effort: str = "medium"                           # none, low, medium or high (api/schemas.py)
+    effort: str = "high"                             # none, low or high (api/schemas.py)
     stream: bool = False
 
 

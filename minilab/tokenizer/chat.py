@@ -4,7 +4,7 @@ A rendered conversation looks like this (one line per turn for readability):
 
     <|bos|>
     <|system_start|>tools: calculator<|system_end|>            # only if tools are enabled
-    <|system_start|>effort: high<|system_end|>                 # only for effort low or high
+    <|system_start|>effort: low<|system_end|>                  # only for effort low (no line: high)
     <|system_start|>You are a helpful assistant.<|system_end|>  # optional system message
     <|user_start|>What is 347 + 58?<|user_end|>
     <|assistant_start|><|tool_call_start|>calculator<|arg|>expression=347 + 58<|tool_call_end|><|assistant_end|>
@@ -152,7 +152,7 @@ def _render_header(tok: Tokenizer, tools, effort: str | None = None) -> list[int
     names = _tool_names(tools)
     if names:
         ids += [S("<|system_start|>"), *tok.encode("tools: " + ", ".join(names)), S("<|system_end|>")]
-    if effort in ("low", "high"):  # medium, none and unset: no line
+    if effort == "low":  # high, medium, none and unset: no line (no line means high)
         ids += [S("<|system_start|>"), *tok.encode("effort: " + effort), S("<|system_end|>")]
     return ids
 
@@ -210,7 +210,7 @@ def render_prompt(
     tok: Tokenizer, messages: list[dict], tools=None, budget: int | None = None, effort: str | None = None
 ) -> list[int]:
     """Render messages for inference: the result ends with <|assistant_start|>.
-    `effort` "low" or "high" adds the header line "effort: ..." after the tools line.
+    `effort` "low" adds the header line "effort: ..." after the tools line.
 
     With a budget (the server's context management), the prompt is at most `budget` tokens:
     see fit_messages()."""

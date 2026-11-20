@@ -21,7 +21,7 @@ from minilab.eval import tasks
 from minilab.train.trainer import DEVICES, STAGES, load_config, resolve_device, setup
 
 MIN_N = 30
-LEVELS = ["low", "medium", "high"]
+LEVELS = ["low", "high"]
 
 
 def measure(model, tok, seed: int, steps: list[int], n: int) -> dict[str, list[bool]]:
@@ -30,7 +30,7 @@ def measure(model, tok, seed: int, steps: list[int], n: int) -> dict[str, list[b
     for k in steps:
         rng = random.Random(f"{seed}-{k}")
         problems = [sm.make(rng, k, "train") for _ in range(n)]
-        for r in tasks.eval_story_math(model, tok, problems, 32, "medium", think=False):
+        for r in tasks.eval_story_math(model, tok, problems, 32, "high", think=False):
             results[r["bucket"]].append(r["correct"])
     return results
 

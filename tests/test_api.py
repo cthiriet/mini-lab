@@ -781,9 +781,9 @@ def test_reasoning_effort_none_turns_thinking_off():
 
 def test_reasoning_effort_is_normalized():
     from minilab.api.schemas import normalize_effort, parse_chat_request, to_inference
-    expected = {None: "medium", "none": "none", "minimal": "low", "low": "low", "medium": "medium",
+    expected = {None: "high", "none": "none", "minimal": "low", "low": "low", "medium": "high",
                 "high": "high", "xhigh": "high", "max": "high", "HIGH": "high", "None": "none",
-                "turbo": "medium", "": "medium"}
+                "turbo": "high", "": "high"}
     for value, effort in expected.items():
         assert normalize_effort(value) == effort
     body = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
@@ -804,6 +804,7 @@ def test_effort_reaches_the_rendered_prompt():
     messages = [{"role": "user", "content": "hi"}]
     ids = {e: _render(Runner, GenerateRequest(model="m", messages=messages, effort=e))
            for e in ("none", "low", "medium", "high")}
-    assert ids["none"] == ids["medium"]
-    assert len({tuple(v) for v in ids.values()}) == 3
-    assert tok.encode("effort: high") == ids["high"][2:2 + len(tok.encode("effort: high"))]
+    assert ids["none"] == ids["medium"] == ids["high"]  # no line means high
+    assert len({tuple(v) for v in ids.values()}) == 2
+    assert tok.encode("effort: low") == ids["low"][2:2 + len(tok.encode("effort: low"))]
+    assert GenerateRequest(model="m", messages=messages).effort == "high"

@@ -224,8 +224,8 @@ def test_epochs_reshuffle_a_fixed_set():
 
 # ---- story_math: policy, teacher bank, effort header (docs/story-math-spec.md) ----------------------
 
-RC = {"steps": [1, 2, 3], "k_weights": [1, 1, 1], "efforts": {"low": 0.3, "medium": 0.4, "high": 0.3},
-      "header_frac": 0.15, "tau": {"low": 0.80, "medium": 0.92, "high": 0.99}}
+RC = {"steps": [1, 2, 3], "k_weights": [1, 1, 1], "efforts": {"low": 0.4, "high": 0.6},
+      "header_frac": 0.15, "tau": {"low": 0.80, "high": 0.99}}
 MIX_MID = {"arithmetic": 0.35, "story_math": 0.30, "story": 0.20, "greeting": 0.15}
 MIX_SFT = {"plain": 0.3, "new_question": 0.2, "refusal": 0.1, "reason": 0.4}
 
@@ -265,14 +265,14 @@ def test_story_math_follows_the_policy(tmp_path, made):
     # buckets alternate between certain (p = 1.0: direct at every level) and a coin flip (p = 0.5:
     # below every threshold, so never direct at any level)
     table = {f"{k},{d}": 1.0 if (k + d) % 2 else 0.5 for k in (2, 3) for d in (0, 1)} | {"1,add": 1.0, "1,sub": 0.5, "1,dbl": 1.0}
-    tau = {"low": 0.80, "medium": 0.92, "high": 0.95}  # think() adds 0.03: with high = 0.99 nothing is direct at high
+    tau = {"low": 0.80, "high": 0.95}  # think() adds 0.03: with high = 0.99 nothing is direct at high
     story_math_convs(reason_with(tmp_path, table, tau=tau), 600)
     efforts = {True: set(), False: set()}
     for m in made:
         certain = table.get(story_math.bucket(m["problem"]), 0.5) == 1.0
         assert ("reasoning" not in m["conv"]["messages"][1]) == certain
         efforts[certain].add(m["conv"]["effort"])
-    assert efforts[True] == efforts[False] == {None, "low", "high"}  # at every level
+    assert efforts[True] == efforts[False] == {None, "low"}  # at every level (None: high, no header)
 
 
 def test_story_math_anchor_switch(tmp_path):
@@ -282,8 +282,7 @@ def test_story_math_anchor_switch(tmp_path):
         for c in convs:
             by[c["effort"]].append(c["messages"][1]["reasoning"])
         assert all(re.match(r"\d events:\n1: ", t) is not None for t in by["low"]) == on
-        assert all(re.match(r"\d events\. ", t) is not None for t in by[None]) == on
-        assert not any(re.match(r"\d events", t) for t in by["high"])
+        assert not any(re.match(r"\d events", t) for t in by[None])  # high: no anchor
 
 
 def test_story_math_pseudo_frac(tmp_path):
@@ -317,7 +316,7 @@ def test_midtrain_stream_share_and_headers(tmp_path, made):
     others = [c for c in convs if id(c) not in math_ids]
     assert abs(sum("effort" in c for c in others) / len(others) - 0.15) < 0.03
     assert {c["effort"] for c in others if "effort" in c} == {"low", "high"}
-    assert {m["conv"]["effort"] for m in made} == {None, "low", "high"}
+    assert {m["conv"]["effort"] for m in made} == {None, "low"}  # high: no header
 
 
 def test_sft_reason_kind_and_histories(tmp_path, made):
@@ -336,12 +335,12 @@ def test_sft_reason_kind_and_histories(tmp_path, made):
 
 def test_story_math_teacher_bank(tmp_path):
     rng, rows = random.Random(5), []
-    for i, level in enumerate(["medium", "high", "high", "medium"]):
+    for i, level in enumerate(["low", "high", "high", "low"]):
         problem = story_math.make(rng, 2 + i % 2, "train")
         rows.append({"id": f"t-{i}", "level": level, "text": f"TRACE {i} {level}", "ok": i != 3,
                      "problem": {**problem, "id": f"t-{i}"}})
     (tmp_path / "traces.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
-    reason = reason_with(tmp_path, teacher_frac=1.0, teacher_levels=["medium", "high"], efforts={"medium": 0.5, "high": 0.5})
+    reason = reason_with(tmp_path, teacher_frac=1.0, teacher_levels=["low", "high"], efforts={"low": 0.5, "high": 0.5})
     text_of = {r["text"]: r["problem"]["messages"][0]["content"] for r in rows}
     seen = set()
     for question, reply in (c["messages"] for c in story_math_convs(reason, 100)):
@@ -349,25 +348,24 @@ def test_story_math_teacher_bank(tmp_path):
             assert text_of[reply["reasoning"]] == question["content"]  # the trace belongs to this very problem
             seen.add(reply["reasoning"])
         else:  # one event: the teacher wrote none, the program does
-            assert story_math.style_ok("medium", reply["reasoning"]) or story_math.style_ok("high", reply["reasoning"])
-    assert seen == {"TRACE 0 medium", "TRACE 1 high", "TRACE 2 high"}  # the rejected row is never drawn
-    # by default only medium comes from the teacher: high is always written by the program
-    default = reason_with(tmp_path, teacher_frac=1.0, efforts={"medium": 0.5, "high": 0.5})
-    assert default.teacher_levels == ["medium"]
-    texts = {c["messages"][1]["reasoning"] for c in story_math_convs(default, 100)}
-    assert "TRACE 0 medium" in texts and not any(t.startswith("TRACE") and t.endswith("high") for t in texts)
+            assert story_math.style_ok("low", reply["reasoning"]) or story_math.style_ok("high", reply["reasoning"])
+    assert seen == {"TRACE 0 low", "TRACE 1 high", "TRACE 2 high"}  # the rejected row is never drawn
+    # by default no level comes from the teacher: the program writes them all
+    default = reason_with(tmp_path, teacher_frac=1.0)
+    assert default.teacher_levels == []
+    assert all("TRACE" not in c["messages"][1]["reasoning"] for c in story_math_convs(default, 100))
     # teacher = false, or a level the bank lacks: the program writes the thoughts
     for rc in ({"teacher_frac": 0.0}, {"teacher_frac": 1.0, "efforts": {"low": 1.0}}):
         assert all("TRACE" not in c["messages"][1]["reasoning"] for c in story_math_convs(reason_with(tmp_path, **rc), 30))
 
 
 def test_story_math_teacher_frac(tmp_path):
-    rows = [{"id": "t", "level": "medium", "text": "TRACE", "ok": True,
+    rows = [{"id": "t", "level": "high", "text": "TRACE", "ok": True,
              "problem": {**story_math.make(random.Random(1), 3, "train"), "id": "t"}}]
     (tmp_path / "traces.jsonl").write_text(json.dumps(rows[0]))
-    only_medium = {"efforts": {"medium": 1.0}, "steps": [3], "k_weights": [1.0]}
+    only_high = {"efforts": {"high": 1.0}, "steps": [3], "k_weights": [1.0], "teacher_levels": ["high"]}
     for frac in (0.0, 0.3, 1.0):
-        convs = story_math_convs(reason_with(tmp_path, teacher_frac=frac, **only_medium), 600)
+        convs = story_math_convs(reason_with(tmp_path, teacher_frac=frac, **only_high), 600)
         share = sum(c["messages"][1].get("reasoning") == "TRACE" for c in convs) / 600
         assert abs(share - frac) < 0.07
     assert reason_with(tmp_path, teacher=True).teacher_frac == 1.0  # old configs
@@ -390,8 +388,15 @@ def test_story_math_is_deterministic(tmp_path):
 
 
 def test_story_math_rendering_has_the_effort_line(tok, tmp_path):
-    conv = story_math_convs(reason_with(tmp_path, efforts={"high": 1.0}), 1)[0]
+    conv = story_math_convs(reason_with(tmp_path, efforts={"low": 1.0}), 1)[0]
     ids, _ = render_conversation(tok, conv["messages"], conv["tools"], conv["effort"])
-    assert "effort: high" in tok.decode(ids) and "effort" not in tok.decode(render_conversation(tok, conv["messages"])[0])
+    assert "effort: low" in tok.decode(ids) and "effort" not in tok.decode(render_conversation(tok, conv["messages"])[0])
     x, _ = chat_batch(tok, [conv], 1024)  # the loader renders it with the header too
     assert x[0][:len(ids) - 1].tolist() == ids[:-1]
+    high = story_math_convs(reason_with(tmp_path, efforts={"high": 1.0}), 1)[0]  # high: no header line
+    assert high["effort"] is None and "effort" not in tok.decode(render_conversation(tok, high["messages"], None, high["effort"])[0])
+
+
+def test_story_math_without_medium(tmp_path):
+    with pytest.raises(ValueError, match="medium"):
+        reason_with(tmp_path, efforts={"low": 0.4, "medium": 0.3, "high": 0.3})

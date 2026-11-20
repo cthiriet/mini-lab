@@ -161,7 +161,9 @@ class Reason:
         path = rc.get("policy", "")
         self.policy = {"p": {}, **(story_math.load_policy(path) if os.path.isfile(path) else {}), "tau": rc["tau"]}
         self.teacher_frac = float(rc.get("teacher_frac", rc.get("teacher", 0.0)))  # old configs: teacher = true/false
-        self.teacher_levels = rc.get("teacher_levels", ["medium"])
+        if "medium" in rc["efforts"]:
+            raise ValueError("[data.reason] efforts: medium is no longer trained (two levels, low and high)")
+        self.teacher_levels = rc.get("teacher_levels", [])
         self.bank = teacher_bank(rc.get("traces", "")) if self.teacher_frac and not self.direct else {}
         self.header_frac = 0.0 if self.direct else rc["header_frac"]
         self.anchor, self.pseudo_frac = bool(rc.get("anchor", False)), float(rc.get("pseudo_frac", 0.0))
@@ -184,14 +186,14 @@ def story_math_conversation(rng: random.Random, reason: Reason) -> dict:
         reply["reasoning"] = trace or story_math.trace_program(problem, level, rng)
         if reason.anchor:
             reply["reasoning"] = story_math.anchor(problem, level, reply["reasoning"])
-    effort = None if reason.direct or level == "medium" else level
+    effort = None if reason.direct or level == "high" else level
     return {"messages": [dict(problem["messages"][0]), reply], "tools": None, "effort": effort}
 
 
 def with_header(rng: random.Random, conv: dict, reason: Reason | None) -> dict:
     """The effort header on header_frac of the conversations that have none (the target stays)."""
     if reason and "effort" not in conv and rng.random() < reason.header_frac:
-        conv["effort"] = rng.choice(["low", "high"])
+        conv["effort"] = rng.choice(list(reason.rc["efforts"]))
     return conv
 
 

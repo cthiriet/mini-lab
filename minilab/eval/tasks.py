@@ -300,8 +300,8 @@ def eval_arithmetic_chat(model: GPT, tok: Tokenizer, problems: list[dict], max_n
 
 def eval_story_math(model: GPT, tok: Tokenizer, problems: list[dict], max_new_tokens: int, level: str,
                     think: bool | None = None, calculator: bool = True) -> list[dict]:
-    """Story problems at effort `level` (low, medium, high). think: None lets the model decide, True forces
-    the reasoning (the prompt ends with <|think_start|>), False forbids it (level "medium" then: no header).
+    """Story problems at effort `level` (low, high). think: None lets the model decide, True forces
+    the reasoning (the prompt ends with <|think_start|>), False forbids it (level "high" then: no header).
     calculator: the reasoning's sums are computed for the model (inference/calculator.py)."""
     stop, think_start = {tok.special("<|assistant_end|>")}, tok.special("<|think_start|>")
     start = [think_start] if think else []
