@@ -286,30 +286,22 @@ def trace_program(problem: dict, level: str, rng: random.Random) -> str:
     return " ".join(sentences)
 
 
-# ---- the event count, written first (low and medium) ---------------------------
+# ---- the event count, written first --------------------------------------------
 
 def anchor(problem: dict, level: str, text: str) -> str:
     """`text`, a trace that passed verify_trace, with the number of events first: "3 events:" and numbered
-    equations at low; "3 events. " and the sentences that hold an equation numbered at medium; high is unchanged."""
+    equations at low, "3 events. " at high (E10: without it, in E9, low miscounted far more often)."""
     k = problem["steps"]
     if level == "low":
         return f"{k} events:\n" + "\n".join(f"{i}: {line}" for i, line in enumerate(text.split("\n"), 1))
-    if level != "medium":
-        return text
-    sentences, i = [], 0
-    for sentence in _sentences(text):
-        i += "=" in sentence
-        sentences.append(f"{i}: {sentence}" if "=" in sentence else sentence)
-    return f"{k} events. " + " ".join(sentences)
+    return f"{k} events. {text}"
 
 
 def strip_anchor(level: str, text: str) -> str:
     """Inverse of `anchor`; `text` unchanged where there is none."""
     if level == "low":
         return re.sub(r"^\d+: ", "", re.sub(r"^\d+ events:\n", "", text), flags=re.M)
-    if level != "medium":
-        return text
-    return re.sub(r"(?:^|(?<=[.!?] ))\d+: ", "", re.sub(r"^\d+ events\. ", "", text))
+    return re.sub(r"^\d+ events\. ", "", text)
 
 
 # ---- checks -------------------------------------------------------------------

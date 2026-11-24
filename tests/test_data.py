@@ -282,7 +282,7 @@ def test_story_math_anchor_switch(tmp_path):
         for c in convs:
             by[c["effort"]].append(c["messages"][1]["reasoning"])
         assert all(re.match(r"\d events:\n1: ", t) is not None for t in by["low"]) == on
-        assert not any(re.match(r"\d events", t) for t in by[None])  # high: no anchor
+        assert all(re.match(r"\d events\. ", t) is not None for t in by[None]) == on  # high: "3 events. "
 
 
 def test_story_math_pseudo_frac(tmp_path):

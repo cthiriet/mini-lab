@@ -215,17 +215,14 @@ def test_anchor_round_trip(level):
         text = sm.trace_program(p, level, rng)
         anchored = sm.anchor(p, level, text)
         assert sm.strip_anchor(level, anchored) == text and sm.strip_anchor(level, text) == text
-        assert (anchored == text) == (level == "high")
+        assert anchored.startswith(f"{p['steps']} events")
         assert sm.style_ok(level, sm.strip_anchor(level, anchored))
 
 
 def test_anchor_format():
     p = sm.make(random.Random(0), 2)
     assert sm.anchor(p, "low", "11-2=9\n9+4=13") == "2 events:\n1: 11-2=9\n2: 9+4=13"
-    text = "Sam had 4 flowers. He gets 6 from Kate, so 4 + 6 = 10. Minus 10: 10 - 10 = 0. Plus 17: 0 + 17 = 17."
-    assert sm.anchor(sm.make(random.Random(0), 3), "medium", text) == (
-        "3 events. Sam had 4 flowers. 1: He gets 6 from Kate, so 4 + 6 = 10. 2: Minus 10: 10 - 10 = 0. 3: Plus 17: 0 + 17 = 17.")
-    assert sm.anchor(p, "medium", "Tom has 3. He finds 2.") == "2 events. Tom has 3. He finds 2."
+    assert sm.anchor(p, "high", "Tom has 3. \"He finds 2.\"") == "2 events. Tom has 3. \"He finds 2.\""
     assert sm.strip_anchor("low", "2 events:\n1: 11-2=9\n2: 9+4=13") == "11-2=9\n9+4=13"
 
 
@@ -234,33 +231,6 @@ def test_calculator_triggers_after_an_anchor():
     assert think_result("2 events:\n1: 11-2=") == "9" and think_result("2 events:\n1: 11-2=9\n2: 9+4=") == "13"
     assert think_result("3 events. Sam had 4 flowers. 1: He gets 6 from Kate, so 4 + 6 =") == " 10"
     assert think_result("3 events. Sam had 4. 1: He gets 6, so 4 + 6 = 10. 2: Minus 10: 10 - 10 =") == " 0"
-
-
-def test_medium_round_trip_on_teacher_traces():
-    import json
-    import os
-    path = Path(os.environ.get("TEACHER_TRACES", "/Users/clementthiriet/VM/mini-lab/.claude/worktrees/"
-                               "agent-a95ab00c560bea7de/data/reason/traces_v2.jsonl.dedup.jsonl"))
-    if not path.is_file():
-        pytest.skip("no teacher file")
-    rows = [json.loads(line) for line in path.read_text().splitlines()[:300]]
-    rows = [r for r in rows if r["level"] == "medium" and r["ok"]]
-    assert rows
-    for r in rows:
-        anchored = sm.anchor(r["problem"], "medium", r["text"])
-        assert sm.strip_anchor("medium", anchored) == r["text"]
-        numbered = re.findall(r"(?:^|(?<=[.!?] ))(\d+): ", anchored.split(" events. ", 1)[1])
-        assert numbered == [str(i) for i in range(1, r["text"].count("=") + 1)]
-        assert sm.style_ok("medium", sm.strip_anchor("medium", anchored))
-
-
-def test_medium_numbers_each_equation_in_order():
-    rng = random.Random(5)
-    for p in problems(100, ks=range(1, 7)):
-        anchored = sm.anchor(p, "medium", sm.trace_program(p, "medium", rng))
-        assert anchored.startswith(f"{p['steps']} events. ")
-        assert [int(n) for n in re.findall(r"(?:^|(?<=[.!?] ))(\d+): ", anchored.split(" events. ", 1)[1])] == list(range(1, p["steps"] + 1))
-        assert all(("=" in s) == bool(re.match(r"\d+: ", s)) for s in sm._sentences(anchored)[1:])
 
 
 def _names(p):
