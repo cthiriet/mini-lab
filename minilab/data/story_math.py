@@ -4,8 +4,7 @@ A hero starts with a few things and goes through k events (+, -, x2, and in the 
 split half), among sentences that change nothing. The answer is the last state. The
 module also holds what the reasoning must look like: two levels of effort
 (low: bare equations, high: the story read again sentence by sentence), a
-program that writes them (the plan without a teacher model), the checks every trace
-must pass (a teacher's too), and the rule that decides whether to think.
+program that writes them, the checks every trace must pass, and the rule that decides whether to think.
 """
 
 from __future__ import annotations
@@ -49,15 +48,16 @@ FEMALE = {"Lily", "Mia", "Sue", "Anna", "Lucy", "Zoe", "Ella", "Nina", "Ruby", "
           "Greta", "Hazel", "Isla", "Jade", "Kira", "Lena", "Maria", "Olga", "Petra", "Rita", "Selma", "Tessa", "Uma",
           "Wanda", "Yara", "Alice", "Chloe", "Diana", "Olivia", "Rosa", "Bella", "Fiona", "Holly", "Leah", "Naomi", "Piper",
           "Sasha", "Tara"}
-# Wide training lexicon (make(wide=True)): common names and countable nouns, none of them held out.
-TRAIN_EXTRA_FEMALE = [
+# Words no made-up word may equal. They come from the wide lexicon of E8 (dropped in E9), which no problem draws from
+# any more; they stay here because _pseudo's draws depend on this set, and the training data must not change.
+_RETIRED_FEMALE = [
     *"Mary Patricia Jennifer Linda Elizabeth Barbara Susan Jessica Sarah Karen Nancy Betty Margaret Sandra Ashley".split(),
     *"Kimberly Emily Donna Michelle Carol Amanda Melissa Deborah Stephanie Rebecca Laura Sharon Cynthia Kathleen".split(),
     *"Amy Angela Helen Brenda Pamela Nicole Katherine Samantha Christine Emma Janet Catherine Rachel Carolyn".split(),
     *"Heather Julie Joyce Victoria Christina Lauren Joan Evelyn Judith Megan Cheryl Andrea Hannah Martha Frances".split(),
     *"Gloria Teresa Kathryn Sara Janice Madison Doris Abigail Julia Judy Denise Amber Marilyn Danielle Sophia".split(),
     *"Marie Brittany Natalie Isabella Charlotte Lydia Claire Eleanor Audrey Paula Leila Miriam Esther Noemi".split()]
-TRAIN_EXTRA_MALE = [
+_RETIRED_MALE = [
     *"James John Robert Michael William David Richard Joseph Thomas Charles Daniel Matthew Anthony Steven Andrew".split(),
     *"Kevin Brian George Edward Ronald Timothy Jason Jeffrey Ryan Jacob Gary Nicholas Jonathan Larry Justin Scott".split(),
     *"Brandon Benjamin Gregory Samuel Raymond Patrick Alexander Dennis Jerry Tyler Jose Nathan Peter Zachary".split(),
@@ -65,17 +65,17 @@ TRAIN_EXTRA_MALE = [
     *"Johnny Bruce Randy Howard Louis Harry Fred Craig Martin Keith Alan Shawn Clarence Todd Dean Ernest Julian".split(),
     *"Simon Leon Cody Evan Ian Luke Isaac Austin Sean Connor Lucas Jared Trevor Blake Troy Gavin Colin Damian".split(),
     *"Ross Neil Vernon Warren Stuart Gordon Clifford Anton Bruno Cyrus Dmitri Emil Ivo Leonard Nikolai".split()]
-TRAIN_EXTRA_HEROES = TRAIN_EXTRA_FEMALE + TRAIN_EXTRA_MALE
+_RETIRED_HEROES = _RETIRED_FEMALE + _RETIRED_MALE
 
 
-def _plural(word: str) -> str:
+def _regular_plural(word: str) -> str:
     """Regular English plural (the words below avoid every irregular)."""
     if word.endswith(("s", "x", "z", "ch", "sh")):
         return word + "es"
     return word[:-1] + "ies" if word.endswith("y") and word[-2] not in "aeiou" else word + "s"
 
 
-TRAIN_EXTRA_THINGS = [(w, _plural(w)) for w in """
+_RETIRED_THINGS = [(w, _regular_plural(w)) for w in """
     banana orange grape berry melon cucumber pepper onion pickle muffin cupcake donut pretzel cracker biscuit waffle
     pancake pie bun roll bagel sausage olive walnut almond pumpkin radish turnip pea strawberry blueberry raspberry
     mango apricot fig clam oyster crab shrimp frog turtle snail worm bug ant bee spider beetle butterfly ladybug duck
@@ -90,7 +90,6 @@ TRAIN_EXTRA_THINGS = [(w, _plural(w)) for w in """
     petal cloud hill mountain lake pond river island wave brick tile cone token chip disc domino lantern torch
     battery bulb wire cable coil gear spring spool thread needle pin tent hut castle tower bridge fence gate
     flagpole mailbox""".split()]
-FEMALE |= set(TRAIN_EXTRA_FEMALE)
 WEATHER = [("The sun is warm.", "The sun"), ("It is a sunny day.", "The day"), ("The sky is blue.", "The sky")]
 SYMBOL = {"add": "+", "sub": "-", "dbl": "x", "half": "/"}
 
@@ -116,14 +115,7 @@ QUESTIONS = ["How many {t} does {H} have now?", "How many {t} does {H} have left
              "How many {t} does {H} have in all?", "How many {t} will {H} have then?",
              "{H} wants to count {P} {t}. How many are there?"]
 
-# Reasoning sentences. Medium: a start sentence, then one sentence with one equation per event.
-INTROS = ["{H} starts with {c}.", "{H} had {c}.", "At first, {H} has {c}.", "{H} begins with {c}."]
-_COMMON = ["{S} {clause}, so {eq}.", "{S} {clause}: {eq}."]
-MEDIUM = {"add": [*_COMMON, "{n} more, so {eq}.", "Plus {n}: {eq}.", "Add {n}: {eq}.", "Now {eq}, with {n} more."],
-          "sub": [*_COMMON, "{n} fewer, so {eq}.", "Minus {n}: {eq}.", "Take away {n}: {eq}.", "Now {eq}, with {n} gone."],
-          "dbl": [*_COMMON, "Doubling gives {eq}.", "It doubles: {eq}.", "Twice as many: {eq}.", "Double it, so {eq}."],
-          "half": [*_COMMON, "Half of it: {eq}.", "Half goes, so {eq}.", "Cut it in half: {eq}.", "Now {eq}, half gone."]}
-# High: the story read again. Each sentence after the first is quoted, then comes what it does
+# Reasoning sentences: the story read again. Each sentence after the first is quoted, then comes what it does
 # (an equation, or that it changes nothing), then the conclusion.
 HIGH_INTROS = ["{H} begins with {c}.", "{H} starts with {c}.", "To begin, {H} has {c}.", "At first, {H} has {c}."]
 EFFECTS = ["So {eq}.", "That gives {eq}.", "That makes {eq}.", "Now {eq}."]
@@ -161,8 +153,8 @@ SHORT_WORDS = set("him her his for not but had has did get got let nor yet sit h
 @functools.cache
 def _taken() -> set[str]:
     """Every real name and thing of the lists, lower case."""
-    things = [w for t in [*THINGS, *HELD_THINGS, *TRAIN_EXTRA_THINGS] for w in t]
-    return {w.lower() for w in [*HEROES, *OTHERS, *HELD_HEROES, *HELD_OTHERS, *TRAIN_EXTRA_HEROES, *things]}
+    things = [w for t in [*THINGS, *HELD_THINGS, *_RETIRED_THINGS] for w in t]
+    return {w.lower() for w in [*HEROES, *OTHERS, *HELD_HEROES, *HELD_OTHERS, *_RETIRED_HEROES, *things]}
 
 
 def _pseudo(rng: random.Random, name: bool) -> str:
@@ -176,16 +168,12 @@ def _pseudo(rng: random.Random, name: bool) -> str:
             return word.capitalize() if name else word
 
 
-def make(rng: random.Random, k: int, split: str = "train", distractor: bool | None = None, pseudo: float = 0.0,
-         wide: bool = False) -> dict:
+def make(rng: random.Random, k: int, split: str = "train", distractor: bool | None = None, pseudo: float = 0.0) -> dict:
     """A problem with k events. The held-out split has names and things the training never shows,
     the operation `half`, and a distractor every time (unless `distractor` says otherwise).
-    pseudo: the chance, for the thing, the hero and one other name separately, of being a made-up word (training data).
-    wide: draw from the wide training lexicon too (training data)."""
+    pseudo: the chance, for the thing, the hero and one other name separately, of being a made-up word (training data)."""
     held = split == "heldout"
     heroes, others, things = (HELD_HEROES, HELD_OTHERS, HELD_THINGS) if held else (HEROES, OTHERS, THINGS)
-    if wide and not held:
-        heroes, others, things = HEROES + TRAIN_EXTRA_HEROES, OTHERS + TRAIN_EXTRA_HEROES, THINGS + TRAIN_EXTRA_THINGS
     hero, thing = rng.choice(heroes), rng.choice(things)
     if pseudo:
         if rng.random() < pseudo:
@@ -264,25 +252,19 @@ def trace_program(problem: dict, level: str, rng: random.Random) -> str:
     k, thing, hero = problem["steps"], problem["thing"], problem["hero"]
     if level == "low":
         return "\n".join(_equation(problem, i, spaces=False) for i in range(k))
-    high = level == "high"
-    sentences = [rng.choice(HIGH_INTROS if high else INTROS).format(H=hero, c=count(problem["states"][0], thing))]
-    if high:  # the story again, a sentence at a time: the sentence, then its effect
-        i = 0
-        for j, quote in enumerate(problem["sentences"]):
-            if j == problem["at"]:
-                effect = rng.choice(UNCHANGED).format(P=_pronouns(hero)[2], t=thing[1])
-            else:
-                effect = rng.choice(EFFECTS).format(eq=_equation(problem, i))
-                i += 1
-            sentences.append(f'"{quote}" {effect}')
-        sentences.append(f"So {hero} has {count(problem['answer'], thing)}.")
-        return " ".join(sentences)
-    for i, (op, n) in enumerate(problem["ops"]):
-        S, _ = _subject(rng, hero)
-        sentence = rng.choice(MEDIUM[op]).format(S=S, n=n, clause=problem["clauses"][i], eq=_equation(problem, i))
-        if ", so " in sentence and rng.random() < 0.2:
-            sentence = sentence.replace(", so ", ": ")
-        sentences.append(sentence)
+    if level != "high":
+        raise ValueError(f"unknown level: {level}")
+    # the story again, a sentence at a time: the sentence, then its effect
+    sentences = [rng.choice(HIGH_INTROS).format(H=hero, c=count(problem["states"][0], thing))]
+    i = 0
+    for j, quote in enumerate(problem["sentences"]):
+        if j == problem["at"]:
+            effect = rng.choice(UNCHANGED).format(P=_pronouns(hero)[2], t=thing[1])
+        else:
+            effect = rng.choice(EFFECTS).format(eq=_equation(problem, i))
+            i += 1
+        sentences.append(f'"{quote}" {effect}')
+    sentences.append(f"So {hero} has {count(problem['answer'], thing)}.")
     return " ".join(sentences)
 
 
@@ -321,13 +303,9 @@ def style_ok(level: str, text: str) -> bool:
     """Does `text` have the shape of the reasoning of `level`? (What needs the problem is in verify_trace.)"""
     if level == "low":
         return re.fullmatch(r"\d+[+\-x/]\d+=\d+(\n\d+[+\-x/]\d+=\d+)*", text) is not None
-    if "\n" in text or level not in ("medium", "high"):
+    if "\n" in text or level != "high":
         return False
     sentences = _sentences(text)
-    if level == "medium":
-        return (len(sentences) > 1 and "=" not in sentences[0] and "Check" not in text
-                and not sentences[-1].startswith("So ")
-                and all(len(s.split()) <= 14 and s.count("=") == 1 for s in sentences[1:]))
     quotes = text.count('"')
     return (quotes >= 2 and quotes % 2 == 0 and "Check" not in text
             and re.fullmatch(r"So \w+ has \d+ \w+( left| now| in all| then)?\.", sentences[-1]) is not None)
@@ -377,7 +355,7 @@ def verify_trace(problem: dict, text: str, level: str, tok=None) -> str | None:
         n = len(tok.encode(text))
         # high, measured on 1000 problems per k and split (k = 1..8): 33..81 tokens at k = 1, 166..250 at k = 8;
         # the bounds leave at least 40 tokens beyond the longest and 10 below the shortest
-        lo, hi = {"low": (0, 8 * k + 6), "medium": (0, 24 * k + 12), "high": (14 * k + 10, 30 * k + 60)}[level]
+        lo, hi = {"low": (0, 8 * k + 6), "high": (14 * k + 10, 30 * k + 60)}[level]
         if not lo <= n <= hi:
             return f"length {n} outside {lo}..{hi}"
     return None

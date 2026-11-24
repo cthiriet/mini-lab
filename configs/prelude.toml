@@ -22,17 +22,13 @@ train_seed = 1003
 eval_seed = 1004
 steps = [1, 2, 3, 4, 5, 6]  # events per problem in training (the held-out split also has 7 and 8)
 k_weights = [0.10, 0.15, 0.20, 0.20, 0.20, 0.15]
-efforts = { low = 0.4, high = 0.6 }   # high: no header line; medium is no longer trained (it means high)
+efforts = { low = 0.4, high = 0.6 }   # high: no header line
 header_frac = 0.15          # share of the other conversations with an effort header (the target does not change)
 tau = { low = 0.97, high = 0.99 }   # answer at once only if the probe's accuracy on the bucket beats it by 0.03; low was 0.80 until E9,
                             # where the SFT model answered the one-step doublings at once and got 1 in 10 right (the probe: 0.93)
-traces = "data/reason/traces.jsonl"                 # the teacher's traces (scripts/teacher_traces.py)
 policy = "data/reason/policy.json"                  # the probe's accuracy per (steps, doubling) (scripts/probe_direct.py)
-teacher_frac = 0.0          # share of the traces of teacher_levels taken from the teacher's file (it only served medium): the program writes them all
-teacher_levels = []         # high and low always come from the program
 anchor = true               # the number of events first: "3 events:" and numbered equations at low, "3 events. " at high
 pseudo_frac = 0.08          # share of the problems whose thing, and independently whose hero and one other name, are made-up words
-wide = false                # draw heroes, others and things from the wide training lexicon (~200 names, ~250 things) as well
 mode = "policy"             # "direct": story problems with no thoughts and no header anywhere (the probe of E1, spec 3.3)
 
 [tokenizer]

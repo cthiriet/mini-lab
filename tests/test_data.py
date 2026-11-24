@@ -222,7 +222,7 @@ def test_epochs_reshuffle_a_fixed_set():
     assert sorted(first) == sorted(second) == list(range(5)) and first != second
 
 
-# ---- story_math: policy, teacher bank, effort header (docs/story-math-spec.md) ----------------------
+# ---- story_math: policy, effort header (docs/story-math-spec.md) ----------------------
 
 RC = {"steps": [1, 2, 3], "k_weights": [1, 1, 1], "efforts": {"low": 0.4, "high": 0.6},
       "header_frac": 0.15, "tau": {"low": 0.80, "high": 0.99}}
@@ -253,7 +253,7 @@ def reason_with(tmp_path, p=None, **rc) -> Reason:
     """A Reason with a probe table {"k,dbl": accuracy} (none: no policy file) and extra [data.reason] keys."""
     if p is not None:
         (tmp_path / "policy.json").write_text(json.dumps({"tau": {}, "p": p, "n": 300}))
-    return Reason({**RC, "policy": str(tmp_path / "policy.json"), "traces": str(tmp_path / "traces.jsonl"), **rc})
+    return Reason({**RC, "policy": str(tmp_path / "policy.json"), **rc})
 
 
 def story_math_convs(reason: Reason, n: int, seed: int = 0) -> list[dict]:
@@ -333,49 +333,10 @@ def test_sft_reason_kind_and_histories(tmp_path, made):
     assert earlier and all(not any("reasoning" in m for m in c["messages"][:-1]) for c in earlier)
 
 
-def test_story_math_teacher_bank(tmp_path):
-    rng, rows = random.Random(5), []
-    for i, level in enumerate(["low", "high", "high", "low"]):
-        problem = story_math.make(rng, 2 + i % 2, "train")
-        rows.append({"id": f"t-{i}", "level": level, "text": f"TRACE {i} {level}", "ok": i != 3,
-                     "problem": {**problem, "id": f"t-{i}"}})
-    (tmp_path / "traces.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
-    reason = reason_with(tmp_path, teacher_frac=1.0, teacher_levels=["low", "high"], efforts={"low": 0.5, "high": 0.5})
-    text_of = {r["text"]: r["problem"]["messages"][0]["content"] for r in rows}
-    seen = set()
-    for question, reply in (c["messages"] for c in story_math_convs(reason, 100)):
-        if reply["reasoning"] in text_of:
-            assert text_of[reply["reasoning"]] == question["content"]  # the trace belongs to this very problem
-            seen.add(reply["reasoning"])
-        else:  # one event: the teacher wrote none, the program does
-            assert story_math.style_ok("low", reply["reasoning"]) or story_math.style_ok("high", reply["reasoning"])
-    assert seen == {"TRACE 0 low", "TRACE 1 high", "TRACE 2 high"}  # the rejected row is never drawn
-    # by default no level comes from the teacher: the program writes them all
-    default = reason_with(tmp_path, teacher_frac=1.0)
-    assert default.teacher_levels == []
-    assert all("TRACE" not in c["messages"][1]["reasoning"] for c in story_math_convs(default, 100))
-    # teacher = false, or a level the bank lacks: the program writes the thoughts
-    for rc in ({"teacher_frac": 0.0}, {"teacher_frac": 1.0, "efforts": {"low": 1.0}}):
-        assert all("TRACE" not in c["messages"][1]["reasoning"] for c in story_math_convs(reason_with(tmp_path, **rc), 30))
-
-
-def test_story_math_teacher_frac(tmp_path):
-    rows = [{"id": "t", "level": "high", "text": "TRACE", "ok": True,
-             "problem": {**story_math.make(random.Random(1), 3, "train"), "id": "t"}}]
-    (tmp_path / "traces.jsonl").write_text(json.dumps(rows[0]))
-    only_high = {"efforts": {"high": 1.0}, "steps": [3], "k_weights": [1.0], "teacher_levels": ["high"]}
-    for frac in (0.0, 0.3, 1.0):
-        convs = story_math_convs(reason_with(tmp_path, teacher_frac=frac, **only_high), 600)
-        share = sum(c["messages"][1].get("reasoning") == "TRACE" for c in convs) / 600
-        assert abs(share - frac) < 0.07
-    assert reason_with(tmp_path, teacher=True).teacher_frac == 1.0  # old configs
-    assert reason_with(tmp_path, teacher=False).bank == {}
-
-
-def test_story_math_without_a_trace_file_is_plan_b(tmp_path):
-    reason = reason_with(tmp_path, teacher_frac=1.0)  # no traces.jsonl in tmp_path
-    assert reason.bank == {}
-    assert all(c["messages"][1]["reasoning"] for c in story_math_convs(reason, 30))
+def test_story_math_ignores_the_keys_of_old_configs(tmp_path):
+    """runs/*/config.toml still carry the teacher's and the wide lexicon's keys (removed after E9)."""
+    old = {"traces": str(tmp_path / "traces.jsonl"), "teacher_frac": 1.0, "teacher_levels": ["high"], "wide": True}
+    assert story_math_convs(reason_with(tmp_path, **old), 50) == story_math_convs(reason_with(tmp_path), 50)
 
 
 def test_story_math_is_deterministic(tmp_path):

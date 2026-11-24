@@ -25,8 +25,6 @@ answer unchanged, so that the model learns that the header concerns the story pr
 
 from __future__ import annotations
 
-import functools
-import json
 import os
 import random
 import re
@@ -138,52 +136,32 @@ class StoryPool:
         return rng.choice(STORY_REQUESTS), rng.choice(self.stories)
 
 
-@functools.cache
-def teacher_bank(path: str) -> dict[str, list[dict]]:
-    """The accepted teacher traces (scripts/teacher_traces.py) by level; {} if there is no file."""
-    bank: dict[str, list[dict]] = {}
-    if os.path.isfile(path):
-        with open(path) as f:
-            for row in map(json.loads, f):
-                if row["ok"]:
-                    bank.setdefault(row["level"], []).append(row)
-    return bank
-
-
 class Reason:
-    """What the story_math conversations read: the [data.reason] section, the policy (no file: every
-    bucket thinks) and, with `teacher_frac`, the teacher's traces at the levels of `teacher_levels` (0: the
-    program writes them all; the other levels always come from the program).
+    """What the story_math conversations read: the [data.reason] section and the policy (no file: every
+    bucket thinks). Keys of older run configs that no longer mean anything (traces, teacher_frac, teacher_levels,
+    wide) are ignored.
     mode "direct" is the probe (spec 3.3): story problems answered at once, no header anywhere."""
 
     def __init__(self, rc: dict):
         self.rc, self.direct = rc, rc.get("mode", "policy") == "direct"
         path = rc.get("policy", "")
         self.policy = {"p": {}, **(story_math.load_policy(path) if os.path.isfile(path) else {}), "tau": rc["tau"]}
-        self.teacher_frac = float(rc.get("teacher_frac", rc.get("teacher", 0.0)))  # old configs: teacher = true/false
         if "medium" in rc["efforts"]:
             raise ValueError("[data.reason] efforts: medium is no longer trained (two levels, low and high)")
-        self.teacher_levels = rc.get("teacher_levels", [])
-        self.bank = teacher_bank(rc.get("traces", "")) if self.teacher_frac and not self.direct else {}
         self.header_frac = 0.0 if self.direct else rc["header_frac"]
         self.anchor, self.pseudo_frac = bool(rc.get("anchor", False)), float(rc.get("pseudo_frac", 0.0))
-        self.wide = bool(rc.get("wide", False))
 
 
 def story_math_conversation(rng: random.Random, reason: Reason) -> dict:
     """A story problem at a random level of effort; the thoughts come first unless the policy says
-    that answering at once is reliable enough. A teacher trace brings its own problem along."""
+    that answering at once is reliable enough."""
     rc = reason.rc
     level = rng.choices(list(rc["efforts"]), list(rc["efforts"].values()))[0]
     k = rng.choices(rc["steps"], rc["k_weights"])[0]
-    if k > 1 and level in reason.teacher_levels and reason.bank.get(level) and rng.random() < reason.teacher_frac:  # the teacher wrote no trace for one event (scripts/teacher_traces.py --min-k)
-        row = rng.choice(reason.bank[level])
-        problem, trace = row["problem"], row["text"]
-    else:
-        problem, trace = story_math.make(rng, k, "train", pseudo=reason.pseudo_frac, wide=reason.wide), None
+    problem = story_math.make(rng, k, "train", pseudo=reason.pseudo_frac)
     reply = assistant(story_math.answer_text(problem["answer"]))
     if not reason.direct and story_math.think(level, problem, reason.policy):
-        reply["reasoning"] = trace or story_math.trace_program(problem, level, rng)
+        reply["reasoning"] = story_math.trace_program(problem, level, rng)
         if reason.anchor:
             reply["reasoning"] = story_math.anchor(problem, level, reply["reasoning"])
     effort = None if reason.direct or level == "high" else level

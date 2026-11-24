@@ -35,7 +35,7 @@ Les jeux held-out ajoutent 7 ou 8 étapes, l'opération `half` jamais vue à l'e
 
 Fichiers clés :
 
-- **Problèmes et réflexions :** `minilab/data/story_math.py`. Il contient le générateur `make`, avec les paramètres `pseudo` et `wide`, ainsi que :
+- **Problèmes et réflexions :** `minilab/data/story_math.py`. Il contient le générateur `make`, avec le paramètre `pseudo`, ainsi que :
   - `trace_program`, qui écrit la réflexion par niveau ;
   - `anchor` et `strip_anchor` ;
   - `verify_trace` et `style_ok` ;
@@ -46,7 +46,7 @@ Fichiers clés :
 - **Calculatrice dans la réflexion :** `minilab/inference/calculator.py`, `minilab/model/gpt.py` (`generate(..., force=)`) et `minilab/inference/engine.py`. Après un « = » qui suit une expression valide, le résultat est imposé. Elle est active à l'éval story_math et en serving, mais désactivée en RL, en distill et à l'éval des additions.
 - **Éval :** `minilab/eval/tasks.py` (`eval_story_math`) et `minilab/eval/run.py` (`--story-math`). Les modes sont adaptive low, forced low, adaptive high, forced high, off et adaptive high nocalc. Les scalaires sont `sm_low`, `sm_high`, `sm_high_nocalc` et `sm_6st`.
 - **Config :** `configs/prelude.toml`, section `[data.reason]`.
-- **Scripts :** `scripts/teacher_traces.py` (teacher OpenRouter) et `scripts/probe_direct.py` (mesure de la politique).
+- **Scripts :** `scripts/probe_direct.py` (mesure de la politique). `scripts/teacher_traces.py` (teacher OpenRouter) a été retiré ; on le retrouve dans l'historique git au commit `fbaf453`.
 - **Données** (gitignorées, dans le worktree) :
   - `data/reason/policy.json` ;
   - `data/reason/traces_v2.jsonl.dedup.jsonl`, soit 8 091 réflexions medium du teacher, inutilisées depuis E9.
@@ -135,8 +135,7 @@ Depuis `/Users/clementthiriet/VM/mini-lab`, avec `W=.claude/worktrees/agent-a95a
 
 ```bash
 R=runs/eX && mkdir -p $R && cp -r runs/cand5k/pretrain $R/ && cp runs/cand5k/tokenizer.json $R/
-sed -e "s|^traces = .*|traces = \"$PWD/$W/data/reason/traces_v2.jsonl.dedup.jsonl\"|" \
-    -e "s|^policy = .*|policy = \"$PWD/$W/data/reason/policy.json\"|" $W/configs/prelude.toml > $R/config.toml
+sed -e "s|^policy = .*|policy = \"$PWD/$W/data/reason/policy.json\"|" $W/configs/prelude.toml > $R/config.toml
 ```
 
 Ensuite, depuis le worktree, en remplaçant `$RR` par le chemin absolu du run :

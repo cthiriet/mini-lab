@@ -8,7 +8,7 @@ from minilab.data import story_math as sm
 from minilab.tokenizer.bpe import Tokenizer
 from minilab.tokenizer.chat import render_conversation
 
-LEVELS = ("low", "medium", "high")
+LEVELS = ("low", "high")
 TOKENIZER = Path("/Users/clementthiriet/VM/mini-lab/runs/cand5k/tokenizer.json")
 
 
@@ -75,7 +75,7 @@ def test_program_traces_pass_the_checks(level):
         assert sm.verify_trace(p, text, level) is None, (text, p["messages"][0]["content"])
         assert sm.style_ok(level, text) and sm.normalize(text) == text
     assert sm.style_ok("low", "3+5=8\n8-2=6") and not sm.style_ok("low", "3 + 5 = 8")
-    assert not sm.style_ok("medium", "Lily has 3. She finds 5, so 3 + 5 = 8.\nDone.")
+    assert not sm.style_ok("medium", "Lily has 3. She finds 5, so 3 + 5 = 8.")  # no such level any more
     assert not sm.style_ok("high", "Lily has 3. She finds 5, so 3 + 5 = 8. So Lily has 8 apples.")  # no quotes
     assert not sm.style_ok("high", 'Lily has 3. "She finds 5." So 3 + 5 = 8. Check: 3 + 5 = 8. So Lily has 8 apples.')
 
@@ -83,10 +83,10 @@ def test_program_traces_pass_the_checks(level):
 def test_program_wording_varies():
     p = sm.make(random.Random(2), 3, distractor=True)
     rng = random.Random(0)
-    for level in ("medium", "high"):
-        assert len({sm.trace_program(p, level, rng) for _ in range(50)}) > 20
-    assert "not " in sm.trace_program(p, "high", rng) or "nothing" in sm.trace_program(p, "high", rng)
-    assert "Check" not in sm.trace_program(p, "high", rng)
+    assert len({sm.trace_program(p, "high", rng) for _ in range(50)}) > 20
+    trace = sm.trace_program(p, "high", rng)
+    assert "not " in trace or "nothing" in trace
+    assert "Check" not in trace
 
 
 def test_verify_trace_rejects():
@@ -104,9 +104,6 @@ def test_verify_trace_rejects():
     assert sm.verify_trace(p, "\n".join(low.splitlines()[::2]), "low") == "a state is missing"
     assert sm.verify_trace(p, low.replace("-", "\u2212"), "low") == "forbidden text"
     assert sm.verify_trace(p, "The answer is 5. " + low, "low") == "forbidden text"
-    medium = sm.trace_program(p, "medium", random.Random(4)).split(". ")
-    assert sm.verify_trace(p, ". ".join(medium[:1] + medium[2:]), "medium") == "a state is missing"
-    assert sm.verify_trace(p, ". ".join(medium), "high") == "style"
     q = next(q for q in (sm.make(random.Random(i), 3, distractor=True) for i in range(20)) if q["at"] < 3)
     high = sm.trace_program(q, "high", random.Random(4))
     quote = q["sentences"][q["at"]]
@@ -179,7 +176,7 @@ def test_lengths_in_tokens(capsys):
                 lengths.append(len(render_conversation(tok, messages, None)[0]))
             table[k, level] = max(lengths)
     with capsys.disabled():
-        print("\nmax conversation tokens (k: low medium high)")
+        print("\nmax conversation tokens (k: low high)")
         for k in range(1, 9):
             print(k, *(table[k, level] for level in LEVELS))
     assert table[6, "high"] <= 350 and max(table.values()) <= 500
@@ -238,32 +235,16 @@ def _names(p):
     return set(re.findall(r"[A-Z][a-z]+", p["messages"][0]["content"])) - {"How", "Then", "The", "She", "He", "It", "At"}
 
 
-def test_wide_lexicon_is_disjoint_and_regular():
-    heroes, things = sm.TRAIN_EXTRA_HEROES, [w for t in sm.TRAIN_EXTRA_THINGS for w in t]
-    old = {*sm.HEROES, *sm.OTHERS, *sm.HELD_HEROES, *sm.HELD_OTHERS, *(w for t in sm.THINGS + sm.HELD_THINGS for w in t)}
-    assert len(heroes) == len(set(heroes)) and len(sm.TRAIN_EXTRA_THINGS) == len({t for t, _ in sm.TRAIN_EXTRA_THINGS})
-    assert len(heroes) >= 150 and len(sm.TRAIN_EXTRA_THINGS) >= 200
-    assert not old & {*heroes, *things} and not {h.lower() for h in heroes} & set(things)
-    assert set(sm.TRAIN_EXTRA_FEMALE) <= sm.FEMALE and not set(sm.TRAIN_EXTRA_MALE) & sm.FEMALE
-    assert all(p == t + "s" or p == t + "es" or p == t[:-1] + "ies" for t, p in sm.TRAIN_EXTRA_THINGS)
-
-
-def test_wide_is_off_by_default_and_draws_the_wide_lexicon():
-    for seed in range(5):
-        a, b = random.Random(seed), random.Random(seed)
-        assert sm.make(a, 5, "train", wide=False) == sm.make(b, 5, "train") and a.random() == b.random()
-    rng = random.Random(7)
-    ps = [sm.make(rng, 4, "train", distractor=True, wide=True) for _ in range(400)]
-    assert any(p["hero"] in sm.TRAIN_EXTRA_HEROES for p in ps) and any(tuple(p["thing"]) in sm.TRAIN_EXTRA_THINGS for p in ps)
-    assert any(w in sm.TRAIN_EXTRA_HEROES and w != p["hero"] for p in ps for w in _names(p))
-    for level in LEVELS:
-        assert all(sm.verify_trace(p, sm.trace_program(p, level, rng), level) is None for p in ps)
+def test_retired_lexicon_still_excluded_from_pseudo_words():
+    """The lexicon of E8 is no longer drawn, but _pseudo's draws depend on it: the training data must not change."""
+    assert {"mary", "james", "banana", "bananas", "flagpole"} <= sm._taken()
+    assert not any(w in sm._taken() for w in (sm._pseudo(random.Random(i), i % 2 == 0).lower() for i in range(300)))
 
 
 def test_pseudo_other_names():
     rng = random.Random(11)
-    real = {*sm.HEROES, *sm.OTHERS, *sm.HELD_HEROES, *sm.HELD_OTHERS, *sm.TRAIN_EXTRA_HEROES}
-    ps = [sm.make(rng, 4, "train", distractor=True, pseudo=1.0, wide=True) for _ in range(200)]
+    real = {*sm.HEROES, *sm.OTHERS, *sm.HELD_HEROES, *sm.HELD_OTHERS}
+    ps = [sm.make(rng, 4, "train", distractor=True, pseudo=1.0) for _ in range(200)]
     assert sum(any(w not in real and w != p["hero"] for w in _names(p)) for p in ps) > 80  # when an event or the distractor names someone else
     assert all(p["hero"] not in real for p in ps)
     assert len({len(sm._pseudo(rng, True)) for _ in range(200)}) >= 4  # one to four syllables
