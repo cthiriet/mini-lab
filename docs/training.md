@@ -225,8 +225,9 @@ distillation.
 ### 2. Midtraining (`train/midtrain.py`): format and skills, at volume
 
 Single-turn conversations with no system prompt: addition questions (1-3 digits; scratchpad,
-or a calculator call when the tool is on) 60%, story requests 20%, greetings 20%; the
-calculator is enabled in 30% of them. The model learns the special tokens, turn-taking,
+or a calculator call when the tool is on) 35%, story problems with their reasoning 30% (see
+[Story problems](#story-problems-and-two-levels-of-effort)), story requests 20%, greetings 15%;
+the calculator is enabled in 30% of them. The model learns the special tokens, turn-taking,
 `<|think_start|>`, tool calls and tool results. Same loader and loss as pretraining (packed,
 every token): 4.9M tokens of a new kind of document, and 25% pretraining documents against
 forgetting. 600 steps of 8 x 1,024 tokens, lr 1e-3.
@@ -250,6 +251,7 @@ assistant says. 3,500 steps of 32 rows, lr 1e-3. Each row is drawn from three so
   - identity ("Who are you?" → "I'm prelude, ..."), polite refusals of out-of-scope requests
     (32 question templates), and plain conversations like midtraining's, which keep the
     skills and teach that in-scope requests are *not* refused.
+  - story problems at both levels of effort (20% of the chats).
 - **50% agent transcripts**, 80,000 opencode sessions from the toy code world (0.7 epochs).
   15% of the fixes show a first edit whose `oldString` doesn't match, then the file read
   again and the right edit; the mistake has `"weight": 0` (as in OpenAI's fine-tuning
@@ -278,8 +280,9 @@ drift: it is a teacher, never released, and it will only be asked about math.
 The released model is a student that starts again from the SFT model and learns from two
 teachers, each on its own domain: the math specialist on additions, calculator problems,
 long follow-ups and new questions; the SFT model on everything else (system prompts,
-follow-ups, refusals, identity, stories, and one turn of an agent transcript in one problem of
-six: a tool call or the answer, with the earlier calls and results as context).
+follow-ups, refusals, identity, stories, story problems at both levels of effort in one problem
+of ten, and one turn of an agent transcript in one problem of seven: a tool call or the answer,
+with the earlier calls and results as context).
 
 Each step, the student answers 32 problems once, at temperature 1 (on-policy: its own answers,
 mistakes included). The problem's teacher reads the same tokens and gives its next-token
@@ -288,6 +291,30 @@ whole vocabulary, averaged over the answer's positions. Every token gets a grade
 gives one reward per answer. 300 steps, lr 1e-4. This is how labs merge specialists now
 (DeepSeek-V4, Kimi K3, Nemotron 3: math, code, agents, trained apart, then distilled into one
 model).
+
+### Story problems and two levels of effort
+
+Reasoning only helps where a single forward pass is not enough. The story problems
+(`data/story_math.py`) are such a task: a hero starts with a few things, then 1 to 6 events add,
+take away or double them, among sentences that change nothing ("The sun is warm.", "Joel gives
+Nick 5 candies."), and the question asks for the total. Answering at once gets 0-3% of them.
+
+The model has two levels of effort, like the APIs of the big labs (`reasoning_effort`, see
+[api.md](api.md)); every reasoning is written by a program from the problem's solution:
+
+- **low** (an `effort: low` line in the prompt): the number of events, then one bare equation
+  each, `3 events:` / `1: 17+8=25` / `2: 25-18=7` / `3: 7x2=14`, about 44 tokens;
+- **high** (the default): `3 events. `, then the story read again a sentence at a time, each
+  sentence quoted and followed by its effect ("That does not change her cubes." for the
+  distractor), then `So Kai has 14 eggs.`, about 110 tokens.
+
+Inside the reasoning the calculator writes each sum after its `=` ([inference.md](inference.md)).
+On 600 problems (100 per number of events), the released candidate gets 85% at low and 97% at
+high (85% at high without the calculator), against 69% and 47% for the first version (E4). Held out, it
+gets 91% with a distractor in every problem and 55% with names and things it never saw; it fails
+problems longer than training (7-8 events, 7%) and an operation it never saw (`half`, 7%). The
+whole log of experiments, with what each changed, is in [story-math-spec.md](story-math-spec.md)
+and [story-math-reprise.md](story-math-reprise.md).
 
 ### Eval (`eval/`), release gate and release (`release.py`)
 
@@ -321,6 +348,14 @@ and samples). Last, `minilab.interp.sae` trains the release's dictionary of feat
 ## Lessons
 
 What building it taught us:
+
+- **A tiny model needs an anchor to count, and to see it everywhere.** The low reasoning starts
+  with the number of events. When only low wrote it (40% of the story problems), the model
+  counted a distractor as an event at 1 event in 11% of the problems and stopped early at 6 in
+  30%. Writing it at the start of high too (all of them) brought low back from 78% to 86%,
+  with high unchanged. A second lesson there: a policy measured on one model doesn't transfer.
+  A probe answered one-step doublings at once 93% right; the SFT model, taught to do the same,
+  got 1 in 10, so low now always thinks.
 
 - **Each stage needs its own job.** In the first design every stage saw the same kinds of
   data, midtraining alone reached 100% on addition, and SFT and RL had nothing left to show.

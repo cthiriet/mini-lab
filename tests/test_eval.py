@@ -158,6 +158,7 @@ def test_gate_compare():
     before_chat = {k: v for k, v in old.items() if k != "chat"}
     assert "chat" not in {c.metric for c in gate.compare(worse, before_chat, cfg)}  # a new check can't regress
     assert gate.parse_waivers(["sure=one greedy prompt"]) == {"sure": "one greedy prompt"}
+    assert gate.parse_waivers(["5d@T=1=noise: 98% vs 99% on 500"]) == {"5d@T=1": "noise: 98% vs 99% on 500"}
     with pytest.raises(SystemExit):
         gate.parse_waivers(["sure"])  # a waiver needs a reason
 

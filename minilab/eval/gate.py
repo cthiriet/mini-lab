@@ -13,6 +13,7 @@ regression blocks the release unless it is waived with a reason, which the relea
 from __future__ import annotations
 
 import argparse
+import re
 import tomllib
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -125,10 +126,12 @@ def report(result: dict) -> str:
 
 
 def parse_waivers(items: list[str]) -> dict[str, str]:
-    """["sure=one greedy prompt", ...] -> {"sure": "one greedy prompt"}"""
+    """["sure=one greedy prompt", "5d@T=1=noise"] -> {"sure": "one greedy prompt", "5d@T=1": "noise"}"""
     waivers = {}
     for item in items:
-        metric, _, reason = item.partition("=")
+        # a metric name may hold an "=" itself: "5d@T=1=sample noise" -> "5d@T=1"
+        m = re.match(r"(\d+d@T=[\d.]+|[^=]+)=?(.*)", item)
+        metric, reason = m[1], m[2]
         if not reason.strip():
             raise SystemExit(f"--allow {item!r}: give a reason, as METRIC=REASON")
         waivers[metric.strip()] = reason.strip()

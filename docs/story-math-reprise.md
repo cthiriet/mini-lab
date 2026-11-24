@@ -115,9 +115,10 @@ Un premier distill avec `add = 0.5` donnait 95 % (`runs/e10/distill_add05`). Le 
 
 ## Reste à faire
 
-1. **Trancher sur `5d@T=1`** : soit lever la régression avec `--allow "5d@T=1=<raison>"`, soit renforcer le spécialiste (plus de pas de RL, ou un mélange plus centré sur 5 chiffres), puis relancer le distill et le gate (environ 60 min).
-2. Docs utilisateur (T8) : README et docs/training.md doivent décrire story_math, les deux niveaux et les résultats.
-3. Branches déjà intégrées et supprimables : `t1-story-math`, `t10-sub`, `t11-calc`, `t12-high`, `e7-anchors`, `e8-number`, `e9-two-levels`.
+1. **`5d@T=1` tranché (24/11)** : c'est du bruit d'échantillon. Sur 500 problèmes, E10 distillé fait 98,2 % (±1,2) et prelude-2 99,0 % (±0,9), contre 96 et 100 sur les 100 du gate. Décision : accepter la régression avec `--allow "5d@T=1=bruit d'échantillon : 98,2 % contre 99,0 % pour prelude-2 sur 500 problèmes (±1,2), sous la tolérance de 2 points"`. Un bug de `parse_waivers` coupait au premier « = », donc dans le nom de la métrique : il est corrigé. Le gate n'a pas été relancé depuis la correction ; c'était sa seule régression.
+2. Release : `minilab.release` sur `runs/e10/distill` avec cette dérogation, puis mise à jour du README avec les chiffres de la release.
+3. Docs utilisateur (T8) : faites pour docs/training.md et docs/api.md ; le README attend la release.
+4. Branches déjà intégrées et supprimables : `t1-story-math`, `t10-sub`, `t11-calc`, `t12-high`, `e7-anchors`, `e8-number`, `e9-two-levels`.
 
 ## Mémoire (corrigée)
 
