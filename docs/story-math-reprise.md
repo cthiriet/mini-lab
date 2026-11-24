@@ -1,6 +1,6 @@
 # Story-math : état du chantier et reprise
 
-État au 20/11/2026, après E9. Ce fichier sert à reprendre le travail dans une nouvelle session. La spec complète est dans [story-math-spec.md](story-math-spec.md), dont le §11 liste les décisions 1 à 9.
+État au 24/11/2026, après E10 (low corrigé, pipeline complet rejoué ; une régression d'addition bloque encore le gate). Ce fichier sert à reprendre le travail dans une nouvelle session. La spec complète est dans [story-math-spec.md](story-math-spec.md), dont le §11 liste les décisions 1 à 9.
 
 ## Le chantier en bref
 
@@ -28,7 +28,7 @@ Les jeux held-out ajoutent 7 ou 8 étapes, l'opération `half` jamais vue à l'e
 ## Où est le code
 
 - **Worktree :** `/Users/clementthiriet/VM/mini-lab/.claude/worktrees/agent-a95ab00c560bea7de`, branche `reasoning-steps`.
-- **HEAD :** `f09eb2d` (E9). 321 tests passent.
+- **HEAD :** E10 (voir `git log`). 320 tests passent.
 - **Rien n'est mergé dans main ni poussé.**
 - **Branches déjà intégrées dans reasoning-steps** (supprimables) : `t1-story-math`, `t10-sub`, `t11-calc`, `t12-high`, `e7-anchors`, `e8-number`, `e9-two-levels`.
 - **Jamais mergées :** `exp/direct-rule-a` et `exp/direct-rule-b`.
@@ -51,7 +51,7 @@ Fichiers clés :
   - `data/reason/policy.json` ;
   - `data/reason/traces_v2.jsonl.dedup.jsonl`, soit 8 091 réflexions medium du teacher, inutilisées depuis E9.
 
-## Les formats de réflexion actuels (E9)
+## Les formats de réflexion actuels (E10)
 
 - **none :** pas de réflexion ; `<|think_start|>` est interdit.
 - **low** (en-tête `effort: low`) :
@@ -61,8 +61,8 @@ Fichiers clés :
   2: 25-18=7
   …
   ```
-- **high** (pas d'en-tête, c'est le défaut) : l'histoire relue phrase par phrase. Chaque phrase est citée puis suivie de son effet, et la réflexion se termine par « So Kai has 5 eggs. ».
-- **Politique adaptative :** le modèle répond sans réfléchir seulement si le probe, mesuré sur ce type de problème, dépasse `tau[niveau] + 0.03`. En pratique, seul le doublement simple à une étape se répond directement en low.
+- **high** (pas d'en-tête, c'est le défaut) : depuis E10, « N events. » puis l'histoire relue phrase par phrase. Chaque phrase est citée puis suivie de son effet, et la réflexion se termine par « So Kai has 5 eggs. ».
+- **Politique adaptative :** le modèle répond sans réfléchir seulement si le probe, mesuré sur ce type de problème, dépasse `tau[niveau] + 0.03`. Depuis E10 (`tau.low = 0.97`), aucun type n'y arrive : low réfléchit toujours. Avant, le doublement à une étape se répondait directement, et le modèle SFT d'E9 n'en réussissait qu'un sur dix.
 
 ## Résultats
 
@@ -75,6 +75,8 @@ Tous les chiffres sont mesurés sur le même jeu d'éval (100 problèmes par k),
 | E7 | compteur « N events » et low numéroté, banque teacher régénérée, 8 % de mots inventés, held-out à 20+20 | **86,5** · [95 98 93 87 79 67] · 44 tok | 81,3 · [97 95 92 82 76 46] · 81 tok | 91,2 · [99 96 97 98 92 65] · 106 tok |
 | E8 | medium numéroté, lexique élargi (~200 prénoms, ~236 objets), 25 % de mots inventés | 82,0 · [97 93 87 85 70 60] | 83,2 · [96 90 88 89 78 58] · 94 tok | 90,0 · [99 98 97 85 84 77] |
 | **E9** | **deux niveaux** : low 0,4 et high 0,6, plus de medium ni de teacher ; lexique d'E7 | 77,7 · [79 98 90 80 69 50] · 43 tok | (n'existe plus) | **96,5** · [99 98 98 95 99 90] · 106 tok ; 85,5 sans calculatrice |
+| **E10** | compteur « N events. » à high aussi ; `tau.low` 0,97 | **86,0** · [97 98 89 89 79 64] · 44 tok | — | **96,5** · [99 100 98 97 95 90] · 111 tok ; 85,8 sans calculatrice |
+| E10 distill (add 0,6) | modèle final | 85,0 | — | 96,7 |
 
 Held-out, en high (en medium jusqu'à E8) :
 
@@ -83,6 +85,7 @@ Held-out, en high (en medium jusqu'à E8) :
 | E7 | 46 (medium 49,5) | 78,5 | ~5 | ~5 |
 | E8 | 62 (medium 52,5) | 77 | ~6 | ~3 |
 | E9 | 52,5 | **91,5** | ~6,5 | ~2 |
+| E10 | 53 | 91 | ~10 | ~4 |
 
 Les runs sont dans `/Users/clementthiriet/VM/mini-lab/runs/<run>/`. Chaque dossier contient `config.toml` (chemins absolus), `midtrain/`, `sft/`, `sft/eval.json` et un log `<run>.out`. Pour l'ablation E8a (medium numéroté sans lexique élargi), seul le midtrain a tourné ; la SFT a été arrêtée, voir la section Mémoire.
 
@@ -92,44 +95,38 @@ Les runs sont dans `/Users/clementthiriet/VM/mini-lab/runs/<run>/`. Chaque dossi
 2. **Seulement deux niveaux de réflexion entraînés, low et high.** medium est redirigé vers high dans l'API. Raison : en E7 et E8, medium ne battait jamais low de plus que le bruit et coûtait environ deux fois plus de tokens (décision 9 de la spec).
 3. Le lexique élargi d'E8 est écarté pour E9 : il aidait high sur les mots jamais vus, mais faisait régresser low.
 
-## Problème ouvert : low régresse en E9
+## E10 : la régression de low (résolue)
 
-low passe de 86,5 à 77,7. La régression touche aussi le mode forcé, qui donne [88 98 90 80 69 50] : la politique n'est donc pas la seule cause. Pourtant low reçoit plus d'exemples qu'en E7 (40 % contre 30 %).
+Diagnostic (low forcé, 600 problèmes, script de classement dans `runs/e9/analysis/`) : en E9, presque tous les échecs de low venaient du **compteur**. À k=1, le modèle surcomptait dans 11 % des cas (1 % en E7), en prenant la phrase parasite pour un événement. À k=6, il sous-comptait dans 30 % des cas (7 % en E7), puis s'arrêtait trop tôt. En E7, 70 % des réflexions portaient le compteur (low et medium), contre 40 % en E9 : c'est l'hypothèse A. S'y ajoutait la politique : à k=1, les doublements répondus directement étaient faux 9 fois sur 10.
 
-Une analyse a été interrompue en cours de route. Ses fichiers partiels sont dans `runs/e9/analysis/cls_e7.json` et `cls_e9.json` ; ce sont des exemples par type d'échec, au plus 3 par type, pas des comptages. **Piste nette à k=1 :** le modèle compte la phrase parasite comme un événement. Il écrit par exemple « 2 events: » pour « Greta has 14 beads. Joel gives Nick 5 candies. Greta loses 13. », puis invente une seconde équation (« 1-1=0 »). Il fait de même avec « It is a sunny day ». Les autres types observés sont un opérande mal copié, une mauvaise opération sur une étape tardive et un arrêt trop tôt.
+Correctif E10 : « N events. » en tête de high, et `tau.low = 0.97`. Résultat en un run : low 86,0 et high 96,5, les deux critères sont atteints.
 
-Hypothèses à tester, non vérifiées :
+## Non-régression et pipeline complet (E10)
 
-- **A.** En E7, medium portait aussi le préfixe « N events. » et servait de pont à low. Sans lui, low voit moins de comptages corrects d'événements.
-- **B.** Le code d'E8 applique aussi les mots inventés à un autre personnage, et ces mots font de 1 à 4 syllabes. Une phrase parasite avec un nom inventé ressemblerait alors davantage à un événement.
-- **C.** C'est du bruit d'un seul run. C'est peu probable vu l'écart de 9 points.
+Run `runs/e10` : midtrain, SFT, rl_math, puis distill avec story_math (tâche T7 faite, teacher = modèle SFT, 1 problème sur 10). Modèle distillé avec `add = 0.6` (`runs/e10/distill`) :
 
-Correctifs peu chers à envisager, un run d'environ 15 minutes chacun :
+- story_math : low 85,0, high 96,7.
+- chat 93 %, instructions 99,4 %, outil 99,2 %.
+- agent de code 98,3 %. Seule la tâche fix_distractor est à 86 %.
+- additions en greedy de 1 à 4 chiffres : 100 %. À 5 chiffres : 99 %.
+- **5 chiffres à T=1 : 96 %**, contre 100 % pour prelude-2 mesuré par le gate et 99 % dans son eval.json.
 
-- **Option 1 :** apprendre à low à ignorer explicitement la parasite, par exemple « 3 events (1 not counted): ».
-- **Option 2 :** supprimer l'en-tête de comptage en low et ne garder que la numérotation, si c'est le compteur qui l'induit en erreur.
-- **Option 3 :** revenir à la génération des mots inventés d'E7, qui ne touchait que le héros et l'objet.
+Un premier distill avec `add = 0.5` donnait 95 % (`runs/e10/distill_add05`). Le gate face à prelude-2 a bloqué sur ce seul point : `5d@T=1` passe de 100 % à 95 %, tout le reste passe. Le gate n'a pas été relancé sur le distill à `add = 0.6`, qui devrait toujours être bloqué : la tolérance est de 2 points. Le spécialiste rl_math d'E10 est lui-même à 98 % à T=1 et 97 % en greedy à 5 chiffres. Les runs d'avant atteignaient 99 à 100 %, sans doute parce que la SFT partage maintenant sa capacité avec story_math.
 
-Critère de succès : low ≥ 86 de moyenne, et high ≥ 95.
+## Reste à faire
 
-## Reste à faire pour clore le chantier
+1. **Trancher sur `5d@T=1`** : soit lever la régression avec `--allow "5d@T=1=<raison>"`, soit renforcer le spécialiste (plus de pas de RL, ou un mélange plus centré sur 5 chiffres), puis relancer le distill et le gate (environ 60 min).
+2. Docs utilisateur (T8) : README et docs/training.md doivent décrire story_math, les deux niveaux et les résultats.
+3. Branches déjà intégrées et supprimables : `t1-story-math`, `t10-sub`, `t11-calc`, `t12-high`, `e7-anchors`, `e8-number`, `e9-two-levels`.
 
-1. Trancher pour low : appliquer un des correctifs ci-dessus, ou accepter E9 tel quel. Même ainsi, low fait mieux qu'E4 (69,2) pour 2,5 fois moins de tokens.
-2. **Non-régression sur le run retenu :** chat (≥ 92 %), additions et agent de code. Il faut repartir des runs E7 et E9 et lancer l'éval complète de `minilab.eval.run` sans `--story-math`, plus le gate face à prelude-2.
-3. Relancer le pipeline complet : rl_math puis distill, en ajoutant story_math au distill (tâche T7, jamais faite).
-4. **Nettoyage :**
-   - `scripts/teacher_traces.py` décrit encore medium et l'ancien high avec Check.
-   - Les branches medium inutiles de `anchor` et `strip_anchor` peuvent partir.
-   - La spec doit refléter les formats actuels : son corps décrit encore le Check.
-5. Docs (T8).
+## Mémoire (corrigée)
 
-## Mémoire : à corriger avant tout nouveau run
+La SFT tient sous un plafond de 8 Go de MPS (pic à 7,0 Go en E10, contre 16-17 Go avant), sans perte de throughput. Deux changements :
 
-La SFT occupe **16-17 Go de mémoire MPS**. Les logits font 32 × 1024 × 4096 en float32, soit 512 Mo par copie, et plusieurs copies sont gardées pour le backward. Plafonner avec `PYTORCH_MPS_HIGH_WATERMARK_RATIO`, à 8 ou à 13 Go, fait planter le run avec un OOM.
+- les logits ne sont calculés qu'aux positions qui ont une cible, avec un nombre de positions arrondi à un multiple de 1 024 ;
+- `[sft] micro_batch = 16` découpe le batch en tranches dont les gradients s'additionnent, ce qui donne le même gradient.
 
-Correctif proposé, pas encore fait : calculer la loss par morceaux (chunked cross-entropy), ou découper le batch avec accumulation de gradients, dans `minilab/train/sft.py` et le loader. Le modèle apprendrait la même chose.
-
-Le Mac a 64 Go, dont 24 Go pris par la VM Lima et 8 Go par la VM `cyber`. Vérifier la mémoire avec `top -o mem` : la RSS de `ps` ne compte pas la mémoire MPS.
+Le gros de la mémoire venait de l'attention compilée, qui garde une matrice (rows, heads, T, T) en float32 par couche. Pour lancer avec le plafond : `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.154 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.1` (0,154 × 51,8 Go ≈ 8 Go).
 
 ## Lancer un run
 
@@ -145,10 +142,13 @@ Ensuite, depuis le worktree, en remplaçant `$RR` par le chemin absolu du run :
 
 ```bash
 PY=/Users/clementthiriet/VM/mini-lab/.venv/bin/python
-nice -n 10 $PY -m minilab.train.midtrain --run $RR && nice -n 10 $PY -m minilab.train.sft --run $RR && PYTHONPATH=$PWD nice -n 10 $PY -m minilab.eval.run --run $RR --stage sft --story-math
+export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.154 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.1 PYTHONPATH=$PWD
+nice -n 10 $PY -m minilab.train.midtrain --run $RR && nice -n 10 $PY -m minilab.train.sft --run $RR && nice -n 10 $PY -m minilab.eval.run --run $RR --stage sft --story-math
+nice -n 10 $PY -m minilab.train.rl_math --run $RR && nice -n 10 $PY -m minilab.train.distill --run $RR && nice -n 10 $PY -m minilab.eval.run --run $RR --stage distill
+nice -n 10 $PY -m minilab.eval.gate $RR/distill --baseline /Users/clementthiriet/VM/mini-lab/models/prelude-2 --config $RR/config.toml
 ```
 
-Le midtrain prend environ 1 min, la SFT environ 8 min et l'éval environ 5 min. Les scripts lancés hors pytest ont besoin de `PYTHONPATH=$PWD`, parce que l'install editable pointe sur le dépôt principal.
+Les durées sont d'environ 1 min pour le midtrain, 8 min pour la SFT, 5 min pour l'éval story_math, 9 min pour le RL, 8 min pour le distill et 4 min pour l'éval complète. Le gate prend environ 40 min. L'éval de l'agent de code et le gate ont besoin de Docker Desktop.
 
 ## Contraintes à respecter
 
