@@ -36,7 +36,7 @@ import torch
 import torch.nn.functional as F
 
 from minilab.checkpoint import load_checkpoint
-from minilab.data import code
+from minilab.data import code, story_math
 from minilab.eval.tasks import grade, make_problem
 from minilab.model.gpt import GPT
 from minilab.tokenizer.bpe import Tokenizer
@@ -56,10 +56,15 @@ def sample_problem(rng: random.Random, sc: dict, code_pool: list[dict] | None = 
     the lengths SFT demonstrated carry no signal, the longer ones are where RL learns.
     The other kinds (calculator, follow-ups, word problems) keep those skills from drifting:
     as soon as one degrades, it fails and gets a signal. "code" (distillation only): one turn
-    of an agent transcript from `code_pool`."""
+    of an agent transcript from `code_pool`. "story_math" (distillation only): a story problem with k
+    from `story_steps`, at an effort level drawn from `story_efforts`, written in the problem's "effort"."""
     kind = rng.choices(list(sc["mix"]), weights=list(sc["mix"].values()))[0]
     if kind == "code":
         return code.turn_problem(rng, rng.choice(code_pool))
+    if kind == "story_math":
+        efforts = sc["story_efforts"]
+        level = rng.choices(list(efforts), list(efforts.values()))[0]
+        return {**story_math.make(rng, rng.choice(sc["story_steps"]), "train"), "effort": level}
     return make_problem(kind, rng, sc["digits"] if kind in ("add", "tool", "word", "new_question") else sc["chat_digits"])
 
 

@@ -156,3 +156,11 @@ def test_distill_step(tok):
     kls = [distill_step(student, [same, other], tok, opt, problems, 8, 1.0, torch.Generator().manual_seed(0))["kl"]
            for _ in range(10)]
     assert kls[-1] < kls[0]  # the student moves toward its teachers
+
+
+def test_sample_story_math_problem():
+    rng = random.Random(0)
+    sc = {"mix": {"story_math": 1}, "story_steps": [1, 3], "story_efforts": {"low": 1, "high": 1}}
+    problems = [sample_problem(rng, sc) for _ in range(40)]
+    assert {p["kind"] for p in problems} == {"story_math"} and {p["steps"] for p in problems} == {1, 3}
+    assert {p["effort"] for p in problems} == {"low", "high"}

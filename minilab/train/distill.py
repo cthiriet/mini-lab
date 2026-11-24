@@ -21,7 +21,9 @@ The student starts from the SFT model. Each step:
 
 The mix also has "code" problems, one turn of an agent transcript each (a tool call or the
 answer, with the earlier calls and results as context), whose teacher is the SFT model.
-Without them, the coding agent would drift like any skill left out.
+Without them, the coding agent would drift like any skill left out. The story problems
+(data/story_math.py) come at low and high effort, teacher the SFT model too: the student's reasoning
+gets graded token by token, without the calculator (as in RL, the sums are its own).
 
     uv run python -m minilab.train.rl_math --run runs/prelude
     uv run python -m minilab.train.distill --run runs/prelude
@@ -62,7 +64,7 @@ def distill_step(student: GPT, teachers: list[GPT], tok: Tokenizer, opt: torch.o
     rendered = []
     for p, t in problems:
         try:
-            rendered.append((p, t, render_prompt(tok, p["messages"], p["tools"], budget=budget)))
+            rendered.append((p, t, render_prompt(tok, p["messages"], p["tools"], budget=budget, effort=p.get("effort"))))
         except PromptTooLong:
             continue
     rendered = [r for r in rendered if len(r[2]) < student.config.block_size]

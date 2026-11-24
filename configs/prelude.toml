@@ -112,14 +112,15 @@ lr = 2e-4                   # at 1e-4 the follow-ups on long totals lagged (92% 
 warmup = 10
 log_every = 5
 
-[distill]                   # one turn of an agent transcript in 1 problem of 6 (teacher: the SFT model)
+[distill]                   # one turn of an agent transcript in 1 problem of 7 (teacher: the SFT model)
 steps = 300
 prompts_per_step = 32
 digits = [1, 2, 3, 4, 5]
 chat_digits = [1, 2, 3]
-mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05, story = 0.05, long_followup = 0.05, switch = 0.05, mixed = 0.05, word = 0.05, code = 0.25 }
+mix = { add = 0.5, tool = 0.15, number_only = 0.1, no_calculator = 0.05, sure = 0.05, followup = 0.05, refusal = 0.05, identity = 0.05, new_question = 0.05, story = 0.05, long_followup = 0.05, switch = 0.05, mixed = 0.05, word = 0.05, code = 0.25, story_math = 0.17 }
 teachers = { add = "rl_math", tool = "rl_math", long_followup = "rl_math", new_question = "rl_math" }   # every other kind: the SFT model
-# mix: every kind x 0.9 and story_math = 0.10, once distill.py knows story_math
+story_steps = [1, 2, 3, 4, 5, 6]   # story_math: 1 problem in 10 (the weights add up to 1.72), teacher the SFT model
+story_efforts = { low = 0.4, high = 0.6 }
 code_pool = 2000            # agent transcripts to cut turns from (not the SFT set's)
 max_new_tokens = 384        # room for a whole file in a write call
 temperature = 1.0
