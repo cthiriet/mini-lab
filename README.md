@@ -28,9 +28,9 @@ Each part of a real lab has a minimal, readable version here:
 
 No GPU required: the whole training pipeline, from raw text to a released model and its dictionary of features, runs on a laptop (about 1h40 on an Apple M5 Pro, its GPU through MPS for training).
 
-## The model: `prelude-2`
+## The model: `prelude-3`
 
-A 5.8M-parameter GPT with a 1,024-token context. In the chat app it writes short children's stories and adds numbers, either step by step or with a calculator tool. In [opencode](https://opencode.ai) it is a coding agent: given "Run the tests and fix any bug", it globs for the tests, runs them, greps for the failing function, reads it, edits the line, runs the tests again and says what it fixed. It knows which job it is doing from what the client sends, as any assistant model does. It's tiny on purpose: every training stage has an effect you can measure.
+A 5.8M-parameter GPT with a 1,024-token context. In the chat app it writes short children's stories, adds numbers, either step by step or with a calculator tool, and solves little story problems ("Sam has 4 flowers. He gets 6 from Kate. The sun is warm. He gives 10 to Ben. How many flowers does Sam have now?") at two levels of effort, like the big labs' `reasoning_effort`: a short reasoning at `low`, the story read again a sentence at a time at `high`. In [opencode](https://opencode.ai) it is a coding agent: given "Run the tests and fix any bug", it globs for the tests, runs them, greps for the failing function, reads it, edits the line, runs the tests again and says what it fixed. It knows which job it is doing from what the client sends, as any assistant model does. It's tiny on purpose: every training stage has an effect you can measure.
 
 | Stage | What it teaches |
 |---|---|
@@ -44,7 +44,7 @@ Each stage is evaluated, and the training report shows what it changed (addition
 
 <p align="center"><img src="docs/assets/report.png" alt="Training report: per-stage evaluation heatmap" width="800"></p>
 
-On its own eval, `prelude-2` gets 100% of 1-5 digit additions (99% sampled at temperature 1), 100% of the instruction checks, 94% of 600 whole chats and 98% of its coding tasks done end to end, after 50 minutes of training (about 1h30 with the data and the evals). Its block borrows five small changes from the 2024-25 speedruns (squared ReLU, value residual, qk-norm, embeddings mixed into every block, soft-capped logits), and it trains through `torch.compile` in bfloat16.
+On its own eval, `prelude-3` gets 85% of the story problems at low effort and 97% at high (0-3% answering at once), 99-100% of 1-5 digit additions (96% sampled at temperature 1), 99% of the instruction checks, 93% of 600 whole chats and 98% of its coding tasks done end to end, after 40 minutes of training (about 1h30 with the data and the evals). Its block borrows five small changes from the 2024-25 speedruns (squared ReLU, value residual, qk-norm, embeddings mixed into every block, soft-capped logits), and it trains through `torch.compile` in bfloat16.
 
 See [docs/training.md](docs/training.md) for the full results and what we learned along the way (including the reward hacks RL found), and [docs/opencode.md](docs/opencode.md) for how ~10,000 tokens of opencode instructions fit a 1,024-token model.
 
@@ -68,7 +68,7 @@ git clone https://github.com/cthiriet/mini-lab && cd mini-lab
 uv sync
 ```
 
-**1. Train a model** (downloads about 200 MB of TinyStories, then trains all five stages, releases `models/prelude-2` and trains its dictionary of features; the coding eval needs Docker running):
+**1. Train a model** (downloads about 200 MB of TinyStories, then trains all five stages, releases `models/prelude-3` and trains its dictionary of features; the coding eval needs Docker running):
 
 ```bash
 bash speedrun.sh
@@ -97,7 +97,7 @@ from openai import OpenAI
 
 client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="sk-mini-...")
 reply = client.chat.completions.create(
-    model="prelude-2",
+    model="prelude-3",
     messages=[{"role": "user", "content": "What is 347 + 58?"}],
 )
 print(reply.choices[0].message.content)
@@ -123,7 +123,7 @@ docker compose up --build
                         inference :8001     chat template · KV cache · continuous batching
                              │
                              ▼
-                        models/prelude-2    ◄── bash speedrun.sh
+                        models/prelude-3    ◄── bash speedrun.sh
 ```
 
 More in [docs/architecture.md](docs/architecture.md).
@@ -164,7 +164,7 @@ Contributions are welcome, especially ones that make a part of the lab clearer o
 
 ## Limitations
 
-- `prelude-2` is a toy. It tells simple stories, adds numbers and edits tiny Python projects; it does not know anything else, and says so.
+- `prelude-3` is a toy. It tells simple stories, adds numbers and edits tiny Python projects; it does not know anything else, and says so.
 - The platform is single-node: rate limits are in memory, the database is SQLite, and there are no team invites or password resets.
 - Payments use Stripe in test mode. Without Stripe keys, a clearly labeled test-mode button adds credits.
 

@@ -7,7 +7,7 @@ midtraining → SFT → RL → distillation → eval → release**. Each stage h
 shows up in a fixed eval.
 
 ```bash
-bash speedrun.sh                  # data, every stage, evals, release gate -> models/prelude-2
+bash speedrun.sh                  # data, every stage, evals, release gate -> models/prelude-3
 bash speedrun.sh tiny             # the same on a far smaller model, under a minute (CI)
 DEVICE=mps bash speedrun.sh       # force a device (auto: cuda, else mps, with generation on the CPU)
 ```
@@ -23,24 +23,28 @@ Docker must be running.
 
 ## Results
 
-`runs/prelude`, released as `models/prelude-2`. Same fixed-seed eval after every stage
-(`uv run python -m minilab.eval.run --run runs/prelude --summary`):
+`runs/e10`, released as `models/prelude-3` (pretraining reused from `runs/cand5k`, the run of
+`prelude-2`). Same fixed-seed eval after every stage
+(`uv run python -m minilab.eval.run --run runs/e10 --summary`):
 
 ```
-stage             ppl    1d    2d    3d    4d    5d  6d*  5d@T=1  tool call  tool ans  story  instr  chat  format  agent  valid calls  train time
----------------  ----  ----  ----  ----  ----  ----  ---  ------  ---------  --------  -----  -----  ----  ------  -----  -----------  ----------
-pretrain (base)  4.29   95%   87%   85%   69%   76%   0%       -          -         -      -      -     -       -      -            -    11.4 min
-midtrain         4.42  100%  100%  100%    1%    0%   0%      0%        80%       78%    96%    23%    4%     67%     0%           0%     0.8 min
-sft              5.37  100%  100%  100%   20%    0%   0%      0%        85%       84%   100%    94%   63%     74%    98%         100%     8.4 min
-rl_math          5.71  100%  100%  100%  100%  100%   0%     99%       100%      100%    93%    96%   82%    100%    97%         100%    18.6 min
-distill          5.37  100%  100%  100%  100%  100%   0%     99%       100%      100%   100%   100%   94%    100%    98%         100%    10.6 min
+stage             ppl    1d    2d    3d    4d   5d  6d*  5d@T=1  sm lo  sm hi  sm 6st  sm 7-8*  sm obj*  tool call  tool ans  story  instr  chat  format  agent  valid calls  train time
+---------------  ----  ----  ----  ----  ----  ---  ---  ------  -----  -----  ------  -------  -------  ---------  --------  -----  -----  ----  ------  -----  -----------  ----------
+pretrain (base)  4.29   95%   87%   85%   69%  76%   0%       -      -      -       -        -        -          -         -      -      -     -       -      -            -    11.4 min
+midtrain         4.51  100%   99%  100%    6%   0%   0%      0%    50%    66%     50%       2%      52%        79%       77%    93%    22%    3%     69%     0%           0%     1.1 min
+sft              5.37  100%  100%  100%   66%   0%   0%      0%    86%    96%     90%      10%      53%        84%       83%    96%    94%   63%     79%    99%         100%     8.8 min
+rl_math          5.64  100%  100%  100%  100%  97%   3%     98%    80%    89%     76%       8%      46%       100%      100%    93%    95%   74%    100%    97%         100%     9.2 min
+distill          5.37  100%  100%  100%  100%  99%   0%     96%    85%    97%     90%       6%      55%       100%       99%    98%    99%   93%    100%    98%         100%     7.7 min
 ```
 
-`rl_math` is the math specialist, a teacher that is never released; `distill` is prelude-2.
-It passed the release gate with no regression against the release before it: stories 0.678 → 0.625 bits per
-character, stories on topic 98% → 100%, new questions after an answer 93% → 100%, follow-ups on
-long totals 93% → 97%, whole chats 95.7% → 93.7% (600 conversations, within the gate's 2 points),
-coding tasks 98% both; 50 minutes of training instead of 69. The coding tasks are in [opencode.md](opencode.md).
+`sm` columns are the story problems ([below](#story-problems-and-two-levels-of-effort)): adaptive
+at low and high effort, at 6 events, and held out (7-8 events, names and things never seen).
+`rl_math` is the math specialist, a teacher that is never released; `distill` is prelude-3.
+Against `prelude-2`, the release gate found one regression, waived with its reason in
+`gate.json`: 5-digit additions sampled at temperature 1, 100% → 96% on 100 problems. On 500, it
+is 98.2% (±1.2) against 99.0% (±0.9): sample noise. Story problems went from 1% and 3% to 85% at
+low and 97% at high; whole chats, instructions and coding tasks held (93%, 99%, 98%), with 27
+minutes of training after pretraining, against 38 for `prelude-2`.
 
 | column | what it measures |
 |---|---|
@@ -142,7 +146,7 @@ uv run python -m minilab.train.sft        --run runs/prelude
 uv run python -m minilab.train.rl_math    --run runs/prelude     # the math specialist
 uv run python -m minilab.train.distill    --run runs/prelude
 uv run python -m minilab.eval.run         --run runs/prelude --stage distill
-uv run python -m minilab.release          --run runs/prelude --stage distill --id prelude-2   # gate, then models/prelude-2
+uv run python -m minilab.release          --run runs/prelude --stage distill --id prelude-3   # gate, then models/prelude-3
 ```
 
 Every command takes `--device auto|cpu|mps|cuda` (see [Devices](#devices)). The tokenizer
@@ -335,7 +339,7 @@ regression can still ship, with a reason: `--allow bpc="..."` records it in `gat
 in the model card. To compare two models by hand:
 
 ```bash
-uv run python -m minilab.eval.gate runs/prelude/distill --baseline models/prelude-2
+uv run python -m minilab.eval.gate runs/prelude/distill --baseline models/prelude-3
 ```
 
 `release.py` then copies the checkpoint to `models/<id>/` with `release.json` (context

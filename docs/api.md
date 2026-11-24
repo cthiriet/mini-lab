@@ -137,7 +137,7 @@ parts are rejected too: the models only read text.
   "id": "chatcmpl-7846376cf6989261b83423de",
   "object": "chat.completion",
   "created": 1760000000,
-  "model": "prelude-2",
+  "model": "prelude-3",
   "choices": [{
     "index": 0,
     "message": {"role": "assistant", "content": "4", "refusal": null, "reasoning_content": "2 + 2 = 4"},
@@ -214,7 +214,7 @@ def calculator(expression: str) -> str:
 
 messages = [{"role": "user", "content": "What is 347 + 58?"}]
 while True:
-    reply = client.chat.completions.create(model="prelude-2", messages=messages, tools=tools)
+    reply = client.chat.completions.create(model="prelude-3", messages=messages, tools=tools)
     message = reply.choices[0].message
     if reply.choices[0].finish_reason != "tool_calls":
         print(message.content)                      # "The answer is 405."
@@ -235,7 +235,7 @@ objects with mini-lab extras:
 
 ```json
 {"object": "list", "data": [{
-  "id": "prelude-2", "object": "model", "created": 1760000000, "owned_by": "mini-lab",
+  "id": "prelude-3", "object": "model", "created": 1760000000, "owned_by": "mini-lab",
   "description": "...", "context_length": 1024,
   "pricing": {"input_per_1m": 10.0, "output_per_1m": 50.0}
 }]}
