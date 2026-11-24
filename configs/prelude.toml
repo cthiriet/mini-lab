@@ -90,6 +90,7 @@ text_frac = 0.25            # share of rows that are pretraining documents, loss
                             # them, SFT took the stories from 0.59 to 1.00 bits per character, 0.74 with 10%
 steps = 3500
 batch_size = 32
+micro_batch = 16            # two slices of 16 rows, same gradient: 16-17 GB of MPS memory -> see docs
 lr = 1e-3
 warmup = 50
 weight_decay = 0.1

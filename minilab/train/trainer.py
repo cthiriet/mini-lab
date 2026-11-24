@@ -238,11 +238,12 @@ def train_loop(model: GPT, batches: Iterator[tuple[torch.Tensor, torch.Tensor]],
     """The language-modeling loop shared by pretrain, midtrain and SFT.
 
     `sc` is the stage's config section: steps, lr, warmup, weight_decay, grad_clip,
-    min_lr_frac, log_every, eval_every. `val_fn` returns a dict of metrics to log.
+    min_lr_frac, log_every, eval_every, micro_batch. `val_fn` returns a dict of metrics to log.
     `optimizer` is the config's top-level `optimizer` ("adamw" or "muon"); `compile` and
     `precision` (the config's top-level keys): see fast_forward.
     """
     steps, log_every = sc["steps"], sc.get("log_every", 10)
+    micro = sc.get("micro_batch") or 10**9
     opt = make_optimizer(model, sc["lr"], sc.get("weight_decay", 0.0), optimizer)
     forward = fast_forward(model, device, compile, precision)
     model.train()
@@ -255,9 +256,18 @@ def train_loop(model: GPT, batches: Iterator[tuple[torch.Tensor, torch.Tensor]],
         for group in opt.param_groups:
             group["lr"] = lr
         x, y = next(batches)
-        _, loss = forward(x.to(device), y.to(device))
+        x, y = x.to(device), y.to(device)
         opt.zero_grad(set_to_none=True)
-        loss.backward()
+        # `micro_batch`: the batch in slices of that many rows, gradients added up, for less memory
+        # (compiled on MPS, attention keeps a (rows, heads, T, T) float32 matrix per layer). Each slice's
+        # loss is weighted by its share of the targets: the same gradient as the whole batch at once.
+        n = (y != -1).sum()
+        loss = 0.0
+        for xs, ys in zip(x.split(micro), y.split(micro)):
+            _, part = forward(xs, ys)
+            part = part * ((ys != -1).sum() / n)
+            part.backward()
+            loss = loss + part.detach()
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), sc.get("grad_clip", 1.0))
         opt.step()
 

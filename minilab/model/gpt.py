@@ -186,16 +186,29 @@ class GPT(nn.Module):
         return logits
 
     def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None):
-        """Training path. idx/targets: (B, T). Targets of -1 are ignored in the loss."""
+        """Training path. idx/targets: (B, T). Targets of -1 are ignored in the loss.
+        Without targets: logits (B, T, vocab); with them, only the targeted positions' logits."""
         B, T = idx.shape
         assert T <= self.config.block_size, f"sequence length {T} > block_size {self.config.block_size}"
         cos = self.rope_cos[None, None, :T]
         sin = self.rope_sin[None, None, :T]
-        logits = self._logits(self._trunk(self.drop(self.wte(idx)), cos, sin))
-        loss = None
-        if targets is not None:
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)).float(), targets.view(-1), ignore_index=-1)
-        return logits, loss
+        x = self._trunk(self.drop(self.wte(idx)), cos, sin)
+        if targets is None:
+            return self._logits(x), None
+        return self._loss(x, targets)
+
+    @torch.compiler.disable  # data-dependent shapes, which torch.compile on MPS doesn't build
+    def _loss(self, x: torch.Tensor, targets: torch.Tensor):
+        # Logits only where there is a target: in SFT most positions are prompts or padding, and the
+        # (B, T, vocab) float32 logits, kept several times for the backward, took most of the memory.
+        # Same loss (the mean over the targets). The logits returned are those rows only: (n, vocab).
+        # The count is rounded up to a multiple of 1,024 (padding rows ignored): on MPS every new shape
+        # compiles, and keeps, new kernels.
+        x, targets = x.flatten(0, 1), targets.flatten()
+        rows = (targets != -1).nonzero().squeeze(1)
+        rows = F.pad(rows, (0, -len(rows) % 1024), value=-1)
+        logits = self._logits(x[rows])
+        return logits, F.cross_entropy(logits.float(), torch.where(rows >= 0, targets[rows], -1), ignore_index=-1)
 
     def forward_cached(self, idx: torch.Tensor, cache: KVCache, slots: torch.Tensor,
                        steer: tuple[int, torch.Tensor] | None = None) -> torch.Tensor:
