@@ -1,5 +1,12 @@
 """Reasoning traces for story problems, written by a large LLM through OpenRouter (docs/story-math-spec.md §4).
 
+Historical: this script wrote the bank of medium traces that training used up to E8. Since E9 training
+uses no teacher (teacher_frac = 0 in configs/prelude.toml): story_math.trace_program writes every
+reasoning, at the two levels that remain, low and high. The "high" prompt below, with its "Check:"
+sentence, is the old format: story_math.verify_trace now rejects a "Check:" and wants the quoted story
+sentences of the current high (reread sentence by sentence), so a new run at high would fail the filter
+until the prompt is rewritten. The script is kept as it was.
+
     op run -- uv run python scripts/teacher_traces.py --n 300 --levels medium high --budget-usd 0.5
 
 Reads OPENROUTER_API_KEY from the environment. Checks first that the model has a zero-data-retention
@@ -38,6 +45,7 @@ SYSTEM = (
     "no bullet points, no headings. Use plain ASCII only. Write every number with digits (8, never eight). Write "
     'operations with + - x and =, with the symbol x for "times". Every number you write must be correct. Never write '
     '"The answer is". Follow the style below exactly.')
+# The styles of the old formats: medium (until E8, the level that was trained) and high with "Check:" (dropped in E9).
 STYLE = {
     "medium": (
         "Style: short and plain, like a quick note to oneself. First sentence: who starts with how many of what. Then "

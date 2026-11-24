@@ -1,14 +1,18 @@
-# Spec : problèmes d'état à étapes (« story-math »), effort à 4 niveaux, traces distillées
+# Spec : problèmes d'état à étapes (« story-math »), effort à deux niveaux (low, high), traces écrites par programme
 
 Légende : **[M]** mesuré (aujourd'hui, par moi ou par le propriétaire), **[E]** estimé (calcul ou extrapolation), **[O]** opinion / hypothèse à tester.
-Vocabulaire : `k` = nombre d'étapes d'état (1 à 6). `level` = `none|low|medium|high`. « think » = présence de `<|think_start|>...<|think_end|>`.
+Vocabulaire : `k` = nombre d'étapes d'état (1 à 6). `level` = `none|low|high` (`medium` est redirigé vers `high` ; la spec d'origine en avait quatre, voir §11, décisions 9 et 10). « think » = présence de `<|think_start|>...<|think_end|>`.
+
+> **État actuel (après E10).** Le modèle n'apprend que `low` et `high` (`none` = pas de réflexion). `medium` n'est plus entraîné et vaut `high` dans l'API. Aucune réflexion n'est écrite par un LLM depuis E9 (`teacher_frac = 0`) : `trace_program` les écrit toutes. Formats : `low` = en-tête `effort: low`, réflexion `N events:` puis équations numérotées ; `high` = pas d'en-tête, réflexion `N events. ` puis l'histoire relue phrase par phrase (chaque phrase citée, suivie de son effet), conclusion `So <hero> has <answer> <things>.`, **sans** `Check:`. Les sections ci-dessous gardent le raisonnement d'origine ; ce qui décrit un format abandonné est signalé (« jusqu'à E8 », « abandonné en E9 »). Le code (`minilab/data/story_math.py`, `configs/prelude.toml`) fait foi, et le §11 prime sur le reste.
 
 ## 0. Décisions en une page
 
+Les points 2 et 4 ci-dessous sont la version d'origine ; ils sont remplacés par les décisions 9 et 10 du §11.
+
 1. Nouvelle famille `story_math` : un compteur unique (un enfant, un objet) qui subit k événements `+`, `-`, `×2`, avec des distracteurs. Réponse visible : `The answer is N.` (comme les additions, même grader strict).
-2. Niveau d'effort = ligne d'en-tête `<|system_start|>effort: low|high<|system_end|>` après la ligne `tools:`. **Absence d'en-tête = `medium`** (le défaut ; rien ne change pour les 80 000 transcripts de code ni pour les opencode qui n'envoient rien). `none` : pas d'en-tête, on bannit `<|think_start|>` au sampling (déjà fait). API : `reasoning_effort` -> en-tête.
+2. Niveau d'effort = ligne d'en-tête `<|system_start|>effort: low|high<|system_end|>` après la ligne `tools:`. **Absence d'en-tête = `medium`** (version d'origine, jusqu'à E8 ; depuis E9 : absence d'en-tête = `high`, `medium` n'existe plus, voir §11.9 ; rien ne change pour les 80 000 transcripts de code ni pour les opencode qui n'envoient rien). `none` : pas d'en-tête, on bannit `<|think_start|>` au sampling (déjà fait). API : `reasoning_effort` -> en-tête.
 3. La décision « réfléchir ou non » est **déterministe selon (niveau, bucket de difficulté)** et appris par les données. Le bucket est mesuré par une sonde qui ne sait répondre qu'en un seul forward pass. On ne montre jamais une réponse directe dans un bucket où la sonde réussit moins que le seuil du niveau.
-4. Traces : `low` écrites par programme (équations sèches, aucun intérêt à payer un LLM) ; `medium` et `high` par `deepseek/deepseek-v4.1-flash` via OpenRouter (`provider.zdr=true`), filtrées par réponse + chaque nombre intermédiaire + style + longueur. Coût estimé 2 à 5 $, plafond 10 $. Plan B 100 % templates, comparé à l'expérience E3.
+4. Traces : `low` écrites par programme (équations sèches, aucun intérêt à payer un LLM) ; `medium` et `high` par `deepseek/deepseek-v4.1-flash` via OpenRouter (`provider.zdr=true`), filtrées par réponse + chaque nombre intermédiaire + style + longueur. Coût estimé 2 à 5 $, plafond 10 $. Plan B 100 % templates, comparé à l'expérience E3. **Jusqu'à E8** : la banque teacher (traces `medium`) a servi jusqu'à E8 ; depuis E9 le programme écrit toutes les réflexions, `low` et `high` (§4.5, §11.9).
 5. **Contexte : on reste à 1 024.** Mesuré : la conversation la plus longue de la famille (6 étapes, `high`) fait environ 300 tokens (section 6).
 6. Les additions ne dépendent pas du niveau : toujours scratchpad (sauf `none`). On met `DIRECT_FRAC = 0` dans `arithmetic.py` (le « bluff » mesuré : -4 points de chat entiers pour -17 % de tokens). Elles ne régressent donc pas par construction.
 
@@ -55,10 +59,12 @@ Problème (47 tokens, k = 3, un distracteur) :
 | niveau | raisonnement | tokens du raisonnement | conversation complète (bos + header + tout) |
 |---|---|---:|---:|
 | low | `3+5=8` ⏎ `8-2=6` ⏎ `6-1=5` | 17 | 77 |
-| medium | `Lily starts with 3 apples. She finds 5, so 3 + 5 = 8. She gives 2 to Tom, so 8 - 2 = 6. She eats 1, so 6 - 1 = 5.` | 57 | 117 |
-| high | `Lily begins with 3 apples. She finds 5 more, so she has 3 + 5 = 8 apples. Tom's pears do not matter. She gives 2 apples to Tom, so 8 - 2 = 6. Then she eats 1, so 6 - 1 = 5 apples. Check: 3 + 5 - 2 - 1 = 5. So Lily has 5 apples.` | 99 | 159 |
+| medium (jusqu'à E8) | `Lily starts with 3 apples. She finds 5, so 3 + 5 = 8. She gives 2 to Tom, so 8 - 2 = 6. She eats 1, so 6 - 1 = 5.` | 57 | 117 |
+| high (format d'origine, abandonné en E9, avec `Check:`) | `Lily begins with 3 apples. She finds 5 more, so she has 3 + 5 = 8 apples. Tom's pears do not matter. She gives 2 apples to Tom, so 8 - 2 = 6. Then she eats 1, so 6 - 1 = 5 apples. Check: 3 + 5 - 2 - 1 = 5. So Lily has 5 apples.` | 99 | 159 |
 
-Réponse visible dans les trois cas : `The answer is 5.` (6 tokens). `effort: high` = 5 tokens, plus les deux tokens spéciaux.
+Format actuel (E10) : `low` = `3 events:` ⏎ `1: 3+5=8` ⏎ `2: 8-2=6` ⏎ `3: 6-1=5` ; `high` (sans en-tête) = `3 events. Lily begins with 3 apples. "She finds 5 more." So 3 + 5 = 8. "The sun is warm and Tom has 4 pears." That does not matter. "She gives 2 to Tom." That gives 8 - 2 = 6. "Then she eats 1." Now 6 - 1 = 5. So Lily has 5 apples.` (exemple illustratif, tokens non remesurés). Le tableau ci-dessus est le format d'origine, sans compteur ni numéros.
+
+Réponse visible dans tous les cas : `The answer is 5.` (6 tokens). `effort: high` = 5 tokens, plus les deux tokens spéciaux.
 
 Longueurs sur mon prototype de générateur (300 problèmes par k, sans distracteurs, raisonnement medium) [M, à refaire avec le vrai générateur] :
 
@@ -71,7 +77,7 @@ Longueurs sur mon prototype de générateur (300 problèmes par k, sans distract
 | 5 | 55 | 40 | 100 | 169 | 180 |
 | 6 | 63 | 49 | 119 | 196 | 208 |
 
-Règle empirique [M] : le problème coûte environ 8 tokens par étape, `low` 8, `medium` 19, `high` ~33 (extrapolé de l'exemple k=3 : 99 tokens ; [E]).
+Règle empirique [M] : le problème coûte environ 8 tokens par étape, `low` 8, `medium` 19 (jusqu'à E8), `high` ~33 (extrapolé de l'exemple k=3 : 99 tokens ; [E] ; le `high` actuel, qui cite chaque phrase, est plus long : bornes mesurées dans `verify_trace`, 33 à 81 tokens à k = 1 et 166 à 250 à k = 8).
 
 ### 1.4 Grader
 
@@ -81,9 +87,9 @@ Règle empirique [M] : le problème coûte environ 8 tokens par étape, `low` 8,
 
 ## 2. Encodage de l'effort
 
-- **Rendu** : `chat._render_header(tok, tools, effort=None)`. Ordre : `<|bos|>`, `tools:` (si présent), `effort: low|high` (si `effort in ("low","high")`), puis les messages système du client. `medium`, `none` et `None` : aucune ligne. Un système client « effort: high » est un message système ordinaire : aucun contrôle de plus.
+- **Rendu** : `chat._render_header(tok, tools, effort=None)`. Ordre : `<|bos|>`, `tools:` (si présent), `effort: low|high` (si `effort in ("low","high")`), puis les messages système du client. `medium`, `none` et `None` : aucune ligne. **Depuis E9** : seul `low` écrit une ligne ; `high` (et donc `medium`, qui lui est redirigé) n'en écrit pas. Un système client « effort: high » est un message système ordinaire : aucun contrôle de plus.
 - **API** (`api/schemas.py:to_inference`) : normalisation
-  `None -> medium`, `none -> none`, `minimal|low -> low`, `medium -> medium`, `high|xhigh|max -> high`, toute autre valeur -> `medium`. Le dict renvoyé gagne `"effort": "low"|"medium"|"high"|"none"`, et garde `"think": effort != "none"`. `server.py` / `_render` passent `effort` à `render_prompt` (l'en-tête est omis pour `medium` et `none`) ; le ban de `<|think_start|>` pour `none` existe déjà (`engine.py:_sample`).
+  `None -> medium`, `none -> none`, `minimal|low -> low`, `medium -> medium`, `high|xhigh|max -> high`, toute autre valeur -> `medium` (version d'origine ; **depuis E9** : `normalize_effort` renvoie `none`, `low` ou `high` ; `minimal -> low`, `medium`, absent ou inconnu `-> high`). Le dict renvoyé gagne `"effort": "low"|"high"|"none"` (d'origine : aussi `"medium"`), et garde `"think": effort != "none"`. `server.py` / `_render` passent `effort` à `render_prompt` (l'en-tête est omis pour `medium` et `none`, et pour `high` depuis E9) ; le ban de `<|think_start|>` pour `none` existe déjà (`engine.py:_sample`).
 - **Pourquoi pas d'en-tête pour `none`** : le ban au sampling est une garantie dure, l'en-tête n'en ajouterait aucune ; l'entraîner demanderait des réponses directes sur des problèmes difficiles, c'est-à-dire du bluff. [O] Le coût : sur un problème difficile, `none` renvoie la meilleure supposition en un forward pass ; c'est sa définition, et la colonne `accuracy_off` la mesure.
 - **Entraînement** : `render_conversation(tok, messages, tools, effort=None)` ; le dict de conversation gagne la clé `"effort"`. L'en-tête apparaît aussi (15 % des conversations, `low` ou `high` au hasard) sur toutes les autres sortes (additions, histoires, salutations, refus, code SFT non), avec des cibles inchangées : le modèle apprend que l'en-tête ne touche que `story_math`. Pas d'en-tête sur les transcripts de code (opencode n'en envoie jamais).
 - **Historique client** : les raisonnements ne sont pas renvoyés (déjà le cas), l'en-tête est recalculé à chaque requête à partir de `reasoning_effort`.
@@ -100,11 +106,11 @@ Pour un niveau `L` et un problème de bucket `b = (k, dbl)` (`dbl` = au moins un
 think(L, b) = (p_direct(b) < tau[L])
 ```
 
-où `p_direct(b)` est la justesse d'un modèle de **sonde** forcé de répondre en un forward pass (section 3.2). Seuils de départ [O] : `tau = {low: 0.80, medium: 0.92, high: 0.99}`. Un bucket à ±0.03 d'un seuil est classé `think` (prudence). Déterminisme : à (niveau, bucket) donné, la cible est toujours la même, donc aucune étiquette bruitée.
+où `p_direct(b)` est la justesse d'un modèle de **sonde** forcé de répondre en un forward pass (section 3.2). Seuils de départ [O] : `tau = {low: 0.80, medium: 0.92, high: 0.99}` (`medium` supprimé en E9, `low` passé à 0.97 en E10). Un bucket à ±0.03 d'un seuil est classé `think` (prudence). Déterminisme : à (niveau, bucket) donné, la cible est toujours la même, donc aucune étiquette bruitée.
 
-Le niveau règle le style quand on réfléchit : `low` équations sèches, `medium` phrases courtes, `high` phrases complètes + vérification finale.
+Le niveau règle le style quand on réfléchit : `low` équations sèches, `medium` phrases courtes (jusqu'à E8), `high` phrases complètes + vérification finale (format d'origine ; abandonné en E9 : `high` relit l'histoire phrase par phrase, sans `Check:`, et `medium` n'existe plus). Seuils actuels : `tau = {low: 0.97, high: 0.99}` (§11.10).
 
-### 3.2 Table attendue (hypothèse [O], à remplacer par la table mesurée à E1)
+### 3.2 Table attendue (hypothèse [O], à remplacer par la table mesurée à E1 ; la colonne `medium` est abandonnée depuis E9)
 
 Hypothèse de départ : un modèle de 5,8M sait faire 1 addition à 2 chiffres en un forward pass [M, « fiable jusqu'à 2 chiffres »]. Donc 1 étape direct, 2 étapes limite, 3 et plus : pas fiable.
 
@@ -135,7 +141,9 @@ Chaque ligne `direct` n'existe que si la mesure la justifie. Le niveau `none` : 
 
 ---
 
-## 4. Traces écrites par le gros LLM
+## 4. Traces écrites par le gros LLM (jusqu'à E8)
+
+> **Historique.** Cette section décrit la banque teacher, utilisée jusqu'à E8 (traces `medium`, `scripts/teacher_traces.py`). Depuis E9 aucun LLM n'écrit de réflexion à l'entraînement (`teacher_frac = 0`). Le prompt `high` avec `Check:` et le style `medium` ci-dessous sont des formats abandonnés ; le `style_ok` et le `verify_trace` actuels rejettent `Check`.
 
 ### 4.1 Modèle OpenRouter (éligibilité ZDR vérifiée aujourd'hui [M])
 
@@ -212,12 +220,12 @@ Les échecs sont rejoués une fois (même prompt, température 1,0) ; au-delà, 
 - `low` : 0 $ (programme).
 - Si E4 montre du sous-apprentissage : 20 000 problèmes, soit environ 2,2× le coût (6 à 15 $) : il faudrait alors une autorisation du propriétaire.
 
-### 4.5 Plan B sans LLM (comparaison E3)
+### 4.5 Plan B sans LLM (comparaison E3) ; devenu le format unique en E9
 
 `story_math.trace_program(problem, level)` : templates variés, tirés comme les événements :
 - medium : 6 à 8 formulations par opération (« She finds 5, so 3 + 5 = 8. » / « 5 more, 3 + 5 = 8. » / « 3 and 5 more makes 8. » ...), amorce variée (starts with / had / at first), 20 % des phrases sans le « so ».
-- high : phrases pleines (« After finding 5, she has 3 + 5 = 8 apples. »), phrase distracteur (« Tom's pears do not matter. »), `Check:` (somme des deltas), conclusion.
-- low : le même que le défaut.
+- high : phrases pleines (« After finding 5, she has 3 + 5 = 8 apples. »), phrase distracteur (« Tom's pears do not matter. »), `Check:` (somme des deltas), conclusion. **Format actuel (depuis E9/E10)** : `"<phrase de l'histoire>" <effet>` pour chaque phrase, dont le distracteur (« That does not change her cubes. »), puis `So <hero> has N <things>.`, sans `Check:`, après le compteur `N events. `.
+- low : le même que le défaut (depuis E7 avec le compteur et les équations numérotées).
 Gains : zéro coût, exact par construction, mais la variété lexicale est celle d'un humain qui écrit 30 phrases. Risque : sur-apprentissage de la forme ; mesuré par E3 sur les problèmes reformulés.
 
 ---
@@ -235,7 +243,7 @@ Les étapes `pretrain` (11,4 min) ne sont **pas** refaites. Le nouveau savoir ar
 | story | 0.20 | 0.20 |
 | greeting | 0.20 | 0.15 |
 
-`text_frac = 0.25` et `tool_frac = 0.3` inchangés. Niveau de chaque conversation `story_math` : medium 40 % (pas d'en-tête), low 30 %, high 30 %. Pour les autres sortes, en-tête `low`/`high` dans 15 % des cas (cible inchangée).
+`text_frac = 0.25` et `tool_frac = 0.3` inchangés. Niveau de chaque conversation `story_math` : medium 40 % (pas d'en-tête), low 30 %, high 30 % (version d'origine ; actuel : `efforts = { low = 0.4, high = 0.6 }`, `high` sans en-tête). Pour les autres sortes, en-tête `low`/`high` dans 15 % des cas (cible inchangée).
 
 **SFT** (mix de chats, 16 000 conversations × 1,8 epoch ; 25 % agent code, 50 % ; 25 % pretraining : inchangés) :
 
@@ -251,9 +259,9 @@ Les étapes `pretrain` (11,4 min) ne sont **pas** refaites. Le nouveau savoir ar
 | identity | 0.04 | 0.032 |
 | **reason** (nouveau) | - | **0.20** |
 
-`reason` = 3 200 conversations (environ 5 800 lignes vues à 1,8 epoch ; 5,2 % des lignes de SFT en tout [E]). Quatre-vingt-dix pour cent sont des problèmes simples, 10 % ont un historique (la sorte `story_math` est ajoutée à `single_turn`, donc elle peut apparaître dans `new_question`, `switch` et `mixed`, avec `client_history` qui retire les raisonnements). Même répartition de niveaux qu'au midtrain. Si E4 sous-apprend : `size` 16 000 -> 24 000 sans coût de temps (les steps sont fixes).
+`reason` = 3 200 conversations (environ 5 800 lignes vues à 1,8 epoch ; 5,2 % des lignes de SFT en tout [E]). Quatre-vingt-dix pour cent sont des problèmes simples, 10 % ont un historique (la sorte `story_math` est ajoutée à `single_turn`, donc elle peut apparaître dans `new_question`, `switch` et `mixed`, avec `client_history` qui retire les raisonnements). Même répartition de niveaux qu'au midtrain (version d'origine ; depuis E9 low 0.4, high 0.6, toutes les réflexions écrites par le programme). Si E4 sous-apprend : `size` 16 000 -> 24 000 sans coût de temps (les steps sont fixes).
 
-**Distillation** (réintégrer la compétence sans la perdre) : nouvelle sorte `story_math` à 0,10 du mix (les autres ×0,9), teacher = modèle SFT, effort tiré au hasard, ajouté dans `eval.tasks.make_problem`. **RL math** : inchangé (spécialiste d'addition ; ses autres compétences dérivent et c'est attendu, il n'est jamais publié).
+**Distillation** (réintégrer la compétence sans la perdre) : nouvelle sorte `story_math` à 0,10 du mix (les autres ×0,9 ; en E10 `story_math = 0.17` dans `[distill].mix`, soit 1 problème sur 10 environ), teacher = modèle SFT, effort tiré au hasard (E10 : `story_efforts = { low = 0.4, high = 0.6 }`), tiré par `train.rl_math.sample_problem`. **RL math** : inchangé (spécialiste d'addition ; ses autres compétences dérivent et c'est attendu, il n'est jamais publié).
 
 Test de non-oubli (critère dans E4/E6) : toutes les colonnes actuelles, avec chat ≥ 92 %.
 
@@ -371,7 +379,7 @@ Remarques : `eval/tasks.py` est touché seulement par T5 ; `minilab/train/midtra
 ## 10. Risques et contre-arguments
 
 1. **Un modèle de 5,8M apprend-il des phrases variées ?** [O] Il apprend le squelette (sujet, verbe, nombre, « so a op b = c ») ; la variété lexicale sera imitée à la surface, rarement comprise. Le critère n'est pas la variété mais la justesse sur `paraphrase` et `objects` (E3). Risque de vocabulaire : 4 096 tokens, dont tous les objets du train mais peut-être pas ceux du held-out (sous-mots).
-2. **`high` risque d'être moins juste que `low`.** [O] Vrai possible : plus de tokens = plus d'occasions de se tromper (un lapsus par 100 tokens à T=1 donne 10 points perdus). Mitigations : justesse mesurée par niveau (critères E4 : `sm_high ≥ sm_medium − 1`) ; la ligne `Check:` est cohérente par construction, elle n'ajoute **aucune vraie vérification** (le modèle n'a jamais vu d'erreur à corriger) : elle sert au style. E8 l'étudie. Si `high < low`, on retire la ligne `Check:` d'abord.
+2. **`high` risque d'être moins juste que `low`.** [O] (écrit pour le format d'origine ; `Check:` est abandonné depuis E9.) Vrai possible : plus de tokens = plus d'occasions de se tromper (un lapsus par 100 tokens à T=1 donne 10 points perdus). Mitigations : justesse mesurée par niveau (critères E4 : `sm_high ≥ sm_medium − 1`) ; la ligne `Check:` est cohérente par construction, elle n'ajoute **aucune vraie vérification** (le modèle n'a jamais vu d'erreur à corriger) : elle sert au style. E8 l'étudie. Si `high < low`, on retire la ligne `Check:` d'abord (fait en E9).
 3. **`low` n'a pas besoin du LLM.** Vrai : équations sèches, c'est du programme. Seul l'intérêt « raisonnement humain » vient de `medium`/`high`. Si le propriétaire tient à un `low` écrit par LLM, le prompt est au §4.2 ; coût ≈ +1 $.
 4. **La décision think/direct est une fonction du bucket.** Elle est apprenable parce que les étiquettes sont déterministes, mais elle suppose que `p_direct` mesuré par la sonde vaut pour le vrai modèle (qui s'entraîne en parallèle sur les additions, etc.). E5 la vérifie ; l'écart attendu est de quelques points [O]. Un modèle peut aussi décider d'après la longueur de l'énoncé et pas d'après sa difficulté réelle : en pratique le nombre d'étapes se lit dans la longueur, donc c'est équivalent ici. Hors distribution (énoncé réécrit plus long), il pense davantage : coût en tokens, pas en justesse.
 5. **Les additions.** On supprime le bluff (`DIRECT_FRAC = 0`), donc plus de tokens qu'aujourd'hui pour les additions courtes : +17 % de tokens [M] contre +4 points de chat entiers [M] : on prend la justesse. L'en-tête d'effort n'a aucun effet sur elles.
@@ -401,3 +409,7 @@ Remarques : `eval/tasks.py` est touché seulement par T5 ; `minilab/train/midtra
    - **Lexique large, entraînement seulement** (`make(..., wide=True)`, `[data.reason] wide = true`) : `TRAIN_EXTRA_HEROES` (~200 prénoms, sous-ensemble féminin dans `FEMALE`) et `TRAIN_EXTRA_THINGS` (~240 noms comptables à pluriel régulier), disjoints des listes de base et de tous les `HELD_*`. Héros = base + extra, autres = `OTHERS` + extra, choses = base + extra. À `wide = False` le rng est consommé comme avant.
    - **Pseudo-mots** : `pseudo_frac = 0.25` ; en plus de la chose et du héros, un « autre » prénom par problème peut être inventé (avec la même probabilité, indépendamment ; sans effet sur le rng à p = 0). Les mots inventés ont 1 à 4 syllabes. L'éval ne passe jamais `wide` ni `pseudo`.
 9. **E9, deux niveaux** (décision du propriétaire) : le modèle n'apprend que `low` et `high` (plus `none` = pas de réflexion). `medium` disparaît de l'entraînement (`efforts = { low = 0.4, high = 0.6 }`, plus de professeur : `teacher_frac = 0.0`, un `medium` dans la config est une erreur). La ligne d'en-tête n'est écrite que pour `low` ; pas de ligne veut dire `high`. Dans l'API, `medium`, un effort absent ou inconnu valent `high` (`normalize_effort`, défaut du serveur). L'éval n'a plus que `low` et `high` (`sm_medium` retiré, `sm_medium_nocalc` devient `sm_high_nocalc`, `sm_6st` = adaptatif high à k = 6). Raison : en E7 et E8, `medium` n'a jamais battu `low` de plus que le bruit, pour environ deux fois plus de tokens.
+10. **E10, compteur à `high` aussi, `low` sans réponse directe** (diagnostic de E9 : erreurs de compteur, surcompte à k = 1 de 11 % contre 1 % en E7, sous-compte à k = 6 de 30 % contre 7 % ; hypothèse [O] : en E7, 70 % des réflexions portaient le compteur, contre 40 % en E9, où seul `low` (40 %) l'avait) :
+   - **Compteur à `high`** : la réflexion `high` commence par `"N events. "` (`story_math.anchor`, avec `anchor = true`), puis l'histoire relue phrase par phrase, jusqu'à `So <hero> has <answer> <things>.` ; `strip_anchor` l'inverse. `low` garde `"N events:\n"` et les équations numérotées. Ainsi toutes les réflexions portent le compteur.
+   - **`low` ne répond jamais d'emblée** : `tau = { low = 0.97, high = 0.99 }` (`low` était à 0.80). Le modèle SFT d'E9 répondait directement aux doublements à une étape et n'en réussissait qu'un sur dix, alors que la sonde en mesurait 0.93 ; avec 0.97 aucun bucket n'est assez sûr pour répondre sans réfléchir.
+   - **`story_math` entre dans le distill** (teacher = modèle SFT, `story_efforts = { low = 0.4, high = 0.6 }`, `story_steps = [1..6]`).
