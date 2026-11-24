@@ -113,12 +113,13 @@ Run `runs/e10` : midtrain, SFT, rl_math, puis distill avec story_math (tâche T7
 
 Un premier distill avec `add = 0.5` donnait 95 % (`runs/e10/distill_add05`). Le gate face à prelude-2 a bloqué sur ce seul point : `5d@T=1` passe de 100 % à 95 %, tout le reste passe. Le gate n'a pas été relancé sur le distill à `add = 0.6`, qui devrait toujours être bloqué : la tolérance est de 2 points. Le spécialiste rl_math d'E10 est lui-même à 98 % à T=1 et 97 % en greedy à 5 chiffres. Les runs d'avant atteignaient 99 à 100 %, sans doute parce que la SFT partage maintenant sa capacité avec story_math.
 
-## Reste à faire
+## Clos (24/11/2026)
 
-1. **`5d@T=1` tranché (24/11)** : c'est du bruit d'échantillon. Sur 500 problèmes, E10 distillé fait 98,2 % (±1,2) et prelude-2 99,0 % (±0,9), contre 96 et 100 sur les 100 du gate. Décision : accepter la régression avec `--allow "5d@T=1=bruit d'échantillon : 98,2 % contre 99,0 % pour prelude-2 sur 500 problèmes (±1,2), sous la tolérance de 2 points"`. Un bug de `parse_waivers` coupait au premier « = », donc dans le nom de la métrique : il est corrigé. Le gate n'a pas été relancé depuis la correction ; c'était sa seule régression.
-2. Release : `minilab.release` sur `runs/e10/distill` avec cette dérogation, puis mise à jour du README avec les chiffres de la release.
-3. Docs utilisateur (T8) : faites pour docs/training.md et docs/api.md ; le README attend la release.
-4. Branches déjà intégrées et supprimables : `t1-story-math`, `t10-sub`, `t11-calc`, `t12-high`, `e7-anchors`, `e8-number`, `e9-two-levels`.
+- **`prelude-3` publié** depuis `runs/e10/distill`, dans `models/prelude-3` : gate passé contre prelude-2, avec la seule dérogation `5d@T=1` (bruit d'échantillon, 98,2 % contre 99,0 % sur 500 problèmes). Son dictionnaire de features est entraîné : 98,9 % de loss récupérée.
+- **Code mort retiré** : medium, le teacher LLM et le lexique élargi d'E8. Les hashs des données d'entraînement sont identiques. `scripts/teacher_traces.py` reste dans l'historique, au commit `fbaf453`.
+- **Docs** : README, training.md, api.md et opencode.md décrivent prelude-3. `speedrun.sh` publie prelude-3.
+- **Branches et worktrees du chantier supprimés.** Les expériences jamais mergées sont archivées sous les tags `archive/exp-direct-rule-a` et `-b`, et leurs runs sont dans `runs/exp-direct-rule-*`.
+- **Pistes ouvertes** : held-out à 7-8 étapes (~6 %), opération `half` jamais vue (~7 %), noms et objets jamais vus (55 %).
 
 ## Mémoire (corrigée)
 
