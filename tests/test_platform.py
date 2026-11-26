@@ -529,6 +529,20 @@ def test_chat_streams_reasoning_and_bills_as_chat(app, gateway_calls):
     assert "tools" not in gateway_calls[0]["body"]
 
 
+def test_reasoning_effort_reaches_the_api(app, gateway_calls):
+    """The chat's and the playground's reasoning level go to the API as reasoning_effort; unset, the
+    API's default applies."""
+    client = signup(app)
+    assert 'id="effort"' in client.get("/chat").text and 'id="pg-effort"' in client.get("/playground").text
+    hi = [{"role": "user", "content": "Hi"}]
+    for path in ("/chat/api/chat", "/playground/api/chat"):
+        client.post(path, json={"model": "mini-test", "messages": hi, "reasoning_effort": "low"})
+        assert gateway_calls[-1]["body"]["reasoning_effort"] == "low"
+        client.post(path, json={"model": "mini-test", "messages": hi})
+        assert "reasoning_effort" not in gateway_calls[-1]["body"]
+        assert client.post(path, json={"model": "mini-test", "messages": hi, "reasoning_effort": "max"}).status_code == 422
+
+
 def test_chat_reports_gateway_errors(app):
     client = signup(app)
     r = client.post("/chat/api/chat", json={"model": "mini-test", "messages": [{"role": "user", "content": "out of quota?"}]})

@@ -276,6 +276,7 @@ class ChatRequest(BaseModel):
     temperature: float | None = Field(None, ge=0, le=2)
     max_tokens: int | None = Field(None, ge=1, le=8192)
     calculator: bool = False
+    reasoning_effort: Literal["none", "low", "high"] | None = None   # None: the API's default (high)
     steer: list[Steer] = Field(default_factory=list, max_length=8)   # features pushed at every token
 
 

@@ -36,11 +36,14 @@
 
   const modelSelect = $("model");
   const calculator = $("calculator");
+  const effort = $("effort");
   if (prefs.model && [...modelSelect.options].some((o) => o.value === prefs.model)) modelSelect.value = prefs.model;
   if (typeof prefs.calculator === "boolean") calculator.checked = prefs.calculator;
-  const savePrefs = () => save(PREFS_KEY, { model: modelSelect.value, calculator: calculator.checked });
+  if (prefs.effort && [...effort.options].some((o) => o.value === prefs.effort)) effort.value = prefs.effort;
+  const savePrefs = () => save(PREFS_KEY, { model: modelSelect.value, calculator: calculator.checked, effort: effort.value });
   modelSelect.addEventListener("change", savePrefs);
   calculator.addEventListener("change", savePrefs);
+  effort.addEventListener("change", savePrefs);
 
   const persist = () => save(STORE_KEY, conversations.slice(0, 100));
   const active = () => conversations.find((c) => c.id === activeId) || null;
@@ -206,6 +209,7 @@
         model: modelSelect.value,
         messages: history,
         calculator: calculator.checked,
+        reasoning_effort: effort.value,
       }, (event) => {
         if (event.type === "delta") {
           if (event.content) answer.content += event.content;

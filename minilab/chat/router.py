@@ -29,6 +29,6 @@ async def chat_api(request: Request, body: ChatRequest, ctx: Ctx = Depends(get_c
     events = request.app.state.gateway.stream_chat(
         org_id=ctx.org["id"], source="chat", model=body.model, messages=messages,
         temperature=CHAT_TEMPERATURE if body.temperature is None else body.temperature,
-        max_tokens=body.max_tokens, calculator=body.calculator,
+        max_tokens=body.max_tokens, calculator=body.calculator, reasoning_effort=body.reasoning_effort,
     )
     return event_stream(request, events, body.model)

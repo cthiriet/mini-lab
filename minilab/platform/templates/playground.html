@@ -32,6 +32,15 @@
       <input id="pg-max-tokens" type="number" min="1" max="8192" class="field mono" placeholder="No limit" aria-describedby="pg-max-hint">
       <p id="pg-max-hint" class="hint">Empty: until the answer ends or the context is full.</p>
     </div>
+    <div>
+      <label for="pg-effort" class="label">Reasoning effort</label>
+      <select id="pg-effort" class="field" aria-describedby="pg-effort-hint">
+        <option value="high">High</option>
+        <option value="low">Low</option>
+        <option value="none">None</option>
+      </select>
+      <p id="pg-effort-hint" class="hint">High writes the work out, low one line per event of a story problem, none answers at once.</p>
+    </div>
     <div class="flex items-start gap-3">
       <input id="pg-calculator" type="checkbox" class="mt-1 size-4 accent-reagent" checked>
       <div>

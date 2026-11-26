@@ -423,6 +423,7 @@ async def playground_chat(request: Request, body: ChatRequest, ctx: Ctx = Depend
         org_id=ctx.org["id"], source="playground", model=body.model,
         messages=[m.model_dump() for m in body.messages], temperature=body.temperature,
         max_tokens=body.max_tokens, calculator=body.calculator, steer=[s.model_dump() for s in body.steer],
+        reasoning_effort=body.reasoning_effort,
     )
     return event_stream(request, events, body.model)
 

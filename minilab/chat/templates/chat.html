@@ -48,6 +48,12 @@
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" class="sm:hidden"><rect x="3" y="1.5" width="10" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 4.5h5M5.5 8h1M9.5 8h1M5.5 11h1M9.5 11h1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         <span class="sr-only sm:not-sr-only">Calculator</span>
       </label>
+      <label for="effort" class="sr-only">Reasoning effort</label>
+      <select id="effort" class="min-w-0 rounded-lg border border-transparent bg-transparent py-1.5 pr-8 pl-2 text-sm font-semibold text-muted hover:border-rule focus:border-reagent focus:outline-none" title="How much the model reasons before it answers">
+        <option value="high">Reasoning: high</option>
+        <option value="low">Reasoning: low</option>
+        <option value="none">Reasoning: off</option>
+      </select>
       <div class="ml-auto">{{ balance_badge(ctx.org, "chat-badge") }}</div>
     </header>
 
@@ -55,9 +61,9 @@
       <div id="empty-state" class="mx-auto flex min-h-full max-w-2xl flex-col items-center justify-center px-4 py-12 text-center">
         <div class="text-muted">{{ logo(48) }}</div>
         <h1 class="casual mt-5 text-3xl font-[800] tracking-tight">What should we try?</h1>
-        <p class="mt-2 max-w-md text-muted">This model is tiny: it tells short stories for children and adds numbers, step by step or with a calculator. Start with one of these.</p>
+        <p class="mt-2 max-w-md text-muted">This model is tiny: it tells short stories for children, adds numbers, step by step or with a calculator, and solves little story problems. Reasoning high writes its work out; low writes one line per event; off answers at once. Start with one of these.</p>
         <ul class="mt-8 flex flex-wrap justify-center gap-2" aria-label="Suggestions">
-          {% for s in ["What is 347 + 58?", "Tell me a story about a dog", "What is 40213 + 9988?", "Who are you?"] %}
+          {% for s in ["What is 347 + 58?", "Tell me a story about a dog", "Carlos has 14 coins. He gives Hans 2. Then Carlos eats 9. How many coins does Carlos have left?", "Who are you?"] %}
           <li><button type="button" data-suggestion class="rounded-full border border-rule bg-surface px-4 py-2 text-sm font-semibold hover:border-reagent hover:text-reagent">{{ s }}</button></li>
           {% endfor %}
         </ul>
@@ -69,7 +75,7 @@
       <div class="mx-auto flex max-w-2xl items-end gap-2 rounded-2xl border border-rule bg-surface p-2 shadow-sm focus-within:border-reagent focus-within:ring-2 focus-within:ring-reagent/20">
         <label for="prompt" class="sr-only">Message</label>
         <textarea id="prompt" rows="1" class="max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-[15px] leading-relaxed placeholder:text-muted/80 focus:outline-none"
-                  placeholder="Ask for a story or a sum" {% if not models %}disabled{% endif %}></textarea>
+                  placeholder="Ask for a story, a sum or a story problem" {% if not models %}disabled{% endif %}></textarea>
         <button type="submit" id="send" class="grid size-10 shrink-0 place-items-center rounded-xl bg-reagent text-on-reagent hover:bg-reagent/90 disabled:opacity-40" aria-label="Send message" {% if not models %}disabled{% endif %}>
           <svg data-icon="send" viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <svg data-icon="stop" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" class="hidden"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"/></svg>

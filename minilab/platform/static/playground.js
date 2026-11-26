@@ -107,6 +107,7 @@
       temperature: Number(temperature.value),
       max_tokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : null,
       calculator: $("pg-calculator").checked,
+      reasoning_effort: $("pg-effort").value,
       steer: steering(),
     };
   }
@@ -231,6 +232,7 @@
     const body = { model: req.model, messages: req.messages.length ? req.messages : [{ role: "user", content: "Hello!" }],
                    temperature: req.temperature };
     if (req.max_tokens) body.max_tokens = req.max_tokens;
+    if (req.reasoning_effort !== "high") body.reasoning_effort = req.reasoning_effort;  // high is the default
     if (req.calculator) body.tools = [JSON.parse(document.getElementById("calculator-tool").textContent)];
     if (req.steer.length) body.steer = req.steer;
     const apiUrl = form.dataset.apiUrl;
