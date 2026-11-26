@@ -68,7 +68,9 @@ def pretty_json(text: str | None) -> str:
 
 # ---- feature dictionaries -------------------------------------------------------
 
-@functools.lru_cache(maxsize=4)
+# One dictionary at a time: each weighs ~125 MB in Python objects and the platform runs in 256 MB,
+# so two releases with features would get it killed. Switching releases rereads the file (~1 s).
+@functools.lru_cache(maxsize=1)
 def _read_features(path: str, mtime: float) -> dict:
     folder = Path(path).parent
     data = json.loads(Path(path).read_text())
