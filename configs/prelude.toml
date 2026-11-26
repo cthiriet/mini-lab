@@ -154,6 +154,6 @@ tokens = 5e7                # streamed from the model's own kinds of text
 example_tokens = 1e6        # held-out text for each feature's examples
 
 [release]
-description = "short stories, addition (step-by-step reasoning or calculator tool), and in opencode a coding agent for small Python projects."
+description = "short stories, addition (step-by-step reasoning or calculator tool), story problems solved step by step at two levels of reasoning effort, and in opencode a coding agent for small Python projects."
 temperature = 0.0           # when a request sets none: opencode never does, and can't be told to (agent and model
                             # options don't reach the request); the chat app sends its own
