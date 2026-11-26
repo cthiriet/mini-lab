@@ -5,7 +5,6 @@ and the chat app.
 
 from __future__ import annotations
 
-import functools
 import json
 import math
 from collections.abc import AsyncIterator
@@ -68,12 +67,15 @@ def pretty_json(text: str | None) -> str:
 
 # ---- feature dictionaries -------------------------------------------------------
 
-# One dictionary at a time: each weighs ~125 MB in Python objects and the platform runs in 256 MB,
-# so two releases with features would get it killed. Switching releases rereads the file (~1 s).
-@functools.lru_cache(maxsize=1)
-def _read_features(path: str, mtime: float) -> dict:
-    folder = Path(path).parent
-    data = json.loads(Path(path).read_text())
+# One dictionary in memory at a time: each weighs ~125 MB in Python objects, and the platform runs in
+# a few hundred MB. The old one is dropped before the next is read, or both would be alive at once.
+# Switching releases rereads the file (~1 s).
+_features: tuple[tuple[str, float], dict] | None = None
+
+
+def _read_features(path: Path) -> dict:
+    folder = path.parent
+    data = json.loads(path.read_text())
     labels = folder / "labels.json"   # hand-written labels of the features someone studied
     named = {int(k): v for k, v in json.loads(labels.read_text()).items()} if labels.exists() else {}
     for f in data["features"]:
@@ -86,10 +88,15 @@ def _read_features(path: str, mtime: float) -> dict:
 
 def release_features(model_path: Path | None) -> dict | None:
     """A release's dictionary of features (features/, from minilab.interp.sae), if it has one."""
+    global _features
     path = model_path / "features" / "features.json" if model_path else None
     if not path or not path.exists():
         return None
-    return _read_features(str(path), path.stat().st_mtime)
+    key = (str(path), path.stat().st_mtime)
+    if _features is None or _features[0] != key:
+        _features = None
+        _features = (key, _read_features(path))
+    return _features[1]
 
 
 def token_text(token: str) -> str:
